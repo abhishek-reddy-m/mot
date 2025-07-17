@@ -23,6 +23,9 @@ function LoginForm() {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    
+    console.log("Login attempt for:", email);
+    console.log("Callback URL:", callbackUrl);
 
     try {
       const result = await signIn('credentials', {
@@ -31,15 +34,26 @@ function LoginForm() {
         redirect: false,
         callbackUrl,
       });
+      
+      console.log("Sign in result:", result);
 
       if (result?.error) {
         setError('Invalid credentials. Please try again.');
+        console.error("Login failed:", result.error);
       } else if (result?.url) {
-        router.push(result.url);
-        router.refresh();
+        console.log("Redirecting to:", result.url);
+        // Add a small delay to allow the session to be properly saved
+        setTimeout(() => {
+          router.push(result.url as string);
+          router.refresh();
+        }, 500);
       } else {
-        router.push('/dashboard');
-        router.refresh();
+        console.log("No URL returned, redirecting to dashboard");
+        // Add a small delay to allow the session to be properly saved
+        setTimeout(() => {
+          router.push('/dashboard');
+          router.refresh();
+        }, 500);
       }
     } catch (error) {
       console.error('Login error:', error);

@@ -18,3 +18,8 @@ services:
         value: "your-development-secret-key-change-in-production"
       - key: AUTH_TRUST_HOST
         value: "true"
+      # Additional headers for security and cookies
+      - key: NEXT_PUBLIC_SITE_URL
+        value: "https://mot-cvjh.onrender.com"
+      - key: COOKIE_DOMAIN
+        value: "mot-cvjh.onrender.com"

@@ -10,6 +10,10 @@ export default function Navigation() {
   const { data: session, status } = useSession();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  
+  // Log session status for debugging
+  console.log("Navigation component - Session status:", status);
+  console.log("Navigation component - Session data:", session);
 
   const handleSignOut = () => {
     signOut({ callbackUrl: '/' });

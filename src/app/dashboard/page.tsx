@@ -42,10 +42,14 @@ export default function UserDashboard() {
 
   // Redirect if not authenticated
   useEffect(() => {
+    console.log("Dashboard - Session status:", status);
+    console.log("Dashboard - Session data:", session);
+    
     if (status === 'unauthenticated') {
-      router.push('/login');
+      console.log("Dashboard - Redirecting to login (unauthenticated)");
+      router.push('/login?redirected=true&from=dashboard');
     }
-  }, [status, router]);
+  }, [status, router, session]);
 
   useEffect(() => {
     const fetchBookings = async () => {

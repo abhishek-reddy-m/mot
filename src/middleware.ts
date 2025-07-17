@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 export async function middleware(request: NextRequest) {
-  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
+  // Added debug logs and improved token retrieval
+  console.log("Middleware checking auth for path:", request.nextUrl.pathname);
+  
+  const token = await getToken({ 
+    req: request, 
+    secret: process.env.NEXTAUTH_SECRET,
+    secureCookie: process.env.NODE_ENV === "production",
+  });
+  
+  console.log("Auth token found:", token ? "YES" : "NO");
   
   // Check if the route is under /admin
   if (request.nextUrl.pathname.startsWith("/admin")) {
