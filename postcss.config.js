@@ -1,7 +1,7 @@
-// For compatibility with Next.js build process
+// Simplified PostCSS config for compatibility
 module.exports = {
-  plugins: {
-    tailwindcss: {},
-    autoprefixer: {},
-  },
+  plugins: [
+    require('tailwindcss'),
+    require('autoprefixer'),
+  ],
 }
