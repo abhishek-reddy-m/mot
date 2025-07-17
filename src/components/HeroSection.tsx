@@ -57,19 +57,20 @@ export function HeroSection() {
   return (
     <div className="relative flex h-screen w-full items-center justify-center overflow-hidden">
       {/* Background parallax effect */}
-      <div className="absolute inset-0 z-0 opacity-70" ref={bgRef}>
+      <div className="absolute inset-0 z-0 opacity-75" ref={bgRef}>
         <div className="absolute inset-0 bg-[url('https://images.unsplash.com/photo-1551882547-ff40c63fe5fa?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1920&q=80')] bg-cover bg-center bg-no-repeat"></div>
-        <div className="absolute inset-0 bg-gradient-to-b from-black/30 via-black/40 to-black"></div>
+        <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/45 to-black/50"></div>
+        <div className="absolute inset-0 bg-gradient-to-r from-slate-900/20 via-transparent to-slate-900/20"></div>
       </div>
       
       {/* Floating geometric elements */}
       <div className="absolute inset-0 z-5">
-        <div className="floating absolute top-20 left-10 w-4 h-4 bg-pink-400/20 rounded-full blur-sm"></div>
-        <div className="floating absolute top-40 right-20 w-6 h-6 bg-orange-400/20 rounded-full blur-sm"></div>
-        <div className="floating absolute bottom-40 left-20 w-3 h-3 bg-purple-400/20 rounded-full blur-sm"></div>
-        <div className="floating absolute bottom-20 right-10 w-5 h-5 bg-blue-400/20 rounded-full blur-sm"></div>
-        <div className="floating absolute top-1/3 left-1/4 w-2 h-2 bg-yellow-400/30 rounded-full blur-sm"></div>
-        <div className="floating absolute top-2/3 right-1/3 w-4 h-4 bg-green-400/20 rounded-full blur-sm"></div>
+        <div className="floating absolute top-20 left-10 w-4 h-4 bg-blue-400/30 rounded-full blur-sm"></div>
+        <div className="floating absolute top-40 right-20 w-6 h-6 bg-blue-300/30 rounded-full blur-sm"></div>
+        <div className="floating absolute bottom-40 left-20 w-3 h-3 bg-blue-500/30 rounded-full blur-sm"></div>
+        <div className="floating absolute bottom-20 right-10 w-5 h-5 bg-blue-400/30 rounded-full blur-sm"></div>
+        <div className="floating absolute top-1/3 left-1/4 w-2 h-2 bg-blue-200/40 rounded-full blur-sm"></div>
+        <div className="floating absolute top-2/3 right-1/3 w-4 h-4 bg-blue-300/30 rounded-full blur-sm"></div>
       </div>
       
       {/* Content */}
@@ -82,25 +83,25 @@ export function HeroSection() {
         >
           {/* Badge */}
           <div className="animate-text mb-4">
-            <span className="inline-block px-6 py-2 bg-white/25 backdrop-blur-md text-white text-sm font-semibold rounded-full shadow-xl border border-white/40">
-              🌴 Discover <span className="text-yellow-300 font-bold drop-shadow-lg">Los Angeles</span>
+            <span className="inline-block px-6 py-2 bg-white/95 backdrop-blur-md text-gray-800 text-sm font-semibold rounded-full shadow-2xl border border-gray-200/50 shadow-gray-900/20">
+              🌴 Discover <span className="text-blue-600 font-bold">Los Angeles</span>
             </span>
           </div>
 
           {/* Main heading */}
-          <h1 className="animate-text mb-3 text-3xl font-bold text-white sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl leading-tight">
-            <span className="bg-gradient-to-r from-white to-gray-200 bg-clip-text text-transparent">
+          <h1 className="animate-text mb-3 text-3xl font-bold sm:text-4xl md:text-5xl lg:text-6xl xl:text-7xl leading-tight">
+            <span className="text-white drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] [text-shadow:_1px_1px_4px_rgb(0_0_0_/_50%)]">
               Discover
             </span>
           </h1>
           
           <h2 className="animate-text mb-6 text-2xl font-bold sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl leading-tight">
-            <span className="bg-gradient-to-r from-blue-300 via-blue-200 to-purple-300 bg-clip-text text-transparent drop-shadow-lg">
+            <span className="text-white drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] [text-shadow:_1px_1px_4px_rgb(0_0_0_/_50%)]">
               Los Angeles
             </span>
           </h2>
           
-          <p className="animate-text mx-auto mb-8 max-w-2xl text-base text-gray-300 sm:text-lg md:text-xl leading-relaxed">
+          <p className="animate-text mx-auto mb-8 max-w-2xl text-base text-white/95 sm:text-lg md:text-xl leading-relaxed drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)] [text-shadow:_1px_1px_2px_rgb(0_0_0_/_40%)]">
             Premium hotels across LA's most iconic neighborhoods.
           </p>
           
@@ -115,21 +116,6 @@ export function HeroSection() {
         </motion.div>
       </div>
       
-      {/* Live booking indicator */}
-      <motion.div 
-        className="absolute bottom-16 left-1/2 -translate-x-1/2"
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 1.4, duration: 0.8 }}
-      >
-        <div className="bg-white/10 backdrop-blur-md rounded-full px-4 py-2 border border-white/20">
-          <p className="text-white text-xs font-medium flex items-center">
-            <span className="w-2 h-2 bg-green-400 rounded-full mr-2 animate-pulse"></span>
-            Live in Los Angeles • 2,847 guests currently booking
-          </p>
-        </div>
-      </motion.div>
-      
       {/* Scroll indicator */}
       <motion.div 
         className="absolute bottom-4 left-1/2 -translate-x-1/2"
@@ -143,12 +129,12 @@ export function HeroSection() {
           className="flex cursor-pointer flex-col items-center group"
           onClick={() => window.scrollTo({ top: window.innerHeight, behavior: 'smooth' })}
         >
-          <span className="mb-1 text-xs font-medium text-white/80 group-hover:text-white transition-colors">
+          <span className="mb-1 text-xs font-medium text-white/90 group-hover:text-white transition-colors drop-shadow-lg">
             Scroll to explore
           </span>
-          <div className="p-1.5 rounded-full border border-white/30 group-hover:border-white/60 transition-colors">
+          <div className="p-1.5 rounded-full border border-blue-300/60 group-hover:border-blue-200/80 transition-colors bg-blue-600/50 backdrop-blur-sm">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M12 5L12 19M12 19L19 12M12 19L5 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/80 group-hover:text-white transition-colors"/>
+              <path d="M12 5L12 19M12 19L19 12M12 19L5 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/90 group-hover:text-white transition-colors"/>
             </svg>
           </div>
         </motion.div>

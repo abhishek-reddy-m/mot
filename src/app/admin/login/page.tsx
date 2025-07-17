@@ -51,60 +51,66 @@ export default function AdminLoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50/50">
       <Navigation />
       
       <div className="flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full space-y-8">
-          <Card>
-            <CardHeader className="text-center">
-              <div className="mx-auto w-12 h-12 bg-red-100 rounded-full flex items-center justify-center mb-4">
-                <Shield className="h-6 w-6 text-red-600" />
+          <Card className="border-gray-100 shadow-lg">
+            <CardHeader className="text-center space-y-4 pb-6">
+              <div className="mx-auto w-16 h-16 bg-gradient-to-r from-blue-500 to-blue-600 rounded-full flex items-center justify-center mb-4 shadow-lg">
+                <Shield className="h-8 w-8 text-white" />
               </div>
-              <CardTitle className="text-2xl font-bold">Admin Login</CardTitle>
-              <CardDescription>
-                Access the administrative dashboard
-              </CardDescription>
+              <div>
+                <CardTitle className="text-2xl font-bold text-gray-900">Admin Login</CardTitle>
+                <CardDescription className="text-gray-600 mt-2">
+                  Access the administrative dashboard
+                </CardDescription>
+              </div>
             </CardHeader>
-            <CardContent>
-              <form onSubmit={handleSubmit} className="space-y-4">
+            <CardContent className="space-y-6">
+              <form onSubmit={handleSubmit} className="space-y-5">
                 {error && (
-                  <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">
+                  <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl text-sm">
                     {error}
                   </div>
                 )}
                 
                 <div className="space-y-2">
-                  <label htmlFor="email" className="text-sm font-medium">
+                  <label htmlFor="email" className="text-sm font-medium text-gray-700">
                     Admin Email
                   </label>
                   <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <div className="absolute left-3 top-3 h-4 w-4 text-gray-400">
+                      <Mail className="h-4 w-4" />
+                    </div>
                     <Input
                       id="email"
                       type="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="Enter admin email"
-                      className="pl-10"
+                      className="pl-10 border-gray-200 rounded-lg focus:border-blue-500 focus:ring-blue-500"
                       required
                     />
                   </div>
                 </div>
 
                 <div className="space-y-2">
-                  <label htmlFor="password" className="text-sm font-medium">
+                  <label htmlFor="password" className="text-sm font-medium text-gray-700">
                     Password
                   </label>
                   <div className="relative">
-                    <Lock className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
+                    <div className="absolute left-3 top-3 h-4 w-4 text-gray-400">
+                      <Lock className="h-4 w-4" />
+                    </div>
                     <Input
                       id="password"
                       type="password"
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="Enter password"
-                      className="pl-10"
+                      className="pl-10 border-gray-200 rounded-lg focus:border-blue-500 focus:ring-blue-500"
                       required
                     />
                   </div>
@@ -112,17 +118,25 @@ export default function AdminLoginPage() {
 
                 <Button 
                   type="submit" 
-                  className="w-full bg-red-600 hover:bg-red-700" 
+                  className="w-full bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-600 hover:to-blue-700 text-white rounded-lg py-3 font-medium shadow-sm transition-all duration-200" 
                   disabled={isLoading}
                 >
-                  {isLoading ? 'Signing in...' : 'Admin Sign in'}
+                  {isLoading ? (
+                    <div className="flex items-center justify-center space-x-2">
+                      <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                      <span>Signing in...</span>
+                    </div>
+                  ) : (
+                    'Admin Sign in'
+                  )}
                 </Button>
               </form>
 
-              <div className="mt-6 text-center">
+              <div className="mt-6 text-center pt-4 border-t border-gray-100">
                 <p className="text-sm text-gray-600">
-                  <Link href="/login" className="text-blue-600 hover:text-blue-500 font-medium">
-                    ← Back to Customer Login
+                  <Link href="/login" className="text-blue-600 hover:text-blue-700 font-medium transition-colors duration-200 flex items-center justify-center space-x-1">
+                    <span>←</span>
+                    <span>Back to Customer Login</span>
                   </Link>
                 </p>
               </div>
