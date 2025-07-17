@@ -6,6 +6,23 @@ import { prisma } from "@/lib/prisma"
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   adapter: PrismaAdapter(prisma),
+  trustHost: true, // Trust all hosts in production
+  // Use explicit host configuration to avoid UntrustedHost errors
+  basePath: "/api/auth",
+  // Enable secure cookies in production
+  cookies: {
+    sessionToken: {
+      name: process.env.NODE_ENV === "production" ? 
+        `__Secure-next-auth.session-token` : 
+        `next-auth.session-token`,
+      options: {
+        httpOnly: true,
+        sameSite: "lax",
+        path: "/",
+        secure: process.env.NODE_ENV === "production",
+      },
+    },
+  },
   providers: [
     CredentialsProvider({
       name: "credentials",
