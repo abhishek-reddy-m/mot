@@ -4,13 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "npm install autoprefixer postcss tailwindcss && next build",
     "start": "next start",
     "lint": "next lint",
     "db:seed": "node prisma/seed.js",
     "db:setup": "prisma migrate dev && prisma db seed",
     "db:reset": "prisma migrate reset",
-    "postinstall": "npm list autoprefixer || npm install autoprefixer"
+    "postinstall": "npm install -D autoprefixer postcss tailwindcss"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

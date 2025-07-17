@@ -9,17 +9,16 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true, // Trust all hosts in production
   // Use explicit host configuration to avoid UntrustedHost errors
   basePath: "/api/auth",
-  // Enable secure cookies in production
+  // Simplify cookie handling for production
+  useSecureCookies: false, // Set to false to avoid secure cookie issues
   cookies: {
     sessionToken: {
-      name: process.env.NODE_ENV === "production" ? 
-        `next-auth.session-token` : // Simplified for cross-domain compatibility
-        `next-auth.session-token`,
+      name: "next-auth.session-token",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: process.env.NODE_ENV === "production",
+        secure: false, // Set to false to avoid secure cookie issues
       },
     },
   },

@@ -5,8 +5,16 @@ export async function middleware(request: NextRequest) {
   // Added debug logs and improved token retrieval
   console.log("Middleware checking auth for path:", request.nextUrl.pathname);
   
+  // Check for existing cookie directly
+  const sessionCookie = request.cookies.get("next-auth.session-token") || 
+                        request.cookies.get("__Secure-next-auth.session-token");
+  
+  console.log("Session cookie found:", sessionCookie ? "YES" : "NO");
+  
   const token = await getToken({ 
     req: request, 
+    cookieName: process.env.NODE_ENV === "production" ? 
+      "next-auth.session-token" : "next-auth.session-token",
     secret: process.env.NEXTAUTH_SECRET,
     secureCookie: process.env.NODE_ENV === "production",
   });

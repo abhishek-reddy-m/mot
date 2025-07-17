@@ -3,6 +3,12 @@ services:
   - type: web
     name: mot
     env: node
+    buildCommand: npm install -D autoprefixer postcss tailwindcss && npm run build
+    startCommand: npm startr.yaml configuration for deployment
+services:
+  - type: web
+    name: mot
+    env: node
     buildCommand: npm install --production=false && npm run build
     startCommand: npm start
     envVars:
