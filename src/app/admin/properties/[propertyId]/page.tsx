@@ -130,9 +130,9 @@ export default function EditPropertyPage({ params }: { params: Promise<{ propert
         router.push('/admin/properties');
       }, 2000);
       
-    } catch (err: any) {
+    } catch (err: Error | unknown) {
       console.error('Error updating property:', err);
-      setError(err.message || 'Failed to update property. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to update property. Please try again.');
     } finally {
       setSaving(false);
     }

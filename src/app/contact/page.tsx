@@ -48,7 +48,7 @@ export default function ContactPage() {
               Contact Us
             </h1>
             <p className="text-xl md:text-2xl text-blue-100">
-              We're here to help! Get in touch with any questions or concerns.
+              We&apos;re here to help! Get in touch with any questions or concerns.
             </p>
           </div>
         </div>
@@ -84,7 +84,7 @@ export default function ContactPage() {
                     <div>
                       <h3 className="font-semibold text-gray-900">Email</h3>
                       <p className="text-gray-600">support@motelbooking.com</p>
-                      <p className="text-sm text-gray-500">We'll respond within 24 hours</p>
+                      <p className="text-sm text-gray-500">We&apos;ll respond within 24 hours</p>
                     </div>
                   </CardContent>
                 </Card>
@@ -123,7 +123,7 @@ export default function ContactPage() {
                 <CardHeader>
                   <CardTitle>Send us a Message</CardTitle>
                   <CardDescription>
-                    Fill out the form below and we'll get back to you as soon as possible.
+                    Fill out the form below and we&apos;ll get back to you as soon as possible.
                   </CardDescription>
                 </CardHeader>
                 <CardContent>

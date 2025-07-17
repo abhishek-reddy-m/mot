@@ -170,7 +170,13 @@ export async function GET(request: NextRequest) {
     const status = url.searchParams.get('status');
     
     // Build the query
-    const whereClause: any = {};
+    // Define a type that includes the possible booking properties
+    type BookingWhereClause = {
+      userId?: string;
+      status?: "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
+    };
+    
+    const whereClause: BookingWhereClause = {};
     
     // If not admin, only show the user's bookings
     if (!isAdmin) {
@@ -179,11 +185,19 @@ export async function GET(request: NextRequest) {
     
     // Filter by status if provided
     if (status) {
-      whereClause.status = status.toUpperCase();
+      const upperStatus = status.toUpperCase();
+      // Type guard to check if status is valid
+      if (['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'].includes(upperStatus)) {
+        whereClause.status = upperStatus as "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
+      }
     }
 
+    // Use type assertion to convert to the Prisma where clause type
+    // The Prisma type definition is complex, but our whereClause is compatible at runtime
+    // Using type assertion is acceptable here to bridge the gap between our type and Prisma's
     const bookings = await prisma.booking.findMany({
-      where: whereClause,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      where: whereClause as any,
       include: {
         property: {
           select: {

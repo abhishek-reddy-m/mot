@@ -134,9 +134,9 @@ export default function EditRoomTypePage({ params }: { params: Promise<{ roomTyp
         router.push(`/admin/properties/${propertyId}`);
       }, 2000);
       
-    } catch (err: any) {
+    } catch (err: Error | unknown) {
       console.error('Error updating room type:', err);
-      setError(err.message || 'Failed to update room type. Please try again.');
+      setError(err instanceof Error ? err.message : 'Failed to update room type. Please try again.');
     } finally {
       setSaving(false);
     }

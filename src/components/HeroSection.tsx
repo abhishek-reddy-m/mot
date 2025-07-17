@@ -102,10 +102,10 @@ export function HeroSection() {
           </h2>
           
           <p className="animate-text mx-auto mb-8 max-w-2xl text-base text-white/95 sm:text-lg md:text-xl leading-relaxed drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)] [text-shadow:_1px_1px_2px_rgb(0_0_0_/_40%)]">
-            Premium hotels across LA's most iconic neighborhoods.
+            Premium hotels across LA&apos;s most iconic neighborhoods.
           </p>
           
-          <motion.div 
+          <motion.div
             className="animate-text mb-16"
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
@@ -127,7 +127,7 @@ export function HeroSection() {
           animate={{ y: [0, 8, 0] }}
           transition={{ repeat: Infinity, duration: 2.5 }}
           className="flex cursor-pointer flex-col items-center group"
-          onClick={() => window.scrollTo({ top: window.innerHeight, behavior: 'smooth' })}
+          onClick={() => window.scrollTo({ top: window.innerHeight, behavior: "smooth" })}
         >
           <span className="mb-1 text-xs font-medium text-white/90 group-hover:text-white transition-colors drop-shadow-lg">
             Scroll to explore

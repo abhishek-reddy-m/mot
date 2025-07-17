@@ -4,7 +4,7 @@ import { prisma } from '@/lib/prisma';
 
 // GET room inventory for a property
 export async function GET(
-  request: NextRequest, 
+  request: NextRequest,
   { params }: { params: { propertyId: string } }
 ) {
   try {

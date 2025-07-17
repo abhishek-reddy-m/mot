@@ -22,6 +22,13 @@ export default function AddRoomTypePage() {
     totalRooms: '0'
   });
 
+  // Define a type for the property data
+  type PropertyData = {
+    id: string;
+    name: string;
+    // Add other fields as needed
+  };
+  
   useEffect(() => {
     // Fetch properties from API
     const fetchProperties = async () => {
@@ -29,7 +36,7 @@ export default function AddRoomTypePage() {
         const response = await fetch('/api/admin/properties');
         if (response.ok) {
           const data = await response.json();
-          setProperties(data.map((property: any) => ({ id: property.id, name: property.name })));
+          setProperties(data.map((property: PropertyData) => ({ id: property.id, name: property.name })));
         }
       } catch (error) {
         console.error('Error fetching properties:', error);

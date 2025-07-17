@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
+import { getToken } from "next-auth/jwt";
 
 export async function middleware(request: NextRequest) {
-  const session = await auth();
+  const token = await getToken({ req: request, secret: process.env.NEXTAUTH_SECRET });
   
   // Check if the route is under /admin
   if (request.nextUrl.pathname.startsWith("/admin")) {
@@ -12,12 +12,12 @@ export async function middleware(request: NextRequest) {
     }
     
     // If not authenticated, redirect to admin login
-    if (!session) {
+    if (!token) {
       return NextResponse.redirect(new URL("/admin/login", request.url));
     }
     
     // If authenticated but not an admin, redirect to customer dashboard
-    if (session.user.role !== "ADMIN") {
+    if (token.role !== "ADMIN") {
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
   }
@@ -27,7 +27,7 @@ export async function middleware(request: NextRequest) {
     request.nextUrl.pathname.startsWith("/dashboard") || 
     request.nextUrl.pathname === "/bookings"
   ) {
-    if (!session) {
+    if (!token) {
       return NextResponse.redirect(new URL("/login", request.url));
     }
   }

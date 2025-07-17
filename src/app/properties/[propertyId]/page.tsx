@@ -187,9 +187,9 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
         router.push('/dashboard');
       }, 2000);
       
-    } catch (err: any) {
+    } catch (err: Error | unknown) {
       console.error('Error creating booking:', err);
-      setBookingError(err.message || 'An error occurred during booking. Please try again.');
+      setBookingError(err instanceof Error ? err.message : 'An error occurred during booking. Please try again.');
     } finally {
       setIsBooking(false);
     }

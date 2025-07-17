@@ -62,7 +62,7 @@ export default function AdminDashboard() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-gray-900 mb-2">Admin Dashboard</h1>
-              <p className="text-gray-600">Welcome back! Here's what's happening with your properties.</p>
+              <p className="text-gray-600">Welcome back! Here&apos;s what&apos;s happening with your properties.</p>
             </div>
             <div className="hidden md:flex items-center space-x-4">
               <div className="text-right">

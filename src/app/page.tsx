@@ -30,7 +30,7 @@ export default function HomePage() {
           <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 border border-gray-100">
             <div className="text-center mb-16">
               <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-                Explore LA's <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Iconic Districts</span>
+                Explore LA&apos;s <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Iconic Districts</span>
               </h2>
               <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
                 From the glamour of Hollywood to the beaches of Santa Monica, discover your perfect neighborhood in the City of Angels
@@ -131,13 +131,13 @@ export default function HomePage() {
       <section className="py-24 bg-gradient-to-b from-gray-50 to-white">
         <div className="container mx-auto px-4">
           <div className="text-center mb-16">
-            <p className="text-blue-600 font-semibold mb-2 text-sm uppercase tracking-wider font-montserrat">Casa Blanca's Premier Experience</p>
+            <p className="text-blue-600 font-semibold mb-2 text-sm uppercase tracking-wider font-montserrat">Casa Blanca&apos;s Premier Experience</p>
             <h2 className="text-3xl md:text-5xl font-bold text-gray-900 mb-6">
               Why Choose <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent font-dancing-script">Casa Blanca</span>
             </h2>
             <p className="text-lg text-gray-600 max-w-3xl mx-auto font-montserrat">
               Experience the epitome of luxury and elegance at Casa Blanca, 
-              Los Angeles' most distinguished boutique hotel with world-class amenities and unparalleled service.
+              Los Angeles&apos; most distinguished boutique hotel with world-class amenities and unparalleled service.
             </p>
           </div>
 
@@ -168,7 +168,7 @@ export default function HomePage() {
               </div>
               <h3 className="text-xl font-bold text-gray-900 mb-3">Prime Locations</h3>
               <p className="text-gray-600 leading-relaxed">
-                Stay in LA's most coveted neighborhoods, from beachfront Santa Monica to the vibrant streets of West Hollywood.
+                Stay in LA&apos;s most coveted neighborhoods, from beachfront Santa Monica to the vibrant streets of West Hollywood.
               </p>
               <div className="mt-6 pt-4 border-t border-gray-100">
                 <p className="text-blue-600 font-medium">
@@ -219,7 +219,7 @@ export default function HomePage() {
               <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">LA Experiences</span> That Inspire
             </h2>
             <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Hear from travelers who've fallen in love with Los Angeles through our exceptional hospitality
+              Hear from travelers who&apos;ve fallen in love with Los Angeles through our exceptional hospitality
             </p>
           </div>
 
@@ -232,7 +232,7 @@ export default function HomePage() {
                 ))}
               </div>
               <p className="text-gray-700 mb-8 italic leading-relaxed text-lg">
-                "Staying in Hollywood was a dream come true! The hotel's rooftop pool overlooked the city, and the concierge got us VIP access to exclusive LA spots. Unforgettable!"
+                &quot;Staying in Hollywood was a dream come true! The hotel&apos;s rooftop pool overlooked the city, and the concierge got us VIP access to exclusive LA spots. Unforgettable!&quot;
               </p>
               <div className="flex items-center">
                 <div className="w-14 h-14 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center mr-4">
@@ -253,7 +253,7 @@ export default function HomePage() {
                 ))}
               </div>
               <p className="text-gray-700 mb-8 italic leading-relaxed text-lg">
-                "Santa Monica beachfront suite was incredible! Woke up to ocean views every morning, walked to the pier, and the spa treatments were world-class. Pure paradise!"
+                &quot;Santa Monica beachfront suite was incredible! Woke up to ocean views every morning, walked to the pier, and the spa treatments were world-class. Pure paradise!&quot;
               </p>
               <div className="flex items-center">
                 <div className="w-14 h-14 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center mr-4">
@@ -274,7 +274,7 @@ export default function HomePage() {
                 ))}
               </div>
               <p className="text-gray-700 mb-8 italic leading-relaxed text-lg">
-                "Beverly Hills luxury at its finest! The penthouse suite, personal butler service, and proximity to Rodeo Drive made this the perfect LA getaway. Five stars!"
+                &quot;Beverly Hills luxury at its finest! The penthouse suite, personal butler service, and proximity to Rodeo Drive made this the perfect LA getaway. Five stars!&quot;
               </p>
               <div className="flex items-center">
                 <div className="w-14 h-14 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-full flex items-center justify-center mr-4">
@@ -303,7 +303,7 @@ export default function HomePage() {
               Ready to Experience <span className="text-blue-200 font-dancing-script">Casa Blanca</span>?
             </h2>
             <p className="text-xl text-blue-100 mb-10 max-w-2xl mx-auto leading-relaxed font-montserrat">
-              Join discerning travelers who've discovered the perfect blend of luxury and comfort. 
+              Join discerning travelers who&apos;ve discovered the perfect blend of luxury and comfort. 
               From elegant suites to personalized service – your extraordinary stay awaits at Casa Blanca!
             </p>
             <div className="flex flex-col sm:flex-row gap-6 justify-center">
@@ -351,7 +351,7 @@ export default function HomePage() {
                 <span className="font-montserrat font-bold tracking-wide uppercase text-sm">HOTELS</span>
               </h3>
               <p className="text-gray-400 max-w-xs leading-relaxed font-montserrat">
-                Experience the elegance and luxury of Casa Blanca Hotels, Los Angeles' premier boutique hotel collection in the heart of the city's most iconic neighborhoods.
+                Experience the elegance and luxury of Casa Blanca Hotels, Los Angeles&apos; premier boutique hotel collection in the heart of the city&apos;s most iconic neighborhoods.
               </p>
               <div className="flex space-x-4 pt-2">
                 <a href="#" className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center hover:from-blue-600 hover:to-purple-600 transition-all duration-200">

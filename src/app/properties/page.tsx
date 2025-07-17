@@ -251,7 +251,7 @@ export default function PropertiesPage() {
           </div>
           <h3 className="text-xl font-medium text-gray-900 mb-2">No LA properties found</h3>
           <p className="text-gray-500 mb-6">
-            We couldn't find any Los Angeles properties matching your criteria. 
+            We couldn&apos;t find any Los Angeles properties matching your criteria. 
             Try different neighborhoods or amenities to discover the perfect LA stay.
           </p>
           <div className="space-y-4">
@@ -318,7 +318,7 @@ export default function PropertiesPage() {
               <MapPin className="h-5 w-5 text-yellow-400 mr-2" />
               <span className="text-yellow-300 font-medium">Los Angeles, California</span>
             </div>
-            <h1 className="text-4xl md:text-5xl font-bold mb-4">Discover LA's Best Places to Stay</h1>
+            <h1 className="text-4xl md:text-5xl font-bold mb-4">Discover LA&apos;s Best Places to Stay</h1>
             <p className="text-xl text-blue-100 mb-8 max-w-2xl">
               From downtown luxury to beachside comfort, find the perfect spot for your LA adventure
             </p>
@@ -567,7 +567,7 @@ export default function PropertiesPage() {
         
         <div className="container mx-auto px-4 text-center relative z-10">
           <div className="max-w-2xl mx-auto">
-            <h2 className="text-3xl font-bold mb-4">Get LA's Exclusive Hotel Deals</h2>
+            <h2 className="text-3xl font-bold mb-4">Get LA&apos;s Exclusive Hotel Deals</h2>
             <p className="text-blue-100 mb-6">
               Subscribe for insider access to special Los Angeles hotel offers, event tickets, and local experiences.
             </p>

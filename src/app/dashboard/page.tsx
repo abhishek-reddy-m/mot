@@ -184,7 +184,7 @@ export default function UserDashboard() {
             <Card>
               <CardContent className="flex flex-col items-center justify-center py-12">
                 <Building2 className="h-16 w-16 text-gray-300 mb-4" />
-                <p className="text-gray-500 text-lg mb-4">You don't have any bookings yet</p>
+                <p className="text-gray-500 text-lg mb-4">You don&apos;t have any bookings yet</p>
                 <Button onClick={() => router.push('/properties')}>
                   Browse Properties
                 </Button>

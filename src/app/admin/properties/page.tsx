@@ -35,6 +35,7 @@ export default function AdminPropertiesPage() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [deleteError, setDeleteError] = useState('');
 
   useEffect(() => {
     const fetchProperties = async () => {
@@ -73,21 +74,28 @@ export default function AdminPropertiesPage() {
     
     try {
       setIsDeleting(propertyId);
+      setDeleteError('');
       
       const response = await fetch(`/api/admin/properties/${propertyId}`, {
         method: 'DELETE',
       });
       
       if (!response.ok) {
-        throw new Error('Failed to delete property');
+        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+        
+        if (response.status === 400 && errorData.error === 'Cannot delete property with active bookings') {
+          throw new Error('Cannot delete property with active bookings. Please cancel or complete all bookings first.');
+        } else {
+          throw new Error(`Failed to delete property: ${errorData.error || response.statusText}`);
+        }
       }
       
       // Remove the deleted property from the state
       setProperties(properties.filter(property => property.id !== propertyId));
       
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error deleting property:', err);
-      alert('Failed to delete property. Please try again.');
+      setDeleteError(err.message || 'Failed to delete property. Please try again.');
     } finally {
       setIsDeleting('');
     }
@@ -107,6 +115,20 @@ export default function AdminPropertiesPage() {
         </Button>
       </div>
 
+      {/* Error Message */}
+      {deleteError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative" role="alert">
+          <span className="block sm:inline">{deleteError}</span>
+          <span className="absolute top-0 bottom-0 right-0 px-4 py-3">
+            <button onClick={() => setDeleteError('')} className="text-red-500">
+              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </span>
+        </div>
+      )}
+      
       {/* Search */}
       <div className="flex items-center space-x-4">
         <div className="relative flex-1 max-w-md">

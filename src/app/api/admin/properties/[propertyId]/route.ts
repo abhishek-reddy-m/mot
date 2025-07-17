@@ -154,19 +154,36 @@ export async function DELETE(
     // Check for active bookings
     if (property.bookings.length > 0) {
       return NextResponse.json(
-        { error: 'Cannot delete property with active bookings' },
+        { 
+          error: 'Cannot delete property with active bookings',
+          bookingsCount: property.bookings.length
+        },
         { status: 400 }
       );
     }
 
-    // Delete property (cascade will handle photos, room types, etc.)
-    await prisma.property.delete({
-      where: {
-        id: params.propertyId,
-      },
-    });
+    try {
+      // Delete property (cascade will handle photos, room types, etc.)
+      await prisma.property.delete({
+        where: {
+          id: params.propertyId,
+        },
+      });
 
-    return NextResponse.json({ success: true });
+      return NextResponse.json({ success: true });
+    } catch (deleteError: any) {
+      console.error('Database error deleting property:', deleteError);
+      
+      // Check for foreign key constraint errors
+      if (deleteError.code === 'P2003') {
+        return NextResponse.json(
+          { error: 'Cannot delete property because it has related records' },
+          { status: 400 }
+        );
+      }
+      
+      throw deleteError; // Re-throw for general error handling
+    }
   } catch (error) {
     console.error('Error deleting property:', error);
     return NextResponse.json(
