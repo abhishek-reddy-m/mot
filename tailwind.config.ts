@@ -9,6 +9,10 @@ export default {
   ],
   theme: {
     extend: {
+      fontFamily: {
+        'dancing-script': ['var(--font-dancing-script)', 'cursive'],
+        'montserrat': ['var(--font-montserrat)', 'sans-serif'],
+      },
       colors: {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
