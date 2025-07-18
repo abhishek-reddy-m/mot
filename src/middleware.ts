@@ -23,20 +23,30 @@ export async function middleware(request: NextRequest) {
   
   // Check if the route is under /admin
   if (request.nextUrl.pathname.startsWith("/admin")) {
-    // Allow access to the admin login page without authentication
+    console.log("Admin route detected:", request.nextUrl.pathname);
+    
+    // Always allow access to the admin login page without authentication
     if (request.nextUrl.pathname === "/admin/login") {
+      console.log("Allowing access to admin login page");
       return NextResponse.next();
     }
     
     // If not authenticated, redirect to admin login
     if (!token) {
+      console.log("No token for admin route, redirecting to admin login");
       return NextResponse.redirect(new URL("/admin/login", request.url));
     }
     
+    // Log token details for debugging
+    console.log("Admin route token role:", token.role);
+    
     // If authenticated but not an admin, redirect to customer dashboard
     if (token.role !== "ADMIN") {
+      console.log("User is not an admin, redirecting to customer dashboard");
       return NextResponse.redirect(new URL("/dashboard", request.url));
     }
+    
+    console.log("Admin access granted to:", request.nextUrl.pathname);
   }
   
   // For customer protected routes

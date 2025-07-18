@@ -41,6 +41,9 @@ export default function AdminLayout({
   const pathname = usePathname();
   const router = useRouter();
   
+  // Check if this is the login page
+  const isLoginPage = pathname === '/admin/login';
+  
   // Handle clicking outside the user menu to close it
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
@@ -64,6 +67,11 @@ export default function AdminLayout({
     };
   }, []);
 
+  // For login page, don't render the admin layout
+  if (isLoginPage) {
+    return <>{children}</>;
+  }
+  
   return (
     <div className="flex h-screen bg-gray-100">
       {/* Sidebar */}

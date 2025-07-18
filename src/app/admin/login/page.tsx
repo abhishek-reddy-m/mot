@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Navigation from '@/components/Navigation';
-import { Shield, Mail, Lock } from 'lucide-react';
+import { Shield, Mail, Lock, Home } from 'lucide-react';
 
 function LoginForm() {
   const [email, setEmail] = useState('');
@@ -23,6 +23,8 @@ function LoginForm() {
     e.preventDefault();
     setIsLoading(true);
     setError('');
+    
+    console.log("Admin login attempt for:", email);
 
     try {
       const result = await signIn('credentials', {
@@ -31,16 +33,24 @@ function LoginForm() {
         redirect: false,
         callbackUrl,
       });
+      
+      console.log("Admin login result:", result);
 
       if (result?.error) {
         setError('Invalid admin credentials. Please try again.');
-      } else if (result?.url) {
-        // Our middleware will handle redirecting non-admin users
-        router.push(result.url);
-        router.refresh();
       } else {
-        router.push('/admin/dashboard');
-        router.refresh();
+        // Add a slight delay to ensure the session is properly set
+        setTimeout(() => {
+          if (result?.url) {
+            // Our middleware will handle redirecting non-admin users
+            console.log("Admin login success, redirecting to:", result.url);
+            router.push(result.url);
+          } else {
+            console.log("Admin login success, redirecting to dashboard");
+            router.push('/admin/dashboard');
+          }
+          router.refresh();
+        }, 500);
       }
     } catch (error) {
       console.error('Admin login error:', error);
@@ -52,7 +62,12 @@ function LoginForm() {
 
   return (
     <div className="min-h-screen bg-gray-50/50">
-      <Navigation />
+      <div className="absolute top-4 left-4">
+        <Link href="/" className="flex items-center space-x-2 text-gray-700 hover:text-gray-900">
+          <Home className="h-5 w-5" />
+          <span className="font-medium">Back to Home</span>
+        </Link>
+      </div>
       
       <div className="flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
         <div className="max-w-md w-full space-y-8">
@@ -150,8 +165,15 @@ function LoginForm() {
 
 export default function AdminLoginPage() {
   return (
-    <Suspense fallback={<div>Loading...</div>}>
+    <Suspense fallback={
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
+      </div>
+    }>
       <LoginForm />
     </Suspense>
   );
 }
+
+// Mark this page as not using the admin layout
+AdminLoginPage.getLayout = (page: React.ReactNode) => page;
