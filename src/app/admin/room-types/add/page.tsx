@@ -81,10 +81,12 @@ export default function AddRoomTypePage() {
     }
   };
 
+  // Define a strongly typed event handler
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name, value } = e.target;
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [name]: value
     });
   };
 

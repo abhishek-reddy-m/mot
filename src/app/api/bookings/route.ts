@@ -194,10 +194,9 @@ export async function GET(request: NextRequest) {
 
     // Use type assertion to convert to the Prisma where clause type
     // The Prisma type definition is complex, but our whereClause is compatible at runtime
-    // Using type assertion is acceptable here to bridge the gap between our type and Prisma's
+    // Using a more specific type instead of any
     const bookings = await prisma.booking.findMany({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      where: whereClause as any,
+      where: whereClause as Record<string, unknown>,
       include: {
         property: {
           select: {
