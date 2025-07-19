@@ -5,12 +5,15 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build",
+    "build:clean": "bash enhanced-cleanup.sh && next build",
     "start": "next start",
     "lint": "next lint",
     "db:seed": "node prisma/seed.js",
     "db:setup": "prisma migrate dev && prisma db seed",
     "db:reset": "prisma migrate reset",
-    "postinstall": "npm install autoprefixer postcss@8.4.31 tailwindcss@3.3.3 --no-save"
+    "postinstall": "npm install autoprefixer postcss@8.4.31 tailwindcss@3.3.3 --no-save",
+    "clean": "bash enhanced-cleanup.sh",
+    "predeploy": "bash enhanced-cleanup.sh"
   },
   "prisma": {
     "seed": "node prisma/seed.js"

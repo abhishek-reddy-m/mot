@@ -1,56 +1,105 @@
 import { prisma } from '@/lib/prisma';
+import { safeQuery } from '@/lib/db-utils';
 
 /**
  * Gets the available rooms for a specific room type on a specific date range
+ * with fallback options for production environment
  */
 export async function getAvailableRooms(
   roomTypeId: string,
   checkIn: Date,
   checkOut: Date
 ): Promise<number> {
-  // Fetch the room type to get total rooms
-  const roomType = await prisma.roomType.findUnique({
-    where: { id: roomTypeId }
-  });
-  
-  if (!roomType) {
-    throw new Error(`Room type with ID ${roomTypeId} not found`);
-  }
-  
-  // Generate the date range
-  const dateRange = getDateRange(checkIn, checkOut);
-  
-  // Get all availability records for this room type and date range
-  const availabilityRecords = await prisma.roomAvailability.findMany({
-    where: {
-      roomTypeId,
-      date: {
-        gte: checkIn,
-        lt: checkOut
+  try {
+    // Try using Prisma first to get room type
+    const roomType = await prisma.roomType.findUnique({
+      where: { id: roomTypeId }
+    });
+    
+    if (!roomType) {
+      // Fallback to raw query if Prisma fails
+      const roomTypeQuery = `SELECT "totalRooms" FROM room_types WHERE id = $1`;
+      const roomTypeData = await safeQuery(roomTypeQuery, roomTypeId);
+      
+      if (!roomTypeData || roomTypeData.length === 0) {
+        console.error(`Room type with ID ${roomTypeId} not found`);
+        return 0;
       }
+      
+      // Calculate availability using raw queries
+      const bookingsQuery = `
+        SELECT SUM(rooms) as booked_rooms
+        FROM bookings
+        WHERE "roomTypeId" = $1
+          AND "checkIn" < $3
+          AND "checkOut" > $2
+          AND status IN ('PENDING', 'CONFIRMED', 'CHECKED_IN')
+      `;
+      
+      const bookingsData = await safeQuery(bookingsQuery, roomTypeId, checkIn, checkOut);
+      const bookedRooms = bookingsData.length > 0 ? parseInt(bookingsData[0].booked_rooms || '0') : 0;
+      const totalRooms = parseInt(roomTypeData[0].totalRooms || '0');
+      
+      return Math.max(0, totalRooms - bookedRooms);
     }
-  });
-  
-  // Find the maximum number of booked rooms for any date in the range
-  let maxBookedRooms = 0;
-  
-  for (const date of dateRange) {
-    const dateStr = date.toISOString().split('T')[0];
     
-    // Find the record for this date
-    const record = availabilityRecords.find(
-      r => new Date(r.date).toISOString().split('T')[0] === dateStr
-    );
+    // Generate the date range
+    const dateRange = getDateRange(checkIn, checkOut);
     
-    // If a record exists, use its bookedRooms value, otherwise use 0 (no bookings)
-    const bookedRoomsForDate = record ? record.bookedRooms : 0;
-    
-    // Update max booked rooms if this date has more
-    maxBookedRooms = Math.max(maxBookedRooms, bookedRoomsForDate);
+    // Check if room_availability table exists
+    try {
+      // Try to get availability records
+      const availabilityQuery = `
+        SELECT date, "bookedRooms" 
+        FROM room_availabilities
+        WHERE "roomTypeId" = $1
+          AND date >= $2
+          AND date < $3
+      `;
+      
+      const availabilityRecords = await safeQuery(availabilityQuery, roomTypeId, checkIn, checkOut);
+      
+      // Find the maximum number of booked rooms for any date in the range
+      let maxBookedRooms = 0;
+      
+      for (const date of dateRange) {
+        const dateStr = date.toISOString().split('T')[0];
+        
+        // Find the record for this date
+        const record = availabilityRecords.find(
+          (r: any) => new Date(r.date).toISOString().split('T')[0] === dateStr
+        );
+        
+        // If a record exists, use its bookedRooms value, otherwise use 0 (no bookings)
+        const bookedRoomsForDate = record ? parseInt(record.bookedRooms || '0') : 0;
+        
+        // Update max booked rooms if this date has more
+        maxBookedRooms = Math.max(maxBookedRooms, bookedRoomsForDate);
+      }
+      
+      // Calculate available rooms
+      return Math.max(0, roomType.totalRooms - maxBookedRooms);
+    } catch (error) {
+      // Fallback if room_availabilities table doesn't exist
+      // Calculate based on bookings directly
+      const bookingsQuery = `
+        SELECT SUM(rooms) as booked_rooms
+        FROM bookings
+        WHERE "roomTypeId" = $1
+          AND "checkIn" < $3
+          AND "checkOut" > $2
+          AND status IN ('PENDING', 'CONFIRMED', 'CHECKED_IN')
+      `;
+      
+      const bookingsData = await safeQuery(bookingsQuery, roomTypeId, checkIn, checkOut);
+      const bookedRooms = bookingsData.length > 0 ? parseInt(bookingsData[0].booked_rooms || '0') : 0;
+      
+      return Math.max(0, roomType.totalRooms - bookedRooms);
+    }
+  } catch (error) {
+    console.error('Error getting available rooms:', error);
+    return 0; // Default to no rooms available on error
   }
-  
-  // Calculate available rooms
-  return Math.max(0, roomType.totalRooms - maxBookedRooms);
 }
 
 /**
@@ -63,54 +112,70 @@ export async function updateRoomAvailability(
   roomCount: number,
   isCancel: boolean = false
 ): Promise<void> {
-  // Get the room type to ensure it exists and get total rooms
-  const roomType = await prisma.roomType.findUnique({
-    where: { id: roomTypeId }
-  });
-  
-  if (!roomType) {
-    throw new Error(`Room type with ID ${roomTypeId} not found`);
-  }
-  
-  // Generate all dates in the booking range
-  const dateRange = getDateRange(checkIn, checkOut);
-  
-  // For each date in the booking range, update the availability
-  for (const date of dateRange) {
-    // Try to find an existing record for this room type and date
-    let availabilityRecord = await prisma.roomAvailability.findFirst({
-      where: {
-        roomTypeId,
-        date: {
-          equals: date
-        }
-      }
+  try {
+    // Get the room type to ensure it exists and get total rooms
+    const roomType = await prisma.roomType.findUnique({
+      where: { id: roomTypeId }
     });
     
-    if (availabilityRecord) {
-      // Update existing record
-      await prisma.roomAvailability.update({
-        where: { id: availabilityRecord.id },
-        data: {
-          // Increase or decrease booked rooms based on whether this is a cancellation
-          bookedRooms: isCancel
-            ? Math.max(0, availabilityRecord.bookedRooms - roomCount)
-            : availabilityRecord.bookedRooms + roomCount,
-          updatedAt: new Date()
-        }
-      });
-    } else if (!isCancel) {
-      // Only create a new record if this is not a cancellation
-      await prisma.roomAvailability.create({
-        data: {
-          roomTypeId,
-          date,
-          totalRooms: roomType.totalRooms,
-          bookedRooms: roomCount, // Initial booking count
-          updatedAt: new Date()
-        }
-      });
+    if (!roomType) {
+      throw new Error(`Room type with ID ${roomTypeId} not found`);
     }
+    
+    // Generate all dates in the booking range
+    const dateRange = getDateRange(checkIn, checkOut);
+    
+    // Check if room_availability table exists
+    try {
+      // For each date in the booking range, update the availability
+      for (const date of dateRange) {
+        // Try to find an existing record for this room type and date
+        const findQuery = `
+          SELECT id, "bookedRooms" 
+          FROM room_availabilities
+          WHERE "roomTypeId" = $1 AND date = $2
+          LIMIT 1
+        `;
+        
+        const records = await safeQuery(findQuery, roomTypeId, date);
+        
+        if (records && records.length > 0) {
+          const availabilityRecord = records[0];
+          // Update existing record
+          const updateQuery = `
+            UPDATE room_availabilities
+            SET "bookedRooms" = $1, "updatedAt" = $2
+            WHERE id = $3
+          `;
+          
+          const newBookedRooms = isCancel
+            ? Math.max(0, parseInt(availabilityRecord.bookedRooms || '0') - roomCount)
+            : parseInt(availabilityRecord.bookedRooms || '0') + roomCount;
+          
+          await safeQuery(updateQuery, newBookedRooms, new Date(), availabilityRecord.id);
+        } else if (!isCancel) {
+          // Only create a new record if this is not a cancellation
+          const insertQuery = `
+            INSERT INTO room_availabilities ("roomTypeId", date, "totalRooms", "bookedRooms", "updatedAt")
+            VALUES ($1, $2, $3, $4, $5)
+          `;
+          
+          await safeQuery(
+            insertQuery,
+            roomTypeId,
+            date,
+            roomType.totalRooms,
+            roomCount,
+            new Date()
+          );
+        }
+      }
+    } catch (error) {
+      // If room_availabilities table doesn't exist, log and ignore
+      console.warn('Could not update room availability - table may not exist:', error);
+    }
+  } catch (error) {
+    console.error('Error updating room availability:', error);
   }
 }
 

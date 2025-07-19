@@ -3,14 +3,9 @@ services:
   - type: web
     name: mot
     env: node
-    buildCommand: npm install autoprefixer postcss@8.4.31 tailwindcss@3.3.3 && npm run build
-    startCommand: npm startr.yaml configuration for deployment
-services:
-  - type: web
-    name: mot
-    env: node
-    buildCommand: npm install --production=false && npm run build
+    buildCommand: bash enhanced-cleanup.sh && npm install --production=false && npm run build
     startCommand: npm start
+    healthCheckPath: /api/debug/schema
     envVars:
       - key: NODE_ENV
         value: production
