@@ -136,11 +136,37 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
+    
+    // Calculate available rooms based on existing bookings
+    const availabilityData = await prisma.booking.findMany({
+      where: {
+        roomTypeId,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        OR: [
+          { 
+            checkIn: { lte: checkOut },
+            checkOut: { gte: checkIn }
+          }
+        ]
+      },
+      select: {
+        rooms: true
+      }
+    });
+    
+    // Calculate total booked rooms for this period
+    let totalBookedRooms = 0;
+    availabilityData.forEach((record: { rooms: number }) => {
+      totalBookedRooms += record.rooms || 1;
+    });
+    
+    // Calculate available rooms
+    const availableRooms = Math.max(0, roomType.totalRooms - totalBookedRooms);
 
     // Check if there are enough available rooms
-    if (roomType.availableRooms < rooms) {
+    if (availableRooms < rooms) {
       return NextResponse.json(
-        { error: `Not enough rooms available. Only ${roomType.availableRooms} rooms available.` },
+        { error: `Not enough rooms available. Only ${availableRooms} rooms available.` },
         { status: 400 }
       );
     }

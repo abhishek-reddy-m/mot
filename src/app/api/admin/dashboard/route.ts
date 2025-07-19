@@ -80,19 +80,17 @@ export async function GET() {
       }
     });
 
-    // Get total rooms across all properties - using a simpler approach for the calculation
-    const allRoomTypes = await prisma.roomType.findMany();
+    // Get total rooms across all properties using a raw query to avoid schema issues
+    const totalRoomsResult = await prisma.$queryRaw`
+      SELECT SUM("totalRooms") as "totalRooms"
+      FROM room_types
+      WHERE "isActive" = true
+    `;
     
-    // TypeScript workaround for Prisma field
-    interface RoomTypeWithTotal {
-      totalRooms: number;
-    }
-    
-    const totalRooms = allRoomTypes.reduce((sum: number, room) => {
-      // Using type assertion since we know the field exists in the database schema
-      const typedRoom = room as unknown as RoomTypeWithTotal;
-      return sum + (typedRoom.totalRooms || 0);
-    }, 0);
+    // Handle the result safely
+    const totalRoomsData = Array.isArray(totalRoomsResult) && totalRoomsResult.length > 0 ? 
+      totalRoomsResult[0] : { totalRooms: 0 };
+    const totalRooms = Number(totalRoomsData.totalRooms) || 0;
     
     const occupiedRooms = occupancyData.reduce((sum: number, booking) => sum + booking.rooms, 0);
     const occupancyRate = totalRooms > 0 ? ((occupiedRooms / totalRooms) * 100).toFixed(1) : 0;

@@ -5,24 +5,15 @@ import { prisma } from '@/lib/prisma';
 // Temporary non-auth route for testing
 export async function HEAD() {
   try {
-    const roomTypes = await prisma.roomType.findMany({
-      include: {
-        property: {
-          select: {
-            id: true,
-            name: true,
-          }
-        },
-        _count: {
-          select: {
-            bookings: true,
-          }
-        }
-      },
-      take: 1
-    });
+    // Fixed query without availableRooms
+    const roomTypes = await prisma.$queryRaw`
+      SELECT id, name, "propertyId", description, capacity, "basePrice", "totalRooms", "isActive"
+      FROM room_types
+      LIMIT 1
+    `;
     
-    return NextResponse.json({ success: true, count: roomTypes.length });
+    const results = Array.isArray(roomTypes) ? roomTypes : [];
+    return NextResponse.json({ success: true, count: results.length });
   } catch (error) {
     console.error('Test HEAD: Error:', error);
     return NextResponse.json({ error: 'Test failed' }, { status: 500 });
@@ -54,24 +45,49 @@ export async function GET() {
       );
     }
 
-    const roomTypes = await prisma.roomType.findMany({
-      include: {
-        property: {
-          select: {
-            id: true,
-            name: true,
-          }
-        },
-        _count: {
-          select: {
-            bookings: true,
-          }
-        }
+    // Use raw query to avoid the availableRooms column issue
+    const roomTypesRaw = await prisma.$queryRaw`
+      SELECT 
+        rt.id, 
+        rt.name, 
+        rt."propertyId", 
+        rt.description, 
+        rt.capacity, 
+        rt."basePrice", 
+        rt."totalRooms",
+        rt.amenities,
+        rt."isActive",
+        rt."createdAt",
+        rt."updatedAt",
+        p.id as "property.id", 
+        p.name as "property.name",
+        (SELECT COUNT(*) FROM bookings b WHERE b."roomTypeId" = rt.id) as "bookingCount"
+      FROM room_types rt
+      JOIN properties p ON rt."propertyId" = p.id
+      ORDER BY rt."createdAt" DESC
+    `;
+    
+    // Transform raw results to match expected format
+    const roomTypes = Array.isArray(roomTypesRaw) ? roomTypesRaw.map(rt => ({
+      id: rt.id,
+      name: rt.name,
+      propertyId: rt.propertyId,
+      description: rt.description,
+      capacity: rt.capacity,
+      basePrice: rt.basePrice,
+      totalRooms: rt.totalRooms,
+      amenities: rt.amenities,
+      isActive: rt.isActive,
+      createdAt: rt.createdAt,
+      updatedAt: rt.updatedAt,
+      property: {
+        id: rt['property.id'],
+        name: rt['property.name']
       },
-      orderBy: {
-        createdAt: 'desc'
+      _count: {
+        bookings: Number(rt.bookingCount)
       }
-    });
+    })) : [];
 
     return NextResponse.json(roomTypes);
   } catch (error) {
