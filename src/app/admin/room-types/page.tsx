@@ -20,12 +20,14 @@ type RoomType = {
   capacity: number;
   basePrice: number;
   totalRooms: number;
-  availableRooms: number;
   amenities: string[];
   isActive: boolean;
   property: {
     id: string;
     name: string;
+  };
+  _count?: {
+    bookings: number;
   };
 };
 
@@ -43,7 +45,7 @@ export default function AdminRoomTypesPage() {
       try {
         const response = await fetch('/api/admin/properties');
         if (!response.ok) {
-          throw new Error('Failed to fetch properties');
+          throw new Error(`Failed to fetch properties: ${response.status}`);
         }
         const data = await response.json();
         setProperties(data);
@@ -56,11 +58,30 @@ export default function AdminRoomTypesPage() {
     const fetchRoomTypes = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/admin/room-types');
-        if (!response.ok) {
-          throw new Error('Failed to fetch room types');
+        console.log('Fetching room types...');
+        
+        // First try a non-auth test
+        const testResponse = await fetch('/api/admin/room-types', { method: 'HEAD' });
+        console.log('Test HEAD response:', testResponse.status, testResponse.ok);
+        if (testResponse.ok) {
+          const testData = await testResponse.json();
+          console.log('Test data:', testData);
+        } else {
+          console.log('Test response error:', await testResponse.text());
         }
+        
+        // Now try the actual GET request
+        const response = await fetch('/api/admin/room-types');
+        console.log('Room types response status:', response.status);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('Response error text:', errorText);
+          throw new Error(`Failed to fetch room types: ${response.status} - ${errorText}`);
+        }
+        
         const data = await response.json();
+        console.log('Room types data received:', data.length);
         setRoomTypes(data);
       } catch (err) {
         console.error('Error fetching room types:', err);
@@ -70,8 +91,25 @@ export default function AdminRoomTypesPage() {
       }
     };
 
+    // Also test the auth API
+    const testAuth = async () => {
+      try {
+        const response = await fetch('/api/test-auth');
+        console.log('Auth test response status:', response.status);
+        if (response.ok) {
+          const data = await response.json();
+          console.log('Auth test data:', data);
+        } else {
+          console.log('Auth test error:', await response.text());
+        }
+      } catch (err) {
+        console.error('Auth test error:', err);
+      }
+    };
+
     fetchProperties();
     fetchRoomTypes();
+    testAuth();
   }, []);
 
   // Filter room types by property and search term
@@ -167,7 +205,7 @@ export default function AdminRoomTypesPage() {
                 </div>
                 <CardDescription className="mt-2">{roomType.description || 'No description available'}</CardDescription>
                 <div className="mt-2">
-                  <Badge variant={roomType.isActive ? "success" : "secondary"}>
+                  <Badge variant={roomType.isActive ? "default" : "secondary"}>
                     {roomType.isActive ? 'Active' : 'Inactive'}
                   </Badge>
                 </div>
@@ -186,7 +224,7 @@ export default function AdminRoomTypesPage() {
                     <span className="text-gray-600 text-xs">Total Rooms</span>
                   </div>
                   <div className="text-center">
-                    <div className="font-semibold text-green-600">{roomType.availableRooms}</div>
+                    <div className="font-semibold text-green-600">{roomType.totalRooms - (roomType._count?.bookings || 0)}</div>
                     <span className="text-gray-600 text-xs">Available</span>
                   </div>
                 </div>

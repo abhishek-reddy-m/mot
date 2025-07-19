@@ -37,11 +37,18 @@ export default function AdminDashboard() {
     const fetchDashboardStats = async () => {
       try {
         setLoading(true);
+        console.log('Fetching dashboard stats...');
         const response = await fetch('/api/admin/dashboard');
+        console.log('Dashboard response status:', response.status);
+        
         if (!response.ok) {
-          throw new Error('Failed to fetch dashboard data');
+          const errorText = await response.text();
+          console.error('Response error text:', errorText);
+          throw new Error(`Failed to fetch dashboard data: ${response.status} - ${errorText}`);
         }
+        
         const data = await response.json();
+        console.log('Dashboard data received:', data);
         setStats(data);
       } catch (err) {
         console.error('Error fetching dashboard stats:', err);

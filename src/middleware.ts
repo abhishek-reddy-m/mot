@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
 
 export async function middleware(request: NextRequest) {
+  // Skip middleware for API routes - they handle their own auth
+  if (request.nextUrl.pathname.startsWith("/api/")) {
+    console.log("Middleware: Skipping auth check for API route:", request.nextUrl.pathname);
+    return NextResponse.next();
+  }
+
   // Added debug logs and improved token retrieval
   console.log("Middleware checking auth for path:", request.nextUrl.pathname);
   

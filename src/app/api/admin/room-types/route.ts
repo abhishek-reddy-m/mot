@@ -2,14 +2,54 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 
+// Temporary non-auth route for testing
+export async function HEAD() {
+  try {
+    const roomTypes = await prisma.roomType.findMany({
+      include: {
+        property: {
+          select: {
+            id: true,
+            name: true,
+          }
+        },
+        _count: {
+          select: {
+            bookings: true,
+          }
+        }
+      },
+      take: 1
+    });
+    
+    return NextResponse.json({ success: true, count: roomTypes.length });
+  } catch (error) {
+    console.error('Test HEAD: Error:', error);
+    return NextResponse.json({ error: 'Test failed' }, { status: 500 });
+  }
+}
+
 // GET all room types
 export async function GET() {
   try {
     const session = await auth();
     
-    if (!session || session.user.role !== 'ADMIN') {
+    console.log('Room Types API: Auth session received:', session ? {
+      id: session.user?.id,
+      email: session.user?.email,
+      role: session.user?.role
+    } : 'No session');
+    
+    if (!session) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized - No session' },
+        { status: 401 }
+      );
+    }
+    
+    if (session.user?.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: `Unauthorized - Role ${session.user?.role} is not ADMIN` },
         { status: 401 }
       );
     }
@@ -94,7 +134,6 @@ export async function POST(req: NextRequest) {
         capacity: parseInt(capacity),
         basePrice: parseFloat(basePrice),
         totalRooms: parseInt(totalRooms.toString() || '0'),
-        availableRooms: parseInt(totalRooms.toString() || '0'), // Initially, all rooms are available
         amenities: amenities || [],
       },
       include: {

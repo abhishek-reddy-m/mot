@@ -7,9 +7,22 @@ export async function GET() {
   try {
     const session = await auth();
     
-    if (!session || session.user.role !== 'ADMIN') {
+    console.log('Dashboard API: Auth session received:', session ? {
+      id: session.user?.id,
+      email: session.user?.email,
+      role: session.user?.role
+    } : 'No session');
+    
+    if (!session) {
       return NextResponse.json(
-        { error: 'Unauthorized' },
+        { error: 'Unauthorized - No session' },
+        { status: 401 }
+      );
+    }
+    
+    if (session.user?.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: `Unauthorized - Role ${session.user?.role} is not ADMIN` },
         { status: 401 }
       );
     }
