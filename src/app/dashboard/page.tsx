@@ -198,6 +198,13 @@ export default function UserDashboard() {
             <div className="space-y-4">
               {bookings.map((booking) => {
                 const nights = calculateNights(booking.checkIn, booking.checkOut);
+                
+                // Check if booking is within 24 hours of check-in
+                const checkInDate = new Date(booking.checkIn);
+                const now = new Date();
+                const timeDiff = checkInDate.getTime() - now.getTime();
+                const hoursDiff = timeDiff / (1000 * 60 * 60);
+                const canModify = hoursDiff >= 24 && ['PENDING', 'CONFIRMED'].includes(booking.status.toUpperCase());
                 const mainPhoto = booking.property.photos?.[0]?.url || '/placeholder-motel.jpg';
                 
                 return (
@@ -254,10 +261,32 @@ export default function UserDashboard() {
                             ${Number(booking.totalPrice).toFixed(2)}
                           </div>
                           
-                          <Button variant="outline" size="sm" onClick={() => router.push(`/bookings/${booking.id}`)}>
-                            <Eye className="h-4 w-4 mr-1" />
-                            Details
-                          </Button>
+                          <div className="flex space-x-2">
+                            {canModify && (
+                              <>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  className="text-yellow-600 border-yellow-600 hover:bg-yellow-50"
+                                  onClick={() => router.push(`/bookings/${booking.id}/modify`)}
+                                >
+                                  Modify
+                                </Button>
+                                <Button 
+                                  variant="outline" 
+                                  size="sm"
+                                  className="text-red-600 border-red-600 hover:bg-red-50"
+                                  onClick={() => router.push(`/bookings/${booking.id}/cancel`)}
+                                >
+                                  Cancel
+                                </Button>
+                              </>
+                            )}
+                            <Button variant="outline" size="sm" onClick={() => router.push(`/bookings/${booking.id}`)}>
+                              <Eye className="h-4 w-4 mr-1" />
+                              Details
+                            </Button>
+                          </div>
                         </div>
                       </div>
                     </div>

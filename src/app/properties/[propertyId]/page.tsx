@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { MapPin, Star, Calendar, Users, Coffee, Wifi, Car, CheckCircle2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { normalizeDate, calculateNights, storeBookingSearch, getBookingSearch } from '@/lib/date-utils';
 
 type RoomType = {
   id: string;
@@ -83,12 +84,153 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
       
       try {
         setLoading(true);
-        const response = await fetch(`/api/properties/${propertyId}`);
+        
+        // First try to get dates from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        let checkInParam = urlParams.get('checkIn');
+        let checkOutParam = urlParams.get('checkOut');
+        let guestsParam = urlParams.get('guests');
+        
+        // Clean the checkInParam of any cache busting parameters
+        if (checkInParam && checkInParam.includes('?')) {
+          checkInParam = checkInParam.split('?')[0];
+          console.log(`Cleaned check-in param: ${checkInParam}`);
+        }
+        
+        // Get stored search from sessionStorage if URL params aren't available
+        if (!checkInParam || !checkOutParam) {
+          try {
+            const searchData = getBookingSearch();
+            checkInParam = checkInParam || searchData.checkIn;
+            checkOutParam = checkOutParam || searchData.checkOut;
+            guestsParam = guestsParam || searchData.guests;
+            console.log("Using dates from stored search:", { checkInParam, checkOutParam, guestsParam });
+          } catch (e) {
+            console.error("Error getting stored booking search:", e);
+          }
+        }
+        
+        // Normalize the check-in date
+        if (checkInParam) {
+          // Ensure it's a valid date in YYYY-MM-DD format using noon UTC to avoid timezone issues
+          let checkInDate: Date;
+          try {
+            checkInDate = new Date(`${checkInParam}T12:00:00Z`);
+            if (!isNaN(checkInDate.getTime())) {
+              const formattedCheckIn = checkInDate.toISOString().split('T')[0];
+              console.log(`Setting check-in date: ${formattedCheckIn} (from ${checkInParam})`);
+              setBookingDetails(prev => ({...prev, checkIn: formattedCheckIn}));
+            } else {
+              console.warn(`Invalid check-in date detected: ${checkInParam}`);
+              // Fallback to today's date if invalid
+              const today = new Date();
+              const formattedToday = today.toISOString().split('T')[0];
+              setBookingDetails(prev => ({...prev, checkIn: formattedToday}));
+            }
+          } catch (error) {
+            console.error("Error parsing check-in date:", error);
+            // Fallback to today's date on error
+            const today = new Date();
+            const formattedToday = today.toISOString().split('T')[0];
+            setBookingDetails(prev => ({...prev, checkIn: formattedToday}));
+          }
+        }
+        
+        // Normalize the check-out date
+        if (checkOutParam) {
+          // Ensure it's a valid date in YYYY-MM-DD format using noon UTC to avoid timezone issues
+          let checkOutDate: Date;
+          try {
+            checkOutDate = new Date(`${checkOutParam}T12:00:00Z`);
+            if (!isNaN(checkOutDate.getTime())) {
+              const formattedCheckOut = checkOutDate.toISOString().split('T')[0];
+              console.log(`Setting check-out date: ${formattedCheckOut} (from ${checkOutParam})`);
+              setBookingDetails(prev => ({...prev, checkOut: formattedCheckOut}));
+            } else {
+              console.warn(`Invalid check-out date detected: ${checkOutParam}`);
+              // Fallback to tomorrow's date if invalid
+              const tomorrow = new Date();
+              tomorrow.setDate(tomorrow.getDate() + 1);
+              const formattedTomorrow = tomorrow.toISOString().split('T')[0];
+              setBookingDetails(prev => ({...prev, checkOut: formattedTomorrow}));
+            }
+          } catch (error) {
+            console.error("Error parsing check-out date:", error);
+            // Fallback to tomorrow's date on error
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            const formattedTomorrow = tomorrow.toISOString().split('T')[0];
+            setBookingDetails(prev => ({...prev, checkOut: formattedTomorrow}));
+          }
+        }
+        
+        // Handle guests parameter
+        if (guestsParam) {
+          try {
+            const guestsValue = parseInt(guestsParam);
+            if (!isNaN(guestsValue) && guestsValue > 0) {
+              console.log(`Setting guests: ${guestsValue}`);
+              setBookingDetails(prev => ({...prev, guests: guestsValue}));
+            }
+          } catch (error) {
+            console.error("Error parsing guests parameter:", error);
+          }
+        }
+        
+        // Ensure we have clean YYYY-MM-DD formatted dates for consistency
+        const cleanCheckIn = bookingDetails.checkIn.trim().match(/^\d{4}-\d{2}-\d{2}$/)
+          ? bookingDetails.checkIn.trim()
+          : new Date(`${bookingDetails.checkIn}T12:00:00Z`).toISOString().split('T')[0];
+          
+        const cleanCheckOut = bookingDetails.checkOut.trim().match(/^\d{4}-\d{2}-\d{2}$/)
+          ? bookingDetails.checkOut.trim()
+          : new Date(`${bookingDetails.checkOut}T12:00:00Z`).toISOString().split('T')[0];
+        
+        // Save the current booking details to sessionStorage for consistency
+        const currentBookingDetails = {
+          propertyId,
+          checkIn: cleanCheckIn,
+          checkOut: cleanCheckOut,
+          guests: guestsParam ? parseInt(guestsParam) : bookingDetails.guests
+        };
+        
+        // Save both currentBooking and lastSearch to maintain consistency across flows
+        sessionStorage.setItem('currentBooking', JSON.stringify(currentBookingDetails));
+        sessionStorage.setItem('lastSearch', JSON.stringify({
+          propertyId,
+          checkIn: cleanCheckIn,
+          checkOut: cleanCheckOut,
+          guests: currentBookingDetails.guests
+        }));
+        
+        // Build API URL with date parameters to ensure we get date-specific availability
+        const apiParams = new URLSearchParams();
+        const timestamp = new Date().getTime();
+        
+        if (cleanCheckIn) apiParams.append('checkIn', cleanCheckIn);
+        if (cleanCheckOut) apiParams.append('checkOut', cleanCheckOut);
+        if (bookingDetails.guests) apiParams.append('guests', bookingDetails.guests.toString());
+        apiParams.append('_t', timestamp.toString()); // Add cache busting
+        
+        const apiUrl = `/api/properties/${propertyId}?${apiParams.toString()}`;
+        console.log(`Fetching property with date-specific availability: ${apiUrl}`);
+        
+        const response = await fetch(apiUrl, {
+          // Add cache control headers
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        });
+        
         if (!response.ok) {
           throw new Error('Failed to fetch property');
         }
+        
         const data = await response.json();
         setProperty(data);
+        console.log(`Property loaded with ${data.roomTypes?.length || 0} room types`);
         
         // If there are room types, select the first one by default
         if (data.roomTypes && data.roomTypes.length > 0) {
@@ -97,6 +239,12 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
             ...prev,
             roomTypeId: data.roomTypes[0].id
           }));
+          
+          // Log availability for debugging
+          data.roomTypes.forEach((rt: RoomType) => {
+            console.log(`Room type: ${rt.name}, Available: ${rt.availableRooms}/${rt.totalRooms}`);
+            console.log(`Calculated Available Rooms: ${(rt as any).calculatedAvailableRooms}`);
+          });
         }
       } catch (err) {
         setError('Error loading property. Please try again.');
@@ -129,15 +277,50 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
   };
 
   const calculateTotalPrice = () => {
-    if (!selectedRoomType) return 0;
+    if (!selectedRoomType || !bookingDetails.checkIn || !bookingDetails.checkOut) return 0;
     
-    const checkIn = new Date(bookingDetails.checkIn);
-    const checkOut = new Date(bookingDetails.checkOut);
-    const nights = Math.max(1, Math.ceil((checkOut.getTime() - checkIn.getTime()) / (1000 * 3600 * 24)));
+    // Use our date utility function to normalize dates and calculate nights
+    const normalizedCheckIn = normalizeDate(bookingDetails.checkIn);
+    const normalizedCheckOut = normalizeDate(bookingDetails.checkOut, 1); // fallback to tomorrow if invalid
+    
+    // Get date objects for logging
+    const checkIn = new Date(`${normalizedCheckIn}T12:00:00Z`);
+    const checkOut = new Date(`${normalizedCheckOut}T12:00:00Z`);
+    
+    // Calculate nights using our utility function
+    const nights = calculateNights(normalizedCheckIn, normalizedCheckOut);
+    
+    console.log(`Calculating price: ${nights} nights × ${selectedRoomType.basePrice} × ${bookingDetails.rooms} rooms`);
+    console.log(`Date details for price calculation: checkIn=${checkIn.toISOString()}, checkOut=${checkOut.toISOString()}`);
+    console.log(`Normalized dates: checkIn=${normalizedCheckIn}, checkOut=${normalizedCheckOut}`);
     
     return selectedRoomType.basePrice * nights * bookingDetails.rooms;
   };
 
+  const refreshAvailability = () => {
+    // Force refresh with current dates
+    const timestamp = new Date().getTime();
+    
+    // Use our date utility function for consistent normalization
+    const cleanCheckIn = normalizeDate(bookingDetails.checkIn);
+    const cleanCheckOut = normalizeDate(bookingDetails.checkOut, 1);
+    
+    // Use our utility to store search parameters consistently
+    storeBookingSearch({
+      checkIn: cleanCheckIn,
+      checkOut: cleanCheckOut,
+      guests: bookingDetails.guests,
+      propertyId
+    });
+    
+    console.log(`Refreshing availability for dates: ${cleanCheckIn} to ${cleanCheckOut}`);
+    
+    // Instead of using router.replace, use window.location for a full page reload
+    // This avoids the useSearchParams issue during build
+    const url = `/properties/${propertyId}?checkIn=${cleanCheckIn}&checkOut=${cleanCheckOut}&guests=${bookingDetails.guests}&_t=${timestamp}`;
+    window.location.href = url;
+  };
+  
   const handleBookNow = async () => {
     try {
       setIsBooking(true);
@@ -158,6 +341,29 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
         return;
       }
       
+      // Format dates consistently as YYYY-MM-DD for the API using our utility
+      const formattedCheckIn = normalizeDate(bookingDetails.checkIn);
+      const formattedCheckOut = normalizeDate(bookingDetails.checkOut, 1); // fallback to tomorrow if invalid
+        
+      console.log('Creating booking with dates:', {
+        original: {
+          checkIn: bookingDetails.checkIn,
+          checkOut: bookingDetails.checkOut
+        },
+        formatted: {
+          checkIn: formattedCheckIn,
+          checkOut: formattedCheckOut
+        }
+      });
+      
+      // Store the final booking details for consistency across the flow
+      storeBookingSearch({
+        checkIn: formattedCheckIn,
+        checkOut: formattedCheckOut,
+        guests: bookingDetails.guests,
+        propertyId
+      });
+      
       // User is logged in, proceed with booking
       const response = await fetch('/api/bookings', {
         method: 'POST',
@@ -167,8 +373,8 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
         body: JSON.stringify({
           propertyId: propertyId,
           roomTypeId: bookingDetails.roomTypeId,
-          checkIn: bookingDetails.checkIn,
-          checkOut: bookingDetails.checkOut,
+          checkIn: formattedCheckIn,
+          checkOut: formattedCheckOut,
           guests: bookingDetails.guests,
           rooms: bookingDetails.rooms,
           totalPrice: calculateTotalPrice()
@@ -287,7 +493,41 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
         
         {/* Room Types */}
         <div className="mb-8">
-          <h2 className="text-2xl font-bold mb-4">Available Rooms</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold">Available Rooms</h2>
+            
+            <div className="flex items-center space-x-2">
+              <div className="text-sm text-gray-500">
+                {bookingDetails.checkIn && bookingDetails.checkOut && (
+                  <span>
+                    For {new Date(`${bookingDetails.checkIn}T12:00:00Z`).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})} - {new Date(`${bookingDetails.checkOut}T12:00:00Z`).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}
+                  </span>
+                )}
+              </div>
+              
+              <Button 
+                variant="outline" 
+                size="sm"
+                className="flex items-center space-x-1 text-blue-600 border-blue-200 hover:bg-blue-50"
+                onClick={() => {
+                  // Show a brief message to indicate refresh is happening
+                  const refreshBtn = document.getElementById('refresh-btn');
+                  if (refreshBtn) {
+                    refreshBtn.classList.add('pointer-events-none');
+                    refreshBtn.querySelector('span')!.textContent = 'Refreshing...';
+                  }
+                  // Call the refresh function after a brief delay
+                  setTimeout(refreshAvailability, 100);
+                }}
+                id="refresh-btn"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="animate-spin duration-1000">
+                  <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                </svg>
+                <span>Refresh Availability</span>
+              </Button>
+            </div>
+          </div>
           
           {property.roomTypes.length === 0 ? (
             <div className="bg-white p-6 rounded-lg shadow-sm text-center">
@@ -299,7 +539,16 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                 const roomPhoto = roomType.photos.find(p => p.isMain)?.url || 
                                  roomType.photos[0]?.url || 
                                  mainPhoto;
-                const isAvailable = (roomType.availableRooms > 0) && roomType.isActive;
+                // Ensure we're using the calculated available rooms correctly
+                // Use calculatedAvailableRooms if available (from date-specific check)
+                // Otherwise fall back to the standard availableRooms
+                const availableRooms = (roomType as any).calculatedAvailableRooms !== undefined 
+                  ? (roomType as any).calculatedAvailableRooms 
+                  : roomType.availableRooms;
+                
+                const isAvailable = (availableRooms > 0) && roomType.isActive;
+                
+                console.log(`Rendering room type ${roomType.name}: isAvailable=${isAvailable}, availableRooms=${availableRooms}, calculatedAvailable=${(roomType as any).calculatedAvailableRooms}`);
                 
                 return (
                   <Card 
@@ -341,10 +590,30 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                       </CardDescription>
                       <div className="mt-1 text-sm text-muted-foreground flex flex-col space-y-1">
                         <div className="flex items-center">
-                          <span className={`font-medium ${roomType.availableRooms > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                            {roomType.availableRooms} {roomType.availableRooms === 1 ? 'room' : 'rooms'} available
+                          {/* Use the calculatedAvailableRooms property if available, or fall back to the regular property */}
+                          <span className={`font-medium ${availableRooms > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                            {availableRooms} {availableRooms === 1 ? 'room' : 'rooms'} available
                           </span>
+                          
+                          {bookingDetails.checkIn && bookingDetails.checkOut && (
+                            <span className="ml-2 text-xs text-gray-500">
+                              for {new Date(`${bookingDetails.checkIn}T12:00:00Z`).toLocaleDateString()} - {new Date(`${bookingDetails.checkOut}T12:00:00Z`).toLocaleDateString()}
+                            </span>
+                          )}
                         </div>
+                        
+                        {availableRooms > 0 && bookingDetails.checkIn && bookingDetails.checkOut && (
+                          <div className="text-xs text-green-700 flex items-center mt-1">
+                            <CheckCircle2 className="h-3 w-3 mr-1" /> 
+                            Available for your selected dates
+                          </div>
+                        )}
+                        
+                        {roomType.totalRooms > 0 && (
+                          <div className="text-xs text-gray-500 mt-1">
+                            {availableRooms}/{roomType.totalRooms} total rooms
+                          </div>
+                        )}
                       </div>
                     </CardHeader>
                     
@@ -451,7 +720,7 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                       onChange={handleBookingDetailsChange}
                       className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      {Array.from({ length: Math.min(5, selectedRoomType.availableRooms) }, (_, i) => i + 1).map(num => (
+                      {Array.from({ length: Math.min(5, (selectedRoomType as any).calculatedAvailableRooms || selectedRoomType.availableRooms) }, (_, i) => i + 1).map(num => (
                         <option key={num} value={num}>{num} room{num !== 1 ? 's' : ''}</option>
                       ))}
                     </select>

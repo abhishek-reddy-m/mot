@@ -84,7 +84,7 @@ export function HeroSection() {
           {/* Badge */}
           <div className="animate-text mb-4">
             <span className="inline-block px-6 py-2 bg-white/95 backdrop-blur-md text-gray-800 text-sm font-semibold rounded-full shadow-2xl border border-gray-200/50 shadow-gray-900/20">
-              🌴 Discover <span className="text-blue-600 font-bold">Los Angeles</span>
+              � Find Your <span className="text-blue-600 font-bold">Perfect Stay</span>
             </span>
           </div>
 
@@ -97,12 +97,12 @@ export function HeroSection() {
           
           <h2 className="animate-text mb-6 text-2xl font-bold sm:text-3xl md:text-4xl lg:text-5xl xl:text-6xl leading-tight">
             <span className="text-white drop-shadow-[0_4px_8px_rgba(0,0,0,0.5)] [text-shadow:_1px_1px_4px_rgb(0_0_0_/_50%)]">
-              Los Angeles
+              Amazing Places
             </span>
           </h2>
           
           <p className="animate-text mx-auto mb-8 max-w-2xl text-base text-white/95 sm:text-lg md:text-xl leading-relaxed drop-shadow-[0_2px_4px_rgba(0,0,0,0.4)] [text-shadow:_1px_1px_2px_rgb(0_0_0_/_40%)]">
-            Premium hotels across LA&apos;s most iconic neighborhoods.
+            Premium accommodations for your perfect vacation or business trip.
           </p>
           
           <motion.div
@@ -111,7 +111,7 @@ export function HeroSection() {
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.8, duration: 0.6 }}
           >
-            <SearchBar />
+            <SearchBar variant="default" />
           </motion.div>
         </motion.div>
       </div>

@@ -70,25 +70,43 @@ model PropertyPhoto {
 
 // Room types for each property
 model RoomType {
-  id             String  @id @default(cuid())
-  propertyId     String
-  name           String
-  description    String?
-  capacity       Int
-  basePrice      Decimal @db.Decimal(10, 2)
-  totalRooms     Int     @default(0)
-  availableRooms Int     @default(0) 
-  amenities      String[] // JSON array of room amenities
-  isActive       Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id         String  @id @default(cuid())
+  propertyId String
+  name       String
+  description String?
+  capacity   Int
+  basePrice  Decimal @db.Decimal(10, 2)
+  totalRooms Int     @default(0)
+  amenities  String[] // JSON array of room amenities
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Relations
-  property Property        @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  photos   RoomTypePhoto[]
-  bookings Booking[]
+  property         Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  photos           RoomTypePhoto[]
+  bookings         Booking[]
+  roomAvailability RoomAvailability[]
 
   @@map("room_types")
+}
+
+// Daily room availability tracking
+model RoomAvailability {
+  id         String   @id @default(cuid())
+  roomTypeId String
+  date       DateTime
+  totalRooms Int
+  bookedRooms Int     @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Relations
+  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([roomTypeId, date])
+  @@index([date])
+  @@map("room_availabilities")
 }
 
 // Room type photos

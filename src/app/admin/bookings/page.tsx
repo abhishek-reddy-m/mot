@@ -282,13 +282,37 @@ export default function AdminBookingsPage() {
                         </div>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <Button 
-                          variant="outline" 
-                          size="sm"
-                          onClick={() => router.push(`/admin/bookings/${booking.id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
+                        <div className="flex gap-2">
+                          <Button 
+                            variant="outline" 
+                            size="sm"
+                            onClick={() => router.push(`/admin/bookings/${booking.id}`)}
+                          >
+                            <Eye className="h-4 w-4" />
+                          </Button>
+                          
+                          {booking.status === 'CONFIRMED' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="bg-blue-50 hover:bg-blue-100 text-blue-700"
+                              onClick={() => router.push(`/admin/bookings/${booking.id}?action=checkin`)}
+                            >
+                              Check In
+                            </Button>
+                          )}
+                          
+                          {(booking.status === 'PENDING' || booking.status === 'CONFIRMED') && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="bg-red-50 hover:bg-red-100 text-red-700"
+                              onClick={() => router.push(`/admin/bookings/${booking.id}?action=cancel`)}
+                            >
+                              Cancel
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );

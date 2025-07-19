@@ -58,50 +58,63 @@ export async function PUT(
       );
     }
     
+    // Check cancellation timeframe - customers can only cancel 24 hours before check-in
+    // Admins can bypass this restriction
+    if (!isAdmin) {
+      const checkInDate = new Date(booking.checkIn);
+      const now = new Date();
+      const timeDiff = checkInDate.getTime() - now.getTime();
+      const hoursDiff = timeDiff / (1000 * 60 * 60);
+      
+      if (hoursDiff < 24) {
+        return NextResponse.json(
+          { error: 'Bookings can only be cancelled at least 24 hours before check-in' },
+          { status: 400 }
+        );
+      }
+    }
+    
     // Get request body for optional cancellation reason
     const body = await request.json().catch(() => ({}));
     const cancellationReason = body.reason || 'Booking cancelled by user';
     
-    // Use a transaction to update booking status and return rooms to inventory
-    const updatedBooking = await prisma.$transaction(async (prisma) => {
-      // 1. Update room inventory by incrementing the availableRooms count
-      await prisma.roomType.update({
-        where: { id: booking.roomTypeId },
-        data: {
-          availableRooms: {
-            increment: booking.rooms
+    // Import the room availability update function
+    const { updateRoomAvailability } = await import('@/lib/room-availability');
+
+    // Update the booking status
+    const updatedBooking = await prisma.booking.update({
+      where: { id: bookingId },
+      data: {
+        status: 'CANCELLED',
+        statusHistory: {
+          create: {
+            status: 'CANCELLED',
+            notes: cancellationReason
           }
         }
-      });
-      
-      // 2. Update the booking status
-      const updated = await prisma.booking.update({
-        where: { id: bookingId },
-        data: {
-          status: 'CANCELLED',
-          statusHistory: {
-            create: {
-              status: 'CANCELLED',
-              notes: cancellationReason
-            }
-          }
+      },
+      include: {
+        roomType: {
+          select: { name: true }
         },
-        include: {
-          roomType: {
-            select: { name: true }
-          },
-          property: {
-            select: { name: true }
-          },
-          statusHistory: {
-            orderBy: { createdAt: 'desc' },
-            take: 1
-          }
+        property: {
+          select: { name: true }
+        },
+        statusHistory: {
+          orderBy: { createdAt: 'desc' },
+          take: 1
         }
-      });
-      
-      return updated;
+      }
     });
+    
+    // Update room availability records to reflect the cancellation
+    await updateRoomAvailability(
+      booking.roomTypeId,
+      booking.checkIn,
+      booking.checkOut,
+      booking.rooms,
+      true // This is a cancellation
+    );
     
     return NextResponse.json({
       message: 'Booking cancelled successfully',

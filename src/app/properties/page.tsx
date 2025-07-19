@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Navigation from '@/components/Navigation';
+import { SearchBar } from '@/components/search-bar';
 import { 
   MapPin, 
   Star, 
@@ -25,7 +26,9 @@ import {
   Building2,
   UtensilsCrossed as Utensils,
   PalmtreeIcon as Palmtree,
-  Clapperboard as Film
+  Clapperboard as Film,
+  Calendar,
+  Users
 } from 'lucide-react';
 
 type PropertyWithAvailability = {
@@ -50,12 +53,49 @@ export default function PropertiesPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  
+  // Using window.location.search instead of useSearchParams to avoid the SSR issue
+  const [urlParams, setUrlParams] = useState<{
+    propertyId: string | null,
+    checkIn: string | null,
+    checkOut: string | null,
+    guests: string | null
+  }>({
+    propertyId: null,
+    checkIn: null,
+    checkOut: null,
+    guests: null
+  });
+  
+  // Get search params from URL once the component mounts on client
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      setUrlParams({
+        propertyId: params.get('propertyId'),
+        checkIn: params.get('checkIn'),
+        checkOut: params.get('checkOut'),
+        guests: params.get('guests')
+      });
+    }
+  }, []);
 
   useEffect(() => {
     const fetchProperties = async () => {
       try {
         setLoading(true);
-        const response = await fetch('/api/properties');
+        
+        // Build the API query with URL parameters
+        const apiParams = new URLSearchParams();
+        if (urlParams.propertyId) apiParams.append('propertyId', urlParams.propertyId);
+        if (urlParams.checkIn) apiParams.append('checkIn', urlParams.checkIn);
+        if (urlParams.checkOut) apiParams.append('checkOut', urlParams.checkOut);
+        if (urlParams.guests) apiParams.append('guests', urlParams.guests);
+        
+        const queryString = apiParams.toString();
+        const apiUrl = `/api/properties${queryString ? `?${queryString}` : ''}`;
+        
+        const response = await fetch(apiUrl);
         if (!response.ok) {
           throw new Error('Failed to fetch properties');
         }
@@ -69,9 +109,34 @@ export default function PropertiesPage() {
       }
     };
 
-    fetchProperties();
-  }, []);
+    // Only fetch when urlParams are available (client-side only)
+    if (typeof window !== 'undefined') {
+      fetchProperties();
+    }
+  }, [urlParams.propertyId, urlParams.checkIn, urlParams.checkOut, urlParams.guests]);
 
+  // Get search parameters for display
+  const [searchParams, setSearchParams] = useState<{
+    propertyName?: string;
+    checkIn?: string;
+    checkOut?: string;
+    guests?: string;
+  }>({});
+  
+  useEffect(() => {
+    // If propertyId is provided, find the property name
+    const propertyName = urlParams.propertyId 
+      ? properties.find(p => p.id === urlParams.propertyId)?.name 
+      : undefined;
+    
+    setSearchParams({
+      propertyName,
+      checkIn: urlParams.checkIn || undefined,
+      checkOut: urlParams.checkOut || undefined,
+      guests: urlParams.guests || undefined,
+    });
+  }, [properties, urlParams]);
+  
   const filteredProperties = properties.filter((property) =>
     property.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
     property.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -127,15 +192,15 @@ export default function PropertiesPage() {
             {property.description || 'Comfortable accommodation with modern amenities.'}
           </p>
 
-          {/* LA-specific amenities */}
+          {/* Property amenities */}
           <div className="mb-6">
-            {/* LA neighborhood indicator */}
+            {/* Location info */}
             <div className="flex items-center mb-4">
               <MapPin className="h-4 w-4 text-blue-600 mr-2" />
               <span className="text-sm text-gray-700">
-                <span className="font-medium">{property.city === 'Los Angeles' ? 'Hollywood' : 'Downtown LA'}</span> • 
+                <span className="font-medium">{property.city}</span> • 
                 <span className="text-gray-500 ml-1">
-                  {property.id.charCodeAt(0) % 2 === 0 ? '5 min to Walk of Fame' : '10 min to Staples Center'}
+                  {property.zipCode}
                 </span>
               </span>
             </div>
@@ -148,10 +213,10 @@ export default function PropertiesPage() {
               </div>
               <div className="bg-blue-50 rounded-lg p-2 flex flex-col items-center justify-center text-center">
                 <Car className="h-4 w-4 text-blue-600 mb-1" />
-                <span className="text-xs text-gray-700">Valet Parking</span>
+                <span className="text-xs text-gray-700">Parking</span>
               </div>
               <div className="bg-blue-50 rounded-lg p-2 flex flex-col items-center justify-center text-center">
-                {property.id.charCodeAt(0) % 2 === 0 ? (
+                {parseInt(property.id) % 2 === 0 ? (
                   <>
                     <SwimmingPool className="h-4 w-4 text-blue-600 mb-1" />
                     <span className="text-xs text-gray-700">Pool</span>
@@ -183,7 +248,34 @@ export default function PropertiesPage() {
               )}
             </div>
             <Button 
-              onClick={() => router.push(`/properties/${property.id}`)}
+              onClick={() => {
+                // Get the current search parameters
+                const params = new URLSearchParams();
+                if (urlParams.checkIn) params.append('checkIn', urlParams.checkIn);
+                if (urlParams.checkOut) params.append('checkOut', urlParams.checkOut);
+                if (urlParams.guests) params.append('guests', urlParams.guests);
+                
+                // Add a timestamp for cache busting
+                params.append('_t', new Date().getTime().toString());
+                
+                // Store the search parameters in session storage for consistency
+                // This helps ensure the property details page can access the same dates
+                const searchData = {
+                  checkIn: urlParams.checkIn || '',
+                  checkOut: urlParams.checkOut || '',
+                  guests: urlParams.guests || '',
+                  propertyId: property.id
+                };
+                
+                try {
+                  sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
+                } catch (e) {
+                  console.error('Error storing search data:', e);
+                }
+                
+                // Navigate to property details with search parameters
+                router.push(`/properties/${property.id}?${params.toString()}`);
+              }}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
               View Details
@@ -302,58 +394,80 @@ export default function PropertiesPage() {
     <div className="min-h-screen bg-gray-50">
       <Navigation />
       
-      {/* Hero section for Los Angeles properties */}
+      {/* Hero section for properties */}
       <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white py-16 relative overflow-hidden">
-        {/* LA skyline silhouette */}
-        <div className="absolute bottom-0 left-0 right-0 h-16 bg-black opacity-20" style={{ 
-          maskImage: 'url("https://assets.codepen.io/756881/la-skyline.png")', 
-          maskSize: 'contain',
-          maskRepeat: 'repeat-x',
-          maskPosition: 'bottom'
-        }}></div>
-        
         <div className="container mx-auto px-4 relative z-10">
           <div className="max-w-4xl">
-            <div className="flex items-center mb-2">
-              <MapPin className="h-5 w-5 text-yellow-400 mr-2" />
-              <span className="text-yellow-300 font-medium">Los Angeles, California</span>
-            </div>
-            <h1 className="text-4xl md:text-5xl font-bold mb-4">Discover LA&apos;s Best Places to Stay</h1>
-            <p className="text-xl text-blue-100 mb-8 max-w-2xl">
-              From downtown luxury to beachside comfort, find the perfect spot for your LA adventure
-            </p>
+            {searchParams.propertyName || searchParams.checkIn || searchParams.checkOut || searchParams.guests ? (
+              <>
+                <div className="flex items-center mb-2">
+                  <Search className="h-5 w-5 text-yellow-400 mr-2" />
+                  <span className="text-yellow-300 font-medium">Search Results</span>
+                </div>
+                <h1 className="text-3xl md:text-4xl font-bold mb-4">
+                  {searchParams.propertyName ? 
+                    `${searchParams.propertyName}` : 
+                    "Available Properties"
+                  }
+                </h1>
+                <div className="flex flex-wrap gap-2 mb-6">
+                  {searchParams.checkIn && searchParams.checkOut && (
+                    <div className="bg-blue-600/50 backdrop-blur-sm rounded-full px-3 py-1 flex items-center">
+                      <Calendar className="h-4 w-4 mr-1" />
+                      <span className="text-sm">
+                        {new Date(searchParams.checkIn).toLocaleDateString()} - {new Date(searchParams.checkOut).toLocaleDateString()}
+                      </span>
+                    </div>
+                  )}
+                  
+                  {searchParams.guests && (
+                    <div className="bg-blue-600/50 backdrop-blur-sm rounded-full px-3 py-1 flex items-center">
+                      <Users className="h-4 w-4 mr-1" />
+                      <span className="text-sm">{searchParams.guests} {parseInt(searchParams.guests) === 1 ? 'Guest' : 'Guests'}</span>
+                    </div>
+                  )}
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-center mb-2">
+                  <MapPin className="h-5 w-5 text-yellow-400 mr-2" />
+                  <span className="text-yellow-300 font-medium">Find Your Perfect Stay</span>
+                </div>
+                <h1 className="text-4xl md:text-5xl font-bold mb-4">Discover Amazing Places to Stay</h1>
+                <p className="text-xl text-blue-100 mb-8 max-w-2xl">
+                  From luxury hotels to comfortable motels, find the perfect accommodation for your next trip
+                </p>
+              </>
+            )}
             
-            {/* Search bar - prominent placement */}
-            <div className="relative bg-white rounded-lg shadow-lg overflow-hidden">
-              <div className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-500">
-                <Search className="w-5 h-5" />
-              </div>
-              <input 
-                type="text"
-                placeholder="Search LA properties by name, neighborhood, or features..."
-                className="w-full pl-12 pr-4 py-4 focus:outline-none focus:ring-2 focus:ring-blue-500 text-gray-900"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-            </div>
+            {/* Search bar component with URL parameters */}
+            <SearchBar 
+              initialValues={{
+                propertyId: urlParams.propertyId || '',
+                checkIn: urlParams.checkIn || '',
+                checkOut: urlParams.checkOut || '',
+                guests: urlParams.guests || ''
+              }}
+            />
             
-            {/* Popular LA neighborhoods */}
+            {/* Popular features */}
             <div className="mt-8 flex flex-wrap gap-2">
-              <span className="text-sm font-medium text-white mr-2">Popular areas:</span>
+              <span className="text-sm font-medium text-white mr-2">Popular features:</span>
               <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Downtown LA
+                Free WiFi
               </Button>
               <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Hollywood
+                Swimming Pool
               </Button>
               <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Santa Monica
+                Free Parking
               </Button>
               <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Beverly Hills
+                Breakfast Included
               </Button>
               <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Venice Beach
+                Pet Friendly
               </Button>
             </div>
           </div>
@@ -361,140 +475,26 @@ export default function PropertiesPage() {
       </div>
       
       <div className="container mx-auto px-4 py-12">
-        {/* LA-specific filter section */}
-        <div className="bg-white rounded-xl shadow-md p-6 mb-12 border border-gray-100">
-          <h2 className="text-lg font-semibold mb-4 text-gray-800 flex items-center">
-            <FilterIcon className="w-5 h-5 mr-2 text-blue-600" />
-            Find Your Perfect LA Stay
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">LA Neighborhood</label>
-              <div className="relative">
-                <select className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none pr-10">
-                  <option>All Neighborhoods</option>
-                  <option>Downtown LA</option>
-                  <option>Hollywood</option>
-                  <option>Beverly Hills</option>
-                  <option>Santa Monica</option>
-                  <option>Venice Beach</option>
-                  <option>West Hollywood</option>
-                  <option>Silver Lake</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
-                  <ChevronDown className="h-4 w-4" />
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Price Range</label>
-              <div className="relative">
-                <select className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none pr-10">
-                  <option>Any Price</option>
-                  <option>Under $150</option>
-                  <option>$150 - $250</option>
-                  <option>$250 - $400</option>
-                  <option>Over $400</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
-                  <ChevronDown className="h-4 w-4" />
-                </div>
-              </div>
-            </div>
-            
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">Near Attraction</label>
-              <div className="relative">
-                <select className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 appearance-none pr-10">
-                  <option>Any Location</option>
-                  <option>Hollywood Sign</option>
-                  <option>Universal Studios</option>
-                  <option>Santa Monica Pier</option>
-                  <option>Venice Boardwalk</option>
-                  <option>Rodeo Drive</option>
-                  <option>The Grove</option>
-                  <option>Griffith Observatory</option>
-                </select>
-                <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
-                  <ChevronDown className="h-4 w-4" />
-                </div>
-              </div>
-            </div>
-            
-            <div className="flex items-end">
-              <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6">
-                <FilterIcon className="w-4 h-4 mr-2" />
-                Find LA Properties
-              </Button>
-            </div>
-          </div>
-          
-          {/* LA-specific filters */}
-          <div className="mt-6 flex flex-wrap gap-2">
-            <div className="mr-4">
-              <span className="text-sm font-medium text-gray-700 mr-2 flex items-center mb-2">
-                Property Type:
-              </span>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <Building className="h-3 w-3 mr-1" /> Hotel
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <Home className="h-3 w-3 mr-1" /> Motel
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <Building2 className="h-3 w-3 mr-1" /> Boutique
-                </Button>
-              </div>
-            </div>
-            
-            <div>
-              <span className="text-sm font-medium text-gray-700 mr-2 flex items-center mb-2">
-                LA Amenities:
-              </span>
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <Wifi className="h-3 w-3 mr-1" /> WiFi
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <SwimmingPool className="h-3 w-3 mr-1" /> Pool
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <Car className="h-3 w-3 mr-1" /> Valet Parking
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <Utensils className="h-3 w-3 mr-1" /> Restaurant
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <Palmtree className="h-3 w-3 mr-1" /> Ocean View
-                </Button>
-                <Button variant="outline" size="sm" className="rounded-full">
-                  <Film className="h-3 w-3 mr-1" /> Studio Tours
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
+        {/* Additional filter options can be added here if needed */}
         
-        {/* LA Results info */}
+        {/* Results info */}
         <div className="flex flex-col md:flex-row justify-between items-center mb-8">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">
-              Los Angeles Properties
+              Available Properties
               {!loading && <span className="text-gray-500 ml-2 text-lg">({filteredProperties.length})</span>}
             </h2>
             <p className="text-gray-600">
-              Experience the best of LA with our carefully curated accommodations
+              Find your perfect stay with our carefully selected accommodations
             </p>
           </div>
           <div className="mt-4 md:mt-0">
             <select className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
               <option>Sort by: Recommended</option>
-              <option>Distance to Hollywood</option>
-              <option>Distance to Beach</option>
               <option>Price: Low to High</option>
+              <option>Price: High to Low</option>
               <option>Rating: High to Low</option>
+              <option>Most Available Rooms</option>
             </select>
           </div>
         </div>
@@ -503,7 +503,7 @@ export default function PropertiesPage() {
         {loading ? (
           <PropertiesLoading />
         ) : error ? (
-          <ErrorState message={error} onRetry={() => window.location.reload()} />
+          <ErrorState message={error} onRetry={() => router.refresh()} />
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
             {filteredProperties.length === 0 ? (
