@@ -81,8 +81,7 @@ export async function PUT(
       basePrice, 
       amenities, 
       isActive,
-      totalRooms,
-      availableRooms
+      totalRooms
     } = body;
 
     // Validate required fields
@@ -116,7 +115,6 @@ export async function PUT(
           capacity: Number(capacity),
           basePrice: Number(basePrice),
           totalRooms: totalRooms !== undefined ? Number(totalRooms) : undefined,
-          availableRooms: availableRooms !== undefined ? Number(availableRooms) : undefined,
           amenities: amenities || [],
           isActive: isActive !== false
         }

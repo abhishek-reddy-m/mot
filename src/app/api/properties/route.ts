@@ -71,7 +71,7 @@ export async function GET(
       whereClause.id = propertyId;
     }
     
-    // Get properties with their room types
+    // Get properties with their room types - FIXED VERSION WITHOUT availableRooms
     const properties = await prisma.property.findMany({
       where: whereClause,
       include: {
