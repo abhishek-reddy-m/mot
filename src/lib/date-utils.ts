@@ -38,6 +38,41 @@ export function normalizeDate(dateString: string, fallbackOffset = 0): string {
 }
 
 /**
+ * Formats a date string for display without timezone issues
+ * 
+ * @param dateString - Date string in YYYY-MM-DD format
+ * @param format - Format type ('short' | 'long')
+ * @returns Formatted date string
+ */
+export function formatDateForDisplay(dateString: string, format: 'short' | 'long' = 'short'): string {
+  try {
+    const normalized = normalizeDate(dateString);
+    const [year, month, day] = normalized.split('-').map(Number);
+    
+    // Create date using local timezone but with explicit components to avoid shifting
+    const date = new Date(year, month - 1, day); // month is 0-indexed
+    
+    if (format === 'long') {
+      return date.toLocaleDateString('en-US', { 
+        weekday: 'short',
+        year: 'numeric', 
+        month: 'long', 
+        day: 'numeric' 
+      });
+    }
+    
+    return date.toLocaleDateString('en-US', { 
+      month: 'numeric',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return dateString;
+  }
+}
+
+/**
  * Calculates the number of nights between two date strings
  * 
  * @param checkIn - Check-in date string

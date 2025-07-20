@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Navigation from '@/components/Navigation';
 import { SearchBar } from '@/components/search-bar';
+import { formatDateForDisplay } from '@/lib/date-utils';
 import { 
   MapPin, 
   Star, 
@@ -415,7 +416,7 @@ export default function PropertiesPage() {
                     <div className="bg-blue-600/50 backdrop-blur-sm rounded-full px-3 py-1 flex items-center">
                       <Calendar className="h-4 w-4 mr-1" />
                       <span className="text-sm">
-                        {new Date(searchParams.checkIn).toLocaleDateString()} - {new Date(searchParams.checkOut).toLocaleDateString()}
+                        {formatDateForDisplay(searchParams.checkIn)} - {formatDateForDisplay(searchParams.checkOut)}
                       </span>
                     </div>
                   )}

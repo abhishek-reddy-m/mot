@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { MapPin, Star, Calendar, Users, Coffee, Wifi, Car, CheckCircle2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { normalizeDate, calculateNights, storeBookingSearch, getBookingSearch } from '@/lib/date-utils';
+import { normalizeDate, calculateNights, storeBookingSearch, getBookingSearch, formatDateForDisplay } from '@/lib/date-utils';
 
 type RoomType = {
   id: string;
@@ -500,7 +500,7 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
               <div className="text-sm text-gray-500">
                 {bookingDetails.checkIn && bookingDetails.checkOut && (
                   <span>
-                    For {new Date(`${bookingDetails.checkIn}T12:00:00Z`).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})} - {new Date(`${bookingDetails.checkOut}T12:00:00Z`).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}
+                    For {formatDateForDisplay(bookingDetails.checkIn, 'short')} - {formatDateForDisplay(bookingDetails.checkOut, 'short')}
                   </span>
                 )}
               </div>
@@ -597,7 +597,7 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                           
                           {bookingDetails.checkIn && bookingDetails.checkOut && (
                             <span className="ml-2 text-xs text-gray-500">
-                              for {new Date(`${bookingDetails.checkIn}T12:00:00Z`).toLocaleDateString()} - {new Date(`${bookingDetails.checkOut}T12:00:00Z`).toLocaleDateString()}
+                              for {formatDateForDisplay(bookingDetails.checkIn)} - {formatDateForDisplay(bookingDetails.checkOut)}
                             </span>
                           )}
                         </div>

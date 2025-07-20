@@ -5,7 +5,7 @@ import { Search, Building2, Calendar, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { normalizeDate, storeBookingSearch } from '@/lib/date-utils';
+import { normalizeDate, storeBookingSearch, formatDateForDisplay } from '@/lib/date-utils';
 
 type Property = {
   id: string;
@@ -243,7 +243,7 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
         <Search className="h-4 w-4 mr-2 relative z-10" />
         <span className="relative z-10">
           {checkIn && checkOut ? 
-            `Update Availability for ${new Date(`${checkIn}T12:00:00Z`).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})} - ${new Date(`${checkOut}T12:00:00Z`).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}` : 
+            `Update Availability for ${formatDateForDisplay(checkIn, 'short')} - ${formatDateForDisplay(checkOut, 'short')}` : 
             'Find Available Properties'}
         </span>
         {initialValues.checkIn && initialValues.checkOut && (checkIn !== initialValues.checkIn || checkOut !== initialValues.checkOut) && (

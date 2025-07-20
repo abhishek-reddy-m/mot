@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { Calendar, Users, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useRouter } from 'next/navigation';
+import { formatDateForDisplay } from '@/lib/date-utils';
 
 export function QuickAvailability() {
   const router = useRouter();
@@ -146,7 +147,7 @@ export function QuickAvailability() {
           <div className="absolute inset-0 bg-white opacity-0 hover:opacity-20 transition-opacity duration-300"></div>
           <Search className="h-4 w-4 mr-2 animate-pulse" />
           <span className="relative">
-            Check Room Availability for {new Date(checkIn).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})} - {new Date(checkOut).toLocaleDateString('en-US', {month: 'short', day: 'numeric'})}
+            Check Room Availability for {formatDateForDisplay(checkIn, 'short')} - {formatDateForDisplay(checkOut, 'short')}
           </span>
         </Button>
         <div className="mt-2 text-center text-xs text-blue-600">
