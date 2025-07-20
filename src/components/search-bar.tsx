@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Search, Building2, Calendar, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import Link from 'next/link';
@@ -46,6 +46,72 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
   const [checkIn, setCheckIn] = useState(initialValues.checkIn || getTomorrow());
   const [checkOut, setCheckOut] = useState(initialValues.checkOut || getDayAfterTomorrow());
   const [guests, setGuests] = useState(initialValues.guests || '');
+
+  // Auto-search functionality with debouncing
+  const performAutoSearch = useCallback(() => {
+    // Only auto-search if we have valid dates and we're on the properties page
+    if (checkIn && checkOut && new Date(checkOut) > new Date(checkIn)) {
+      // Check if we're currently on the properties page
+      if (typeof window !== 'undefined' && window.location.pathname === '/properties') {
+        // Build the query string for search
+        const params = new URLSearchParams();
+        
+        if (selectedProperty) params.append('propertyId', selectedProperty);
+        
+        // Generate a timestamp for cache busting to always get fresh availability data
+        const timestamp = new Date().getTime().toString();
+        
+        // Standardize date format to YYYY-MM-DD for consistency throughout the app
+        if (checkIn) {
+          // Use our utility for date normalization
+          const formattedCheckIn = normalizeDate(checkIn);
+          console.log(`Auto-search - Original checkIn: ${checkIn}, Normalized: ${formattedCheckIn}`);
+          
+          // Store the clean date for the actual search
+          params.append('checkIn', formattedCheckIn);
+          
+          // Always add a timestamp for cache busting
+          params.append('_t', timestamp);
+        }
+        
+        if (checkOut) {
+          // Use our utility for date normalization with fallback to tomorrow (1 day offset) if invalid
+          const formattedCheckOut = normalizeDate(checkOut, 1);
+          console.log(`Auto-search - Original checkOut: ${checkOut}, Normalized: ${formattedCheckOut}`);
+          
+          params.append('checkOut', formattedCheckOut);
+        }
+        
+        if (guests) params.append('guests', guests);
+        
+        const queryString = params.toString();
+        console.log(`Auto-search - Updating properties with params: ${queryString}`);
+        
+        // Use router.replace to update the URL and trigger re-render
+        router.replace(`/properties?${queryString}`);
+        
+        // Store search data for consistency
+        const formattedCheckIn = normalizeDate(checkIn);
+        const formattedCheckOut = normalizeDate(checkOut, 1);
+        
+        storeBookingSearch({
+          checkIn: formattedCheckIn,
+          checkOut: formattedCheckOut,
+          guests,
+          propertyId: selectedProperty
+        });
+      }
+    }
+  }, [checkIn, checkOut, selectedProperty, guests, router]);
+
+  // Debounced auto-search effect
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      performAutoSearch();
+    }, 500); // 500ms delay to avoid too many API calls
+
+    return () => clearTimeout(timeoutId);
+  }, [performAutoSearch]);
 
   useEffect(() => {
     const fetchProperties = async () => {
