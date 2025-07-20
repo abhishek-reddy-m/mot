@@ -144,8 +144,8 @@ export async function POST(request: NextRequest) {
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
         OR: [
           { 
-            checkIn: { lte: checkOut },
-            checkOut: { gte: checkIn }
+            checkIn: { lte: checkOutDate },
+            checkOut: { gte: checkInDate }
           }
         ]
       },
