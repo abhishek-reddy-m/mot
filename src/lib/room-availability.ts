@@ -143,27 +143,17 @@ export async function updateRoomAvailability(
           await safeQuery(updateQuery, roomCount, roomTypeId, date);
           console.log(`Decreased booked rooms by ${roomCount} for ${dateStr}`);
         } else {
-          // For bookings, first try to update existing record
-          const updateQuery = `
-            UPDATE room_availabilities 
-            SET "bookedRooms" = "bookedRooms" + $1, "updatedAt" = NOW()
-            WHERE "roomTypeId" = $2 AND date = $3
+          // For bookings, use INSERT ... ON CONFLICT to handle both cases
+          const upsertQuery = `
+            INSERT INTO room_availabilities ("roomTypeId", date, "totalRooms", "bookedRooms", "createdAt", "updatedAt")
+            VALUES ($1, $2, $3, $4, NOW(), NOW())
+            ON CONFLICT ("roomTypeId", date) 
+            DO UPDATE SET 
+              "bookedRooms" = room_availabilities."bookedRooms" + $4,
+              "updatedAt" = NOW()
           `;
-          const updateResult = await safeQuery(updateQuery, roomCount, roomTypeId, date);
-          
-          // If no record was updated, create a new one
-          if (!updateResult || updateResult.length === 0) {
-            const insertQuery = `
-              INSERT INTO room_availabilities ("roomTypeId", date, "totalRooms", "bookedRooms", "createdAt", "updatedAt")
-              VALUES ($1, $2, $3, $4, NOW(), NOW())
-              ON CONFLICT ("roomTypeId", date) 
-              DO UPDATE SET "bookedRooms" = room_availabilities."bookedRooms" + $4
-            `;
-            await safeQuery(insertQuery, roomTypeId, date, roomType.totalRooms, roomCount);
-            console.log(`Created new availability record with ${roomCount} booked rooms for ${dateStr}`);
-          } else {
-            console.log(`Updated existing record, added ${roomCount} booked rooms for ${dateStr}`);
-          }
+          await safeQuery(upsertQuery, roomTypeId, date, roomType.totalRooms, roomCount);
+          console.log(`Upserted availability record, added ${roomCount} booked rooms for ${dateStr}`);
         }
       } catch (error) {
         console.error(`Error processing date ${date.toISOString().split('T')[0]}:`, error);
