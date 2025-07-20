@@ -64,10 +64,9 @@ export default function AdminRoomTypesPage() {
         const testResponse = await fetch('/api/admin/room-types', { method: 'HEAD' });
         console.log('Test HEAD response:', testResponse.status, testResponse.ok);
         if (testResponse.ok) {
-          const testData = await testResponse.json();
-          console.log('Test data:', testData);
+          console.log('HEAD test successful - endpoint is accessible');
         } else {
-          console.log('Test response error:', await testResponse.text());
+          console.log('Test response error - status:', testResponse.status);
         }
         
         // Now try the actual GET request
