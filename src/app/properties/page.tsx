@@ -250,11 +250,18 @@ export default function PropertiesPage() {
             </div>
             <Button 
               onClick={() => {
-                // Get the current search parameters
+                // Get the current search parameters directly from the URL
+                const currentParams = new URLSearchParams(window.location.search);
                 const params = new URLSearchParams();
-                if (urlParams.checkIn) params.append('checkIn', urlParams.checkIn);
-                if (urlParams.checkOut) params.append('checkOut', urlParams.checkOut);
-                if (urlParams.guests) params.append('guests', urlParams.guests);
+                
+                // Get the values directly from the URL instead of state
+                const checkIn = currentParams.get('checkIn');
+                const checkOut = currentParams.get('checkOut');
+                const guests = currentParams.get('guests');
+                
+                if (checkIn) params.append('checkIn', checkIn);
+                if (checkOut) params.append('checkOut', checkOut);
+                if (guests) params.append('guests', guests);
                 
                 // Add a timestamp for cache busting
                 params.append('_t', new Date().getTime().toString());
@@ -262,11 +269,14 @@ export default function PropertiesPage() {
                 // Store the search parameters in session storage for consistency
                 // This helps ensure the property details page can access the same dates
                 const searchData = {
-                  checkIn: urlParams.checkIn || '',
-                  checkOut: urlParams.checkOut || '',
-                  guests: urlParams.guests || '',
+                  checkIn: checkIn || '',
+                  checkOut: checkOut || '',
+                  guests: guests || '',
                   propertyId: property.id
                 };
+                
+                console.log('Navigating to property details with search data:', searchData);
+                console.log('URL params string:', params.toString());
                 
                 try {
                   sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
