@@ -544,7 +544,7 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                 // Otherwise fall back to the standard availableRooms
                 const availableRooms = (roomType as any).calculatedAvailableRooms !== undefined 
                   ? (roomType as any).calculatedAvailableRooms 
-                  : roomType.availableRooms;
+                  : (roomType as any).availableRooms || roomType.totalRooms; // Fallback to totalRooms if availableRooms is not set
                 
                 const isAvailable = (availableRooms > 0) && roomType.isActive;
                 
@@ -720,7 +720,7 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                       onChange={handleBookingDetailsChange}
                       className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      {Array.from({ length: Math.min(5, (selectedRoomType as any).calculatedAvailableRooms || selectedRoomType.availableRooms) }, (_, i) => i + 1).map(num => (
+                      {Array.from({ length: Math.min(5, (selectedRoomType as any).calculatedAvailableRooms || (selectedRoomType as any).availableRooms || selectedRoomType.totalRooms) }, (_, i) => i + 1).map(num => (
                         <option key={num} value={num}>{num} room{num !== 1 ? 's' : ''}</option>
                       ))}
                     </select>

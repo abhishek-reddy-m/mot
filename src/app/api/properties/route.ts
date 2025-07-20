@@ -190,6 +190,8 @@ export async function GET(
       // Filter room types based on availability for the selected dates
       const availableRoomTypes = property.roomTypes.filter(roomType => {
         if (!checkIn || !checkOut) {
+          // If no dates selected, include all room types but set default availability
+          (roomType as any).availableRooms = roomType.totalRooms;
           return true; // If no dates selected, include all room types
         }
         
@@ -228,6 +230,8 @@ export async function GET(
         
         // Store calculated availability on the roomType object for use later
         (roomType as any).calculatedAvailableRooms = realAvailable;
+        // Add the availableRooms property dynamically since it doesn't exist in the DB schema
+        (roomType as any).availableRooms = realAvailable;
         
         return realAvailable > 0;
       });
@@ -236,7 +240,8 @@ export async function GET(
       availableRoomTypes.forEach(roomType => {
         totalRooms += roomType.totalRooms;
         // Use the calculated available rooms from earlier
-        realAvailableRooms += (roomType as any).calculatedAvailableRooms || 0;
+        // We use the dynamic property we added earlier
+        realAvailableRooms += (roomType as any).availableRooms || 0;
         
         // Track lowest price
         const basePrice = Number(roomType.basePrice);
