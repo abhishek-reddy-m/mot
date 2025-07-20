@@ -221,7 +221,7 @@ export async function GET(
         // Check if there's availability for the entire date range
         const realAvailable = Math.max(0, roomType.totalRooms - maxBookedRooms);
         
-        // Detailed logging to understand the availability calculation
+                // Detailed logging to understand the availability calculation
         console.log(`Property: ${property.name}, Room Type: ${roomType.name}`);
         console.log(`Total rooms configured: ${roomType.totalRooms}`);
         console.log(`Max booked rooms for any date: ${maxBookedRooms}`);
