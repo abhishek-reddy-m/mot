@@ -3,8 +3,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Navigation from '@/components/Navigation';
 import { HeroSection } from '@/components/HeroSection';
-import { QuickAvailability } from '@/components/QuickAvailability';
-import { FamilyCabinChecker } from '@/components/FamilyCabinChecker';
 import { 
   Search, 
   MapPin, 
@@ -15,8 +13,7 @@ import {
   Clock, 
   Wifi,
   CheckCircle,
-  ChevronRight,
-  AlertCircle
+  ChevronRight
 } from 'lucide-react';
 
 export default function HomePage() {
@@ -125,45 +122,6 @@ export default function HomePage() {
                   <ChevronRight className="h-5 w-5 ml-2" />
                 </Button>
               </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Check Availability Section */}
-      <section className="py-16 bg-gradient-to-b from-gray-50 to-white">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-12">
-            <div className="inline-block px-4 py-1 bg-yellow-50 text-yellow-700 rounded-full font-medium mb-4 text-sm flex items-center justify-center mx-auto">
-              <AlertCircle className="h-4 w-4 mr-1" />
-              Unable to find availability? Try different dates!
-            </div>
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Find Room Availability for <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Your Dates</span>
-            </h2>
-            <p className="text-gray-600 max-w-2xl mx-auto">
-              Family Cabin shows no availability for July 18-19, 2025, but rooms are often available on other dates. 
-              Use our availability checker to find the perfect stay for your trip.
-            </p>
-          </div>
-          
-          <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-            <div>
-              <QuickAvailability />
-            </div>
-            <div>
-              <FamilyCabinChecker />
-            </div>
-          </div>
-          
-          <div className="mt-8 max-w-2xl mx-auto bg-blue-50 p-4 rounded-lg border border-blue-100 flex items-start">
-            <div className="text-blue-500 mr-3 mt-1">
-              <AlertCircle className="h-5 w-5" />
-            </div>
-            <div className="text-sm text-blue-800">
-              <strong>Availability issue?</strong> If you're seeing "0 rooms available" for the Family Cabin and the dates don't 
-              update when checking new dates, try clearing your browser cache or using the direct Family Cabin Availability Checker 
-              above which forces a fresh availability check.
             </div>
           </div>
         </div>
