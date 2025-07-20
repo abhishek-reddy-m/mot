@@ -115,25 +115,27 @@ export async function PATCH(
 
       // 4. Handle room inventory updates based on status change
       if (status === 'CANCELLED' && booking.status !== 'CANCELLED') {
-        // If cancelling, increment available rooms
-        await tx.roomType.update({
-          where: { id: booking.roomTypeId },
-          data: {
-            availableRooms: {
-              increment: booking.rooms
-            }
-          }
-        });
+        // If cancelling, decrease booked rooms (effectively making them available)
+        const { updateRoomAvailability } = await import('@/lib/room-availability');
+        await updateRoomAvailability(
+          booking.roomTypeId,
+          new Date(booking.checkIn),
+          new Date(booking.checkOut),
+          booking.rooms,
+          true // isCancel = true
+        );
+        console.log(`Cancelled booking - freed ${booking.rooms} rooms for dates ${booking.checkIn} to ${booking.checkOut}`);
       } else if (booking.status === 'CANCELLED' && status !== 'CANCELLED') {
-        // If un-cancelling, decrement available rooms
-        await tx.roomType.update({
-          where: { id: booking.roomTypeId },
-          data: {
-            availableRooms: {
-              decrement: booking.rooms
-            }
-          }
-        });
+        // If un-cancelling, increase booked rooms (making them unavailable again)
+        const { updateRoomAvailability } = await import('@/lib/room-availability');
+        await updateRoomAvailability(
+          booking.roomTypeId,
+          new Date(booking.checkIn),
+          new Date(booking.checkOut),
+          booking.rooms,
+          false // isCancel = false
+        );
+        console.log(`Un-cancelled booking - reserved ${booking.rooms} rooms for dates ${booking.checkIn} to ${booking.checkOut}`);
       }
 
       return updatedBooking;
