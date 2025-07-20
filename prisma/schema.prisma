@@ -1,6 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
 generator client {
   provider = "prisma-client-js"
 }
@@ -10,28 +7,24 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// User model for both customers and admins
 model User {
-  id        String   @id @default(cuid())
-  email     String   @unique
+  id        String    @id @default(cuid())
+  email     String    @unique
   password  String
   firstName String
   lastName  String
   phone     String?
-  role      UserRole @default(CUSTOMER)
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  // Relations
-  bookings Booking[]
+  role      UserRole  @default(CUSTOMER)
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  bookings  Booking[]
 
   @@map("users")
 }
 
-// Property model for motels
 model Property {
-  id          String  @id @default(cuid())
+  id          String          @id @default(cuid())
   name        String
   description String?
   address     String
@@ -40,130 +33,109 @@ model Property {
   zipCode     String
   phone       String
   email       String?
-  amenities   String[] // JSON array of amenities
-  isActive    Boolean  @default(true)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  // Relations
-  photos    PropertyPhoto[]
-  roomTypes RoomType[]
-  bookings  Booking[]
+  amenities   String[]
+  isActive    Boolean         @default(true)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  bookings    Booking[]
+  photos      PropertyPhoto[]
+  roomTypes   RoomType[]
 
   @@map("properties")
 }
 
-// Property photos
 model PropertyPhoto {
   id         String   @id @default(cuid())
   propertyId String
   url        String
-  publicId   String   // Cloudinary public ID
+  publicId   String
   isMain     Boolean  @default(false)
   createdAt  DateTime @default(now())
-
-  // Relations
-  property Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@map("property_photos")
 }
 
-// Room types for each property
 model RoomType {
-  id         String  @id @default(cuid())
-  propertyId String
-  name       String
-  description String?
-  capacity   Int
-  basePrice  Decimal @db.Decimal(10, 2)
-  totalRooms Int     @default(0)
-  amenities  String[] // JSON array of room amenities
-  isActive   Boolean  @default(true)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  // Relations
-  property         Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
-  photos           RoomTypePhoto[]
+  id               String             @id @default(cuid())
+  propertyId       String
+  name             String
+  description      String?
+  capacity         Int
+  basePrice        Decimal            @db.Decimal(10, 2)
+  totalRooms       Int                @default(0)
+  amenities        String[]
+  isActive         Boolean            @default(true)
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
   bookings         Booking[]
   roomAvailability RoomAvailability[]
+  photos           RoomTypePhoto[]
+  property         Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@map("room_types")
 }
 
-// Daily room availability tracking
 model RoomAvailability {
-  id         String   @id @default(cuid())
-  roomTypeId String
-  date       DateTime
-  totalRooms Int
-  bookedRooms Int     @default(0)
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  // Relations
-  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  id          String   @id @default(cuid())
+  roomTypeId  String
+  date        DateTime
+  totalRooms  Int
+  bookedRooms Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  roomType    RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
 
   @@unique([roomTypeId, date])
   @@index([date])
   @@map("room_availabilities")
 }
 
-// Room type photos
 model RoomTypePhoto {
   id         String   @id @default(cuid())
   roomTypeId String
   url        String
-  publicId   String   // Cloudinary public ID
+  publicId   String
   isMain     Boolean  @default(false)
   createdAt  DateTime @default(now())
-
-  // Relations
-  roomType RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
 
   @@map("room_type_photos")
 }
 
-// Booking model
 model Booking {
-  id         String        @id @default(cuid())
-  userId     String
-  propertyId String
-  roomTypeId String
-  checkIn    DateTime
-  checkOut   DateTime
-  guests     Int
-  rooms      Int           @default(1)
-  totalPrice Decimal       @db.Decimal(10, 2)
-  status     BookingStatus @default(PENDING)
-  notes      String?
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
-
-  // Relations
-  user          User                  @relation(fields: [userId], references: [id])
-  property      Property              @relation(fields: [propertyId], references: [id])
-  roomType      RoomType              @relation(fields: [roomTypeId], references: [id])
+  id            String                 @id @default(cuid())
+  userId        String
+  propertyId    String
+  roomTypeId    String
+  checkIn       DateTime
+  checkOut      DateTime
+  guests        Int
+  rooms         Int                    @default(1)
+  totalPrice    Decimal                @db.Decimal(10, 2)
+  status        BookingStatus          @default(PENDING)
+  notes         String?
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
   statusHistory BookingStatusHistory[]
+  property      Property               @relation(fields: [propertyId], references: [id])
+  roomType      RoomType               @relation(fields: [roomTypeId], references: [id])
+  user          User                   @relation(fields: [userId], references: [id])
 
   @@map("bookings")
 }
 
-// Booking status history for audit trail
 model BookingStatusHistory {
   id        String        @id @default(cuid())
   bookingId String
   status    BookingStatus
   notes     String?
   createdAt DateTime      @default(now())
-
-  // Relations
-  booking Booking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@map("booking_status_history")
 }
 
-// Enums
 enum UserRole {
   ADMIN
   CUSTOMER

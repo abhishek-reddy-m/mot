@@ -3,7 +3,7 @@ services:
   - type: web
     name: mot
     env: node
-    buildCommand: bash enhanced-cleanup.sh && npm install --production=false && npm run build
+    buildCommand: bash enhanced-cleanup.sh && npm install --production=false && npx prisma generate && npm run build
     startCommand: npm start
     healthCheckPath: /api/debug/schema
     envVars:
