@@ -178,20 +178,24 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
         }
         
         // Ensure we have clean YYYY-MM-DD formatted dates for consistency
-        const cleanCheckIn = bookingDetails.checkIn.trim().match(/^\d{4}-\d{2}-\d{2}$/)
-          ? bookingDetails.checkIn.trim()
-          : new Date(`${bookingDetails.checkIn}T12:00:00Z`).toISOString().split('T')[0];
+        const cleanCheckIn = checkInParam ? (
+          checkInParam.trim().match(/^\d{4}-\d{2}-\d{2}$/)
+            ? checkInParam.trim()
+            : new Date(`${checkInParam}T12:00:00Z`).toISOString().split('T')[0]
+        ) : '';
           
-        const cleanCheckOut = bookingDetails.checkOut.trim().match(/^\d{4}-\d{2}-\d{2}$/)
-          ? bookingDetails.checkOut.trim()
-          : new Date(`${bookingDetails.checkOut}T12:00:00Z`).toISOString().split('T')[0];
+        const cleanCheckOut = checkOutParam ? (
+          checkOutParam.trim().match(/^\d{4}-\d{2}-\d{2}$/)
+            ? checkOutParam.trim()
+            : new Date(`${checkOutParam}T12:00:00Z`).toISOString().split('T')[0]
+        ) : '';
         
         // Save the current booking details to sessionStorage for consistency
         const currentBookingDetails = {
           propertyId,
           checkIn: cleanCheckIn,
           checkOut: cleanCheckOut,
-          guests: guestsParam ? parseInt(guestsParam) : bookingDetails.guests
+          guests: guestsParam ? parseInt(guestsParam) : 1
         };
         
         // Save both currentBooking and lastSearch to maintain consistency across flows
@@ -209,7 +213,7 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
         
         if (cleanCheckIn) apiParams.append('checkIn', cleanCheckIn);
         if (cleanCheckOut) apiParams.append('checkOut', cleanCheckOut);
-        if (bookingDetails.guests) apiParams.append('guests', bookingDetails.guests.toString());
+        if (currentBookingDetails.guests) apiParams.append('guests', currentBookingDetails.guests.toString());
         apiParams.append('_t', timestamp.toString()); // Add cache busting
         
         const apiUrl = `/api/properties/${propertyId}?${apiParams.toString()}`;
