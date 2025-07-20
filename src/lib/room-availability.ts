@@ -113,6 +113,8 @@ export async function updateRoomAvailability(
   isCancel: boolean = false
 ): Promise<void> {
   try {
+    console.log(`updateRoomAvailability called: ${isCancel ? 'CANCEL' : 'BOOK'} ${roomCount} rooms from ${checkIn.toISOString().split('T')[0]} to ${checkOut.toISOString().split('T')[0]}`);
+    
     // Get the room type to ensure it exists and get total rooms
     const roomType = await prisma.roomType.findUnique({
       where: { id: roomTypeId }
@@ -125,57 +127,52 @@ export async function updateRoomAvailability(
     // Generate all dates in the booking range
     const dateRange = getDateRange(checkIn, checkOut);
     
-    // Check if room_availability table exists
-    try {
-      // For each date in the booking range, update the availability
-      for (const date of dateRange) {
-        // Try to find an existing record for this room type and date
-        const findQuery = `
-          SELECT id, "bookedRooms" 
-          FROM room_availabilities
-          WHERE "roomTypeId" = $1 AND date = $2
-          LIMIT 1
-        `;
+    // For each date in the booking range, update the availability using raw queries for now
+    for (const date of dateRange) {
+      try {
+        const dateStr = date.toISOString().split('T')[0];
+        console.log(`Processing date: ${dateStr}`);
         
-        const records = await safeQuery(findQuery, roomTypeId, date);
-        
-        if (records && records.length > 0) {
-          const availabilityRecord = records[0];
-          // Update existing record
+        if (isCancel) {
+          // For cancellations, decrease booked rooms
           const updateQuery = `
-            UPDATE room_availabilities
-            SET "bookedRooms" = $1, "updatedAt" = $2
-            WHERE id = $3
+            UPDATE room_availabilities 
+            SET "bookedRooms" = GREATEST(0, "bookedRooms" - $1), "updatedAt" = NOW()
+            WHERE "roomTypeId" = $2 AND date = $3
           `;
-          
-          const newBookedRooms = isCancel
-            ? Math.max(0, parseInt(availabilityRecord.bookedRooms || '0') - roomCount)
-            : parseInt(availabilityRecord.bookedRooms || '0') + roomCount;
-          
-          await safeQuery(updateQuery, newBookedRooms, new Date(), availabilityRecord.id);
-        } else if (!isCancel) {
-          // Only create a new record if this is not a cancellation
-          const insertQuery = `
-            INSERT INTO room_availabilities ("roomTypeId", date, "totalRooms", "bookedRooms", "updatedAt")
-            VALUES ($1, $2, $3, $4, $5)
+          await safeQuery(updateQuery, roomCount, roomTypeId, date);
+          console.log(`Decreased booked rooms by ${roomCount} for ${dateStr}`);
+        } else {
+          // For bookings, first try to update existing record
+          const updateQuery = `
+            UPDATE room_availabilities 
+            SET "bookedRooms" = "bookedRooms" + $1, "updatedAt" = NOW()
+            WHERE "roomTypeId" = $2 AND date = $3
           `;
+          const updateResult = await safeQuery(updateQuery, roomCount, roomTypeId, date);
           
-          await safeQuery(
-            insertQuery,
-            roomTypeId,
-            date,
-            roomType.totalRooms,
-            roomCount,
-            new Date()
-          );
+          // If no record was updated, create a new one
+          if (!updateResult || updateResult.length === 0) {
+            const insertQuery = `
+              INSERT INTO room_availabilities ("roomTypeId", date, "totalRooms", "bookedRooms", "createdAt", "updatedAt")
+              VALUES ($1, $2, $3, $4, NOW(), NOW())
+              ON CONFLICT ("roomTypeId", date) 
+              DO UPDATE SET "bookedRooms" = room_availabilities."bookedRooms" + $4
+            `;
+            await safeQuery(insertQuery, roomTypeId, date, roomType.totalRooms, roomCount);
+            console.log(`Created new availability record with ${roomCount} booked rooms for ${dateStr}`);
+          } else {
+            console.log(`Updated existing record, added ${roomCount} booked rooms for ${dateStr}`);
+          }
         }
+      } catch (error) {
+        console.error(`Error processing date ${date.toISOString().split('T')[0]}:`, error);
       }
-    } catch (error) {
-      // If room_availabilities table doesn't exist, log and ignore
-      console.warn('Could not update room availability - table may not exist:', error);
     }
+    
+    console.log(`updateRoomAvailability completed for ${dateRange.length} dates`);
   } catch (error) {
-    console.error('Error updating room availability:', error);
+    console.error('Error in updateRoomAvailability:', error);
   }
 }
 
