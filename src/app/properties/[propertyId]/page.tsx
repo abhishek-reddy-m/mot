@@ -19,6 +19,7 @@ type RoomType = {
   amenities: string[];
   isActive: boolean;
   availableRooms: number;
+  availabilityByDate?: { [date: string]: number };
   totalRooms: number;
   photos: Array<{
     id: string;
@@ -263,10 +264,24 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
 
   const handleBookingDetailsChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
+    
+    // Update state first
     setBookingDetails(prev => ({
       ...prev,
       [name]: name === 'guests' || name === 'rooms' ? parseInt(value) : value
     }));
+    
+    // If date fields were changed, schedule an automatic refresh after a short delay
+    if (name === 'checkIn' || name === 'checkOut') {
+      console.log(`Date changed: ${name} = ${value}`);
+      
+      // Show a message that dates have changed
+      const dateChangeMessage = document.getElementById('date-change-message');
+      if (dateChangeMessage) {
+        dateChangeMessage.textContent = 'Dates changed! Click "Refresh Availability" to see updated room availability.';
+        dateChangeMessage.style.display = 'block';
+      }
+    }
   };
 
   const handleRoomTypeChange = (roomTypeId: string) => {
@@ -309,6 +324,12 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
     const cleanCheckIn = normalizeDate(bookingDetails.checkIn);
     const cleanCheckOut = normalizeDate(bookingDetails.checkOut, 1);
     
+    // Check if dates are valid
+    if (!cleanCheckIn || !cleanCheckOut) {
+      alert('Please select valid check-in and check-out dates');
+      return;
+    }
+    
     // Use our utility to store search parameters consistently
     storeBookingSearch({
       checkIn: cleanCheckIn,
@@ -319,8 +340,15 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
     
     console.log(`Refreshing availability for dates: ${cleanCheckIn} to ${cleanCheckOut}`);
     
+    // Show loading indicator
+    const refreshBtn = document.getElementById('refresh-btn');
+    if (refreshBtn) {
+      refreshBtn.textContent = 'Refreshing...';
+      refreshBtn.classList.add('opacity-50');
+    }
+    
     // Instead of using router.replace, use window.location for a full page reload
-    // This avoids the useSearchParams issue during build
+    // This avoids the useSearchParams issue during build and ensures we get fresh data
     const url = `/properties/${propertyId}?checkIn=${cleanCheckIn}&checkOut=${cleanCheckOut}&guests=${bookingDetails.guests}&_t=${timestamp}`;
     window.location.href = url;
   };
@@ -604,6 +632,25 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                               for {formatDateForDisplay(bookingDetails.checkIn)} - {formatDateForDisplay(bookingDetails.checkOut)}
                             </span>
                           )}
+                          
+                          {/* Show per-date availability if available */}
+                          {(roomType as any).availabilityByDate && Object.keys((roomType as any).availabilityByDate).length > 0 && (
+                            <div className="text-xs text-gray-500 mt-1">
+                              <details>
+                                <summary className="cursor-pointer hover:text-blue-500">View availability by date</summary>
+                                <div className="mt-1 pl-2 border-l-2 border-gray-200">
+                                  {Object.entries((roomType as any).availabilityByDate).map(([date, available]) => (
+                                    <div key={date} className="flex justify-between">
+                                      <span>{formatDateForDisplay(date)}</span>
+                                      <span className={Number(available) > 0 ? 'text-green-600' : 'text-red-600'}>
+                                        {String(available)}/{roomType.totalRooms} available
+                                      </span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </details>
+                            </div>
+                          )}
                         </div>
                         
                         {availableRooms > 0 && bookingDetails.checkIn && bookingDetails.checkOut && (
@@ -701,6 +748,27 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                   </div>
                 </div>
                 
+                {/* Date change notification */}
+                <div 
+                  id="date-change-message" 
+                  className="mb-4 p-3 bg-yellow-50 border border-yellow-200 text-yellow-800 rounded-md text-sm hidden"
+                ></div>
+                
+                {/* Refresh button for date changes */}
+                <div className="mb-4">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="w-full"
+                    onClick={refreshAvailability}
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="mr-2">
+                      <path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8"></path>
+                    </svg>
+                    Refresh Availability
+                  </Button>
+                </div>
+                
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
                   <div>
                     <label className="block text-sm font-medium mb-2">Number of Guests</label>
@@ -737,17 +805,22 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                     <span>{selectedRoomType.name}</span>
                   </div>
                   
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="font-semibold">Price per night:</span>
-                    <span>${selectedRoomType.basePrice}</span>
-                  </div>
-                  
-                  <div className="flex justify-between items-center mb-4">
-                    <span className="font-semibold">Total Price:</span>
-                    <span className="text-xl font-bold text-blue-600">${calculateTotalPrice()}</span>
-                  </div>
-                  
-                  <Button
+                <div className="flex justify-between items-center mb-4">
+                  <span className="font-semibold">Price per night:</span>
+                  <span>${selectedRoomType.basePrice}</span>
+                </div>
+                
+                <div className="flex justify-between items-center mb-4">
+                  <span className="font-semibold">Available for selected dates:</span>
+                  <span className={`font-semibold ${(selectedRoomType as any).calculatedAvailableRooms > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {(selectedRoomType as any).calculatedAvailableRooms || selectedRoomType.availableRooms} rooms
+                  </span>
+                </div>
+                
+                <div className="flex justify-between items-center mb-4">
+                  <span className="font-semibold">Total Price:</span>
+                  <span className="text-xl font-bold text-blue-600">${calculateTotalPrice()}</span>
+                </div>                  <Button
                     className="w-full mt-4"
                     disabled={isBooking}
                     onClick={handleBookNow}

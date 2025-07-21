@@ -2,103 +2,140 @@ import { prisma } from '@/lib/prisma';
 import { safeQuery } from '@/lib/db-utils';
 
 /**
+ * Calculate the maximum number of booked rooms for any single day in a date range
+ * This ensures we don't overbook even when bookings overlap in complex ways
+ */
+async function calculateMaxBookedRoomsInRange(
+  roomTypeId: string,
+  checkIn: Date,
+  checkOut: Date
+): Promise<{ maxBookedRooms: number, bookedRoomsByDate: Map<string, number> }> {
+  try {
+    // Get all bookings that overlap with our date range
+    const overlappingBookings = await prisma.booking.findMany({
+      where: {
+        roomTypeId,
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        // Booking overlaps if it starts before our end and ends after our start
+        checkIn: { lt: checkOut },
+        checkOut: { gt: checkIn }
+      },
+      select: {
+        checkIn: true,
+        checkOut: true,
+        rooms: true
+      }
+    });
+
+    if (overlappingBookings.length === 0) {
+      return { maxBookedRooms: 0, bookedRoomsByDate: new Map() };
+    }
+
+    // Generate all dates in our range
+    const dateRange = getDateRange(checkIn, checkOut);
+    let maxBookedRooms = 0;
+    const bookedRoomsByDate = new Map<string, number>();
+
+    // For each date in our range, calculate how many rooms are booked
+    for (const date of dateRange) {
+      let bookedRoomsOnDate = 0;
+      const currentDate = new Date(date);
+      currentDate.setUTCHours(0, 0, 0, 0);
+      const dateStr = currentDate.toISOString().split('T')[0];
+      
+      // Check each overlapping booking to see if it covers this date
+      for (const booking of overlappingBookings) {
+        const bookingStart = new Date(booking.checkIn);
+        const bookingEnd = new Date(booking.checkOut);
+        
+        // Normalize all dates to start of day for consistent comparison
+        bookingStart.setUTCHours(0, 0, 0, 0);
+        bookingEnd.setUTCHours(0, 0, 0, 0);
+        
+        // If this booking covers the current date, add its rooms
+        if (currentDate >= bookingStart && currentDate < bookingEnd) {
+          bookedRoomsOnDate += booking.rooms;
+        }
+      }
+      
+      // Store booked rooms for this specific date
+      bookedRoomsByDate.set(dateStr, bookedRoomsOnDate);
+      
+      // Track the maximum rooms booked on any single day
+      maxBookedRooms = Math.max(maxBookedRooms, bookedRoomsOnDate);
+    }
+
+    return { maxBookedRooms, bookedRoomsByDate };
+  } catch (error) {
+    console.error('Error calculating max booked rooms:', error);
+    return { maxBookedRooms: 0, bookedRoomsByDate: new Map() };
+  }
+}
+
+/**
  * Gets the available rooms for a specific room type on a specific date range
- * with fallback options for production environment
+ * Calculates availability based on overlapping bookings for the exact date range
  */
 export async function getAvailableRooms(
   roomTypeId: string,
   checkIn: Date,
   checkOut: Date
-): Promise<number> {
+): Promise<{ availableRooms: number, availabilityByDate: { [key: string]: number } }> {
   try {
-    // Try using Prisma first to get room type
+    // Get room type information
     const roomType = await prisma.roomType.findUnique({
       where: { id: roomTypeId }
     });
     
     if (!roomType) {
-      // Fallback to raw query if Prisma fails
-      const roomTypeQuery = `SELECT "totalRooms" FROM room_types WHERE id = $1`;
-      const roomTypeData = await safeQuery(roomTypeQuery, roomTypeId);
-      
-      if (!roomTypeData || roomTypeData.length === 0) {
-        console.error(`Room type with ID ${roomTypeId} not found`);
-        return 0;
-      }
-      
-      // Calculate availability using raw queries
-      const bookingsQuery = `
-        SELECT SUM(rooms) as booked_rooms
-        FROM bookings
-        WHERE "roomTypeId" = $1
-          AND "checkIn" < $3
-          AND "checkOut" > $2
-          AND status IN ('PENDING', 'CONFIRMED', 'CHECKED_IN')
-      `;
-      
-      const bookingsData = await safeQuery(bookingsQuery, roomTypeId, checkIn, checkOut);
-      const bookedRooms = bookingsData.length > 0 ? parseInt(bookingsData[0].booked_rooms || '0') : 0;
-      const totalRooms = parseInt(roomTypeData[0].totalRooms || '0');
-      
-      return Math.max(0, totalRooms - bookedRooms);
+      console.error(`Room type with ID ${roomTypeId} not found`);
+      return { availableRooms: 0, availabilityByDate: {} };
     }
     
-    // Generate the date range
-    const dateRange = getDateRange(checkIn, checkOut);
+    // Get availability records using raw SQL query for compatibility
+    const query = `
+      SELECT 
+        "roomTypeId",
+        date,
+        "totalRooms",
+        "bookedRooms"
+      FROM room_availabilities
+      WHERE "roomTypeId" = $1
+        AND date >= $2
+        AND date < $3
+    `;
     
-    // Check if room_availability table exists
-    try {
-      // Try to get availability records
-      const availabilityQuery = `
-        SELECT date, "bookedRooms" 
-        FROM room_availabilities
-        WHERE "roomTypeId" = $1
-          AND date >= $2
-          AND date < $3
-      `;
-      
-      const availabilityRecords = await safeQuery(availabilityQuery, roomTypeId, checkIn, checkOut);
-      
-      // Find the maximum number of booked rooms for any date in the range
-      let maxBookedRooms = 0;
-      
-      for (const date of dateRange) {
-        const dateStr = date.toISOString().split('T')[0];
-        
-        // Find the record for this date
-        const record = availabilityRecords.find(
-          (r: any) => new Date(r.date).toISOString().split('T')[0] === dateStr
-        );
-        
-        // If a record exists, use its bookedRooms value, otherwise use 0 (no bookings)
-        const bookedRoomsForDate = record ? parseInt(record.bookedRooms || '0') : 0;
-        
-        // Update max booked rooms if this date has more
-        maxBookedRooms = Math.max(maxBookedRooms, bookedRoomsForDate);
-      }
-      
-      // Calculate available rooms
-      return Math.max(0, roomType.totalRooms - maxBookedRooms);
-    } catch (error) {
-      // Fallback if room_availabilities table doesn't exist
-      // Calculate based on bookings directly
-      const bookingsQuery = `
-        SELECT SUM(rooms) as booked_rooms
-        FROM bookings
-        WHERE "roomTypeId" = $1
-          AND "checkIn" < $3
-          AND "checkOut" > $2
-          AND status IN ('PENDING', 'CONFIRMED', 'CHECKED_IN')
-      `;
-      
-      const bookingsData = await safeQuery(bookingsQuery, roomTypeId, checkIn, checkOut);
-      const bookedRooms = bookingsData.length > 0 ? parseInt(bookingsData[0].booked_rooms || '0') : 0;
-      
-      return Math.max(0, roomType.totalRooms - bookedRooms);
-    }
+    const availabilityRecords = await safeQuery(
+      query, 
+      roomTypeId, 
+      new Date(checkIn.toISOString().split('T')[0]),
+      new Date(checkOut.toISOString().split('T')[0])
+    );
+    
+    // Calculate the booked rooms for each day in the date range from existing bookings
+    const { maxBookedRooms, bookedRoomsByDate } = await calculateMaxBookedRoomsInRange(roomTypeId, checkIn, checkOut);
+    
+    // Convert Map to an object for easier consumption in the frontend
+    const availabilityByDate: { [key: string]: number } = {};
+    bookedRoomsByDate.forEach((bookedRooms, dateStr) => {
+      availabilityByDate[dateStr] = Math.max(0, roomType.totalRooms - bookedRooms);
+    });
+    
+    // Log detailed availability for debugging
+    console.log(`Room type ${roomTypeId}: total rooms=${roomType.totalRooms}, max booked=${maxBookedRooms}`);
+    Object.entries(availabilityByDate).forEach(([date, available]) => {
+      console.log(`Date ${date}: ${available}/${roomType.totalRooms} available`);
+    });
+    
+    // Return available rooms (total - max booked on any single day)
+    // This ensures we can accommodate all nights of the stay
+    return { 
+      availableRooms: Math.max(0, roomType.totalRooms - maxBookedRooms),
+      availabilityByDate
+    };
   } catch (error) {
     console.error('Error getting available rooms:', error);
-    return 0; // Default to no rooms available on error
+    return { availableRooms: 0, availabilityByDate: {} }; // Default to no rooms available on error
   }
 }
 
@@ -127,7 +164,7 @@ export async function updateRoomAvailability(
     // Generate all dates in the booking range
     const dateRange = getDateRange(checkIn, checkOut);
     
-    // For each date in the booking range, update the availability using raw queries for now
+    // For each date in the booking range, update the availability using raw queries
     for (const date of dateRange) {
       try {
         const dateStr = date.toISOString().split('T')[0];
@@ -143,7 +180,7 @@ export async function updateRoomAvailability(
           await safeQuery(updateQuery, roomCount, roomTypeId, date);
           console.log(`Decreased booked rooms by ${roomCount} for ${dateStr}`);
         } else {
-          // For bookings, use INSERT ... ON CONFLICT to handle both cases
+          // For bookings, use INSERT ... ON CONFLICT to handle both new and existing records
           const upsertQuery = `
             INSERT INTO room_availabilities ("roomTypeId", date, "totalRooms", "bookedRooms", "createdAt", "updatedAt")
             VALUES ($1, $2, $3, $4, NOW(), NOW())
@@ -151,9 +188,15 @@ export async function updateRoomAvailability(
             DO UPDATE SET 
               "bookedRooms" = room_availabilities."bookedRooms" + $4,
               "updatedAt" = NOW()
+            RETURNING "bookedRooms"
           `;
-          await safeQuery(upsertQuery, roomTypeId, date, roomType.totalRooms, roomCount);
-          console.log(`Upserted availability record, added ${roomCount} booked rooms for ${dateStr}`);
+          const result = await safeQuery(upsertQuery, roomTypeId, date, roomType.totalRooms, roomCount);
+          
+          if (result && result.length > 0) {
+            console.log(`Upserted availability record, now at ${result[0].bookedRooms} booked rooms for ${dateStr}`);
+          } else {
+            console.log(`Upserted availability record, added ${roomCount} booked rooms for ${dateStr}`);
+          }
         }
       } catch (error) {
         console.error(`Error processing date ${date.toISOString().split('T')[0]}:`, error);
