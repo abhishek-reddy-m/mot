@@ -93,16 +93,18 @@ export async function GET(
       for (const roomType of property.roomTypes) {
         try {
           // Use the utility function to calculate available rooms
-          const availableRooms = await getAvailableRooms(roomType.id, checkIn, checkOut);
+          const { availableRooms, availabilityByDate } = await getAvailableRooms(roomType.id, checkIn, checkOut);
           
           console.log(`Room type ${roomType.name}: Total=${roomType.totalRooms}, Available=${availableRooms}`);
           
           // Add calculated availability to the room type
           (roomType as any).calculatedAvailableRooms = availableRooms;
+          (roomType as any).availabilityByDate = availabilityByDate;
         } catch (error) {
           console.error(`Error calculating availability for room type ${roomType.name}:`, error);
           // Default to 0 available rooms if there's an error
           (roomType as any).calculatedAvailableRooms = 0;
+          (roomType as any).availabilityByDate = {};
         }
       }
     }
