@@ -56,6 +56,25 @@ type BookingDetails = {
   rooms: number;
 };
 
+// Helper function to extract available rooms count from various data structures
+function getAvailableRoomsCount(roomType: RoomType | null): number {
+  if (!roomType) return 0;
+  
+  // If calculatedAvailableRooms is a number, use it directly
+  if (typeof (roomType as any).calculatedAvailableRooms === 'number') {
+    return (roomType as any).calculatedAvailableRooms;
+  }
+  
+  // If it's an object with the new structure, extract just the availableRooms number
+  if (typeof (roomType as any).calculatedAvailableRooms === 'object' && 
+      (roomType as any).calculatedAvailableRooms?.availableRooms !== undefined) {
+    return (roomType as any).calculatedAvailableRooms.availableRooms;
+  }
+  
+  // Fall back to other available properties
+  return (roomType as any).availableRooms || roomType.totalRooms;
+}
+
 export default function PropertyDetailsPage({ params }: { params: Promise<{ propertyId: string }> }) {
   const router = useRouter();
   const [property, setProperty] = useState<Property | null>(null);
@@ -574,9 +593,24 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                 // Ensure we're using the calculated available rooms correctly
                 // Use calculatedAvailableRooms if available (from date-specific check)
                 // Otherwise fall back to the standard availableRooms
-                const availableRooms = (roomType as any).calculatedAvailableRooms !== undefined 
-                  ? (roomType as any).calculatedAvailableRooms 
-                  : (roomType as any).availableRooms || roomType.totalRooms; // Fallback to totalRooms if availableRooms is not set
+                // Handle both scenarios - either we have calculatedAvailableRooms as a number
+                // or we have the new structure with { availableRooms, availabilityByDate }
+                let availableRooms = 0;
+                
+                if ((roomType as any).calculatedAvailableRooms !== undefined) {
+                  // If calculatedAvailableRooms is a number, use it directly
+                  if (typeof (roomType as any).calculatedAvailableRooms === 'number') {
+                    availableRooms = (roomType as any).calculatedAvailableRooms;
+                  } 
+                  // If it's an object with the new structure, extract just the availableRooms number
+                  else if (typeof (roomType as any).calculatedAvailableRooms === 'object' && 
+                          (roomType as any).calculatedAvailableRooms?.availableRooms !== undefined) {
+                    availableRooms = (roomType as any).calculatedAvailableRooms.availableRooms;
+                  }
+                } else {
+                  // Fall back to other available properties
+                  availableRooms = (roomType as any).availableRooms || roomType.totalRooms;
+                }
                 
                 const isAvailable = (availableRooms > 0) && roomType.isActive;
                 
@@ -792,7 +826,7 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                       onChange={handleBookingDetailsChange}
                       className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                     >
-                      {Array.from({ length: Math.min(5, (selectedRoomType as any).calculatedAvailableRooms || (selectedRoomType as any).availableRooms || selectedRoomType.totalRooms) }, (_, i) => i + 1).map(num => (
+                      {Array.from({ length: Math.min(5, getAvailableRoomsCount(selectedRoomType)) }, (_, i) => i + 1).map(num => (
                         <option key={num} value={num}>{num} room{num !== 1 ? 's' : ''}</option>
                       ))}
                     </select>
@@ -812,8 +846,8 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                 
                 <div className="flex justify-between items-center mb-4">
                   <span className="font-semibold">Available for selected dates:</span>
-                  <span className={`font-semibold ${(selectedRoomType as any).calculatedAvailableRooms > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {(selectedRoomType as any).calculatedAvailableRooms || selectedRoomType.availableRooms} rooms
+                  <span className={`font-semibold ${getAvailableRoomsCount(selectedRoomType) > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {getAvailableRoomsCount(selectedRoomType)} rooms
                   </span>
                 </div>
                 
