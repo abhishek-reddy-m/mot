@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Navigation from '@/components/Navigation';
 import { SearchBar } from '@/components/search-bar';
-import { formatDateForDisplay } from '@/lib/date-utils';
+import { formatDateForDisplay, storeBookingSearch } from '@/lib/date-utils';
 import { 
   MapPin, 
   Star, 
@@ -48,6 +48,15 @@ type PropertyWithAvailability = {
   hasAvailability: boolean;
 }
 
+// Helper function to extract available rooms count from API data
+function getAvailableRoomsCount(property: PropertyWithAvailability | null): number {
+  if (!property) return 0;
+  
+  // Always use the API-provided availability data directly for consistency
+  // This matches the property detail page's approach
+  return property.availableRooms || 0;
+}
+
 export default function PropertiesPage() {
   const router = useRouter();
   const [properties, setProperties] = useState<PropertyWithAvailability[]>([]);
@@ -68,6 +77,13 @@ export default function PropertiesPage() {
     guests: null
   });
   
+  // Only log that we're loading the properties page
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      console.log('Properties page loaded');
+    }
+  }, []);
+  
   // Get search params from URL once the component mounts on client
   useEffect(() => {
     if (typeof window !== 'undefined') {
@@ -81,41 +97,162 @@ export default function PropertiesPage() {
     }
   }, []);
 
-  useEffect(() => {
-    const fetchProperties = async () => {
-      try {
-        setLoading(true);
-        
-        // Build the API query with URL parameters
-        const apiParams = new URLSearchParams();
-        if (urlParams.propertyId) apiParams.append('propertyId', urlParams.propertyId);
-        if (urlParams.checkIn) apiParams.append('checkIn', urlParams.checkIn);
-        if (urlParams.checkOut) apiParams.append('checkOut', urlParams.checkOut);
-        if (urlParams.guests) apiParams.append('guests', urlParams.guests);
-        
-        const queryString = apiParams.toString();
-        const apiUrl = `/api/properties${queryString ? `?${queryString}` : ''}`;
-        
-        const response = await fetch(apiUrl);
-        if (!response.ok) {
-          throw new Error('Failed to fetch properties');
-        }
-        const data = await response.json();
-        setProperties(data);
-      } catch (err) {
-        setError('Error loading properties. Please try again.');
-        console.error('Error fetching properties:', err);
-      } finally {
-        setLoading(false);
+  // Function to fetch properties that can be called from multiple places
+  const fetchProperties = async (params: any) => {
+    try {
+      setLoading(true);
+      console.log('Fetching properties with parameters:', params);
+      
+      // Build the API query with the provided parameters
+      const apiParams = new URLSearchParams();
+      if (params.propertyId) apiParams.append('propertyId', params.propertyId);
+      if (params.checkIn) apiParams.append('checkIn', params.checkIn);
+      if (params.checkOut) apiParams.append('checkOut', params.checkOut);
+      if (params.guests) apiParams.append('guests', params.guests);
+      
+      // Add cache busting timestamp
+      apiParams.append('_t', new Date().getTime().toString());
+      
+      const queryString = apiParams.toString();
+      const apiUrl = `/api/properties${queryString ? `?${queryString}` : ''}`;
+      
+      console.log('API URL for properties:', apiUrl);
+      
+      const response = await fetch(apiUrl, {
+        headers: {
+          'Cache-Control': 'no-cache, no-store, must-revalidate',
+          'Pragma': 'no-cache',
+          'Expires': '0'
+        },
+        cache: 'no-store' // Disable caching completely
+      });
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch properties');
       }
-    };
+      
+      const data = await response.json();
+      
+      console.log('Properties API response:', data);
+      data.forEach((property: any) => {
+        console.log(`Property ${property.name}: availableRooms=${property.availableRooms}, totalRooms=${property.totalRooms}, hasAvailability=${property.hasAvailability}`);
+      });
+      
+      setProperties(data);
+      
+      // If we have dates, make sure we store them in session storage for consistency
+      if (params.checkIn && params.checkOut) {
+        try {
+          const searchData = {
+            checkIn: params.checkIn,
+            checkOut: params.checkOut,
+            guests: params.guests || '1',
+            propertyId: ''
+          };
+          sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
+        } catch (e) {
+          console.error('Error storing search data after fetch:', e);
+        }
+      }
+    } catch (err) {
+      setError('Error loading properties. Please try again.');
+      console.error('Error fetching properties:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  // Listen for the custom event to refresh property cards
+  useEffect(() => {
+    const handleRefreshPropertyCards = (event: Event) => {
+      const customEvent = event as CustomEvent;
+      console.log('Received refreshPropertyCards event with data:', customEvent.detail);
+      
+      // Update URL params in state (but don't trigger a navigation)
+      setUrlParams({
+        propertyId: customEvent.detail.propertyId,
+        checkIn: customEvent.detail.checkIn,
+        checkOut: customEvent.detail.checkOut,
+        guests: customEvent.detail.guests
+      });
+      
+      // Fetch properties with the new parameters
+      fetchProperties(customEvent.detail);
+    };
+    
+    // Add event listener
+    window.addEventListener('refreshPropertyCards', handleRefreshPropertyCards);
+    
+    // Clean up
+    return () => {
+      window.removeEventListener('refreshPropertyCards', handleRefreshPropertyCards);
+    };
+  }, []);
+
+  // Initial fetch based on URL parameters
+  useEffect(() => {
     // Only fetch when urlParams are available (client-side only)
     if (typeof window !== 'undefined') {
-      fetchProperties();
+      // Check if we have URL parameters
+      if (urlParams.checkIn !== null) {
+        console.log('Fetching properties with URL parameters:', urlParams);
+        fetchProperties(urlParams);
+      } else {
+        // If no URL parameters, try to use stored search from session storage
+        try {
+          const storedSearch = sessionStorage.getItem('lastSearch');
+          if (storedSearch) {
+            const searchData = JSON.parse(storedSearch);
+            console.log('Using stored search parameters:', searchData);
+            fetchProperties({
+              propertyId: searchData.propertyId || null,
+              checkIn: searchData.checkIn || null,
+              checkOut: searchData.checkOut || null, 
+              guests: searchData.guests || null
+            });
+          } else {
+            // No stored search, use default parameters
+            const today = new Date();
+            const tomorrow = new Date();
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            const defaultParams = {
+              propertyId: null,
+              checkIn: today.toISOString().split('T')[0],
+              checkOut: tomorrow.toISOString().split('T')[0],
+              guests: '1'
+            };
+            
+            console.log('Using default search parameters:', defaultParams);
+            fetchProperties(defaultParams);
+          }
+        } catch (e) {
+          console.error('Error processing stored search:', e);
+          fetchProperties({}); // Fetch with no parameters as fallback
+        }
+      }
     }
   }, [urlParams.propertyId, urlParams.checkIn, urlParams.checkOut, urlParams.guests]);
 
+  // Function to check for and apply stored search parameters
+  const checkForStoredSearchParams = () => {
+    try {
+      const storedSearch = sessionStorage.getItem('lastSearch');
+      if (storedSearch) {
+        const searchData = JSON.parse(storedSearch);
+        return {
+          checkIn: searchData.checkIn || null,
+          checkOut: searchData.checkOut || null,
+          guests: searchData.guests || null,
+          propertyId: searchData.propertyId || null
+        };
+      }
+    } catch (e) {
+      console.error('Error checking for stored search parameters:', e);
+    }
+    return null;
+  };
+  
   // Get search parameters for display
   const [searchParams, setSearchParams] = useState<{
     propertyName?: string;
@@ -130,10 +267,28 @@ export default function PropertiesPage() {
     const timestamp = new Date().getTime();
     const params = new URLSearchParams();
     
+    // Ensure we have valid dates
     if (newCheckIn) params.append('checkIn', newCheckIn);
     if (newCheckOut) params.append('checkOut', newCheckOut);
     if (newGuests) params.append('guests', newGuests);
     params.append('_t', timestamp.toString());
+    
+    try {
+      // Clear any existing search data first to prevent stale state
+      sessionStorage.removeItem('lastSearch');
+      
+      // Store search parameters in session storage for consistency
+      const searchData = {
+        checkIn: newCheckIn || '',
+        checkOut: newCheckOut || '',
+        guests: newGuests || '',
+        propertyId: ''
+      };
+      sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
+      console.log('Stored search data for property listing:', searchData);
+    } catch (e) {
+      console.error('Error storing search data:', e);
+    }
     
     // Force reload with new parameters
     window.location.href = `/properties?${params.toString()}`;
@@ -257,11 +412,16 @@ export default function PropertiesPage() {
               ) : (
                 <span className="text-gray-500">Contact for pricing</span>
               )}
-              {property.availableRooms > 0 && (
-                <span className="block text-xs text-gray-500 mt-1">
-                  {property.availableRooms} {property.availableRooms === 1 ? 'room' : 'rooms'} available (total across all room types)
-                </span>
-              )}
+              {(() => {
+                const availableRoomsCount = getAvailableRoomsCount(property);
+                if (availableRoomsCount <= 0) return null;
+                const label = `${availableRoomsCount} ${availableRoomsCount === 1 ? 'room' : 'rooms'} left`;
+                return (
+                  <span className="block text-xs text-gray-500 mt-1">
+                    {label}
+                  </span>
+                );
+              })()}
             </div>
             <Button 
               onClick={() => {
@@ -274,18 +434,16 @@ export default function PropertiesPage() {
                 const checkOut = currentParams.get('checkOut');
                 const guests = currentParams.get('guests');
                 
-                // Add timestamp to force fresh data
+                // Add timestamp for cache busting
                 const timestamp = new Date().getTime().toString();
                 
+                // Only add parameters if they exist to avoid empty values
                 if (checkIn) params.append('checkIn', checkIn);
                 if (checkOut) params.append('checkOut', checkOut);
                 if (guests) params.append('guests', guests);
+                params.append('_t', timestamp);
                 
-                // Add a timestamp for cache busting
-                params.append('_t', new Date().getTime().toString());
-                
-                // Store the search parameters in session storage for consistency
-                // This helps ensure the property details page can access the same dates
+                // Store the search parameters in session storage for consistency using our utility function
                 const searchData = {
                   checkIn: checkIn || '',
                   checkOut: checkOut || '',
@@ -293,21 +451,20 @@ export default function PropertiesPage() {
                   propertyId: property.id
                 };
                 
-                console.log('Navigating to property details with search data:', searchData);
-                console.log('URL params string:', params.toString());
-                
                 try {
-                  sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
+                  // Use the utility function for consistent storage format
+                  storeBookingSearch(searchData);
+                  console.log('Stored search data for property detail view:', searchData);
                 } catch (e) {
                   console.error('Error storing search data:', e);
                 }
                 
-                // Add timestamp for cache busting
-                params.append('_t', new Date().getTime().toString());
+                // Create the full URL with all search parameters
+                const url = `/properties/${property.id}?${params.toString()}`;
+                console.log('Navigating to property detail with URL:', url);
                 
-                // Navigate to property details with search parameters
-                // Use window.location for a full page reload to ensure fresh data
-                window.location.href = `/properties/${property.id}?${params.toString()}`;
+                // Use Next.js router for client-side navigation without a full page reload
+                router.push(url);
               }}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >

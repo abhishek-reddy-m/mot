@@ -92,6 +92,7 @@ export function calculateNights(checkIn: string, checkOut: string): number {
 
 /**
  * Stores booking search parameters consistently in session storage
+ * This function is used across the site to maintain consistent search state
  * 
  * @param params - The search parameters to store
  */
@@ -101,15 +102,26 @@ export function storeBookingSearch(params: {
   guests: string | number;
   propertyId?: string;
 }): void {
-  const formattedParams = {
-    checkIn: normalizeDate(params.checkIn),
-    checkOut: normalizeDate(params.checkOut, 1),
-    guests: typeof params.guests === 'string' ? params.guests : params.guests.toString(),
-    propertyId: params.propertyId || ''
-  };
-  
-  console.log('Storing normalized booking search:', formattedParams);
-  sessionStorage.setItem('lastSearch', JSON.stringify(formattedParams));
+  try {
+    // First clear any existing search data to prevent stale state
+    sessionStorage.removeItem('lastSearch');
+    
+    // Format the parameters consistently
+    const formattedParams = {
+      checkIn: normalizeDate(params.checkIn) || '',
+      checkOut: normalizeDate(params.checkOut, 1) || '',
+      guests: typeof params.guests === 'string' ? params.guests : params.guests.toString(),
+      propertyId: params.propertyId || ''
+    };
+    
+    // Log what we're storing for debugging
+    console.log('Storing search parameters:', formattedParams);
+    
+    // Store in session storage
+    sessionStorage.setItem('lastSearch', JSON.stringify(formattedParams));
+  } catch (error) {
+    console.error('Error storing search parameters:', error);
+  }
 }
 
 /**

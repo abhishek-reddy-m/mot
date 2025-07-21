@@ -47,71 +47,13 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
   const [checkOut, setCheckOut] = useState(initialValues.checkOut || getDayAfterTomorrow());
   const [guests, setGuests] = useState(initialValues.guests || '');
 
-  // Auto-search functionality with debouncing
+  // Auto-search functionality disabled to prevent unwanted refreshes
   const performAutoSearch = useCallback(() => {
-    // Only auto-search if we have valid dates and we're on the properties page
-    if (checkIn && checkOut && new Date(checkOut) > new Date(checkIn)) {
-      // Check if we're currently on the properties page
-      if (typeof window !== 'undefined' && window.location.pathname === '/properties') {
-        // Build the query string for search
-        const params = new URLSearchParams();
-        
-        if (selectedProperty) params.append('propertyId', selectedProperty);
-        
-        // Generate a timestamp for cache busting to always get fresh availability data
-        const timestamp = new Date().getTime().toString();
-        
-        // Standardize date format to YYYY-MM-DD for consistency throughout the app
-        if (checkIn) {
-          // Use our utility for date normalization
-          const formattedCheckIn = normalizeDate(checkIn);
-          console.log(`Auto-search - Original checkIn: ${checkIn}, Normalized: ${formattedCheckIn}`);
-          
-          // Store the clean date for the actual search
-          params.append('checkIn', formattedCheckIn);
-          
-          // Always add a timestamp for cache busting
-          params.append('_t', timestamp);
-        }
-        
-        if (checkOut) {
-          // Use our utility for date normalization with fallback to tomorrow (1 day offset) if invalid
-          const formattedCheckOut = normalizeDate(checkOut, 1);
-          console.log(`Auto-search - Original checkOut: ${checkOut}, Normalized: ${formattedCheckOut}`);
-          
-          params.append('checkOut', formattedCheckOut);
-        }
-        
-        if (guests) params.append('guests', guests);
-        
-        const queryString = params.toString();
-        console.log(`Auto-search - Updating properties with params: ${queryString}`);
-        
-        // Use router.replace to update the URL and trigger re-render
-        router.replace(`/properties?${queryString}`);
-        
-        // Store search data for consistency
-        const formattedCheckIn = normalizeDate(checkIn);
-        const formattedCheckOut = normalizeDate(checkOut, 1);
-        
-        storeBookingSearch({
-          checkIn: formattedCheckIn,
-          checkOut: formattedCheckOut,
-          guests,
-          propertyId: selectedProperty
-        });
-      }
-    }
-  }, [checkIn, checkOut, selectedProperty, guests, router]);
+    // Auto-search disabled - only manual search now
+    console.log('Auto-search disabled to prevent unwanted refreshes');
+  }, []);
 
-  // Debounced auto-search effect
-  useEffect(() => {
-    const timeoutId = setTimeout(() => {
-      performAutoSearch();
-    }, 500); // 500ms delay to avoid too many API calls
-
-    return () => clearTimeout(timeoutId);
-  }, [performAutoSearch]);
+  // No auto-search effect to prevent unwanted refreshes
 
   useEffect(() => {
     const fetchProperties = async () => {
@@ -168,11 +110,6 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
     const queryString = params.toString();
     console.log(`Navigating to search with params: ${queryString}`);
     
-    // Use router.replace instead of push to force a full page refresh
-    // This ensures all components fully reinitialize with the new dates
-    // and we get fresh availability data from the API
-    router.replace(`/properties?${queryString}`);
-    
     // Use our utility function to store search parameters consistently
     const formattedCheckIn = normalizeDate(checkIn);
     const formattedCheckOut = normalizeDate(checkOut, 1);
@@ -182,13 +119,43 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
       formatted: { checkIn: formattedCheckIn, checkOut: formattedCheckOut }
     });
     
-    // Use our utility function for storing search data consistently
-    storeBookingSearch({
-      checkIn: formattedCheckIn,
-      checkOut: formattedCheckOut,
-      guests,
-      propertyId: selectedProperty
-    });
+    // Store search parameters in session storage for consistency
+    try {
+      // Clear any existing search data first to prevent stale state
+      sessionStorage.removeItem('lastSearch');
+      
+      // Store fresh data
+      const searchData = {
+        checkIn: formattedCheckIn || '',
+        checkOut: formattedCheckOut || '',
+        guests: guests || '',
+        propertyId: selectedProperty || ''
+      };
+      sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
+    } catch (e) {
+      console.error('Error storing search data:', e);
+    }
+    
+    // Dispatch a custom event to refresh only property cards without page reload
+    if (typeof window !== 'undefined') {
+      const searchEvent = new CustomEvent('refreshPropertyCards', { 
+        detail: { 
+          checkIn: formattedCheckIn,
+          checkOut: formattedCheckOut,
+          guests: guests,
+          propertyId: selectedProperty,
+          timestamp: timestamp
+        }
+      });
+      // Update URL without page refresh using history API
+      const newUrl = `/properties?${queryString}`;
+      window.history.pushState({ path: newUrl }, '', newUrl);
+      
+      // Dispatch the event to trigger property card refresh
+      console.log('Dispatching refreshPropertyCards event');
+      window.dispatchEvent(searchEvent);
+    }
+    
   };
 
   // Style classes based on variant
@@ -207,12 +174,36 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
     compact: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2 mb-2"
   };
   
+  // Calculate nights for display
+  const calculateNights = () => {
+    if (checkIn && checkOut && new Date(checkOut) > new Date(checkIn)) {
+      return Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24));
+    }
+    return null;
+  };
+  
+  const nights = calculateNights();
+  
   return (
     <form onSubmit={handleSearch} className={formClasses[variant]}>
+      {/* Single row of labels at the top */}
+      <div className="flex justify-between mb-1 px-1 py-1">
+        <span className="text-xs text-white font-semibold px-2">Property</span>
+        <span className="text-xs text-white font-semibold px-2">Check-in Date</span>
+        <span className="text-xs text-white font-semibold flex items-center px-2">
+          Check-out Date
+          {nights && (
+            <span className="ml-2">({nights} night{nights !== 1 ? 's' : ''})</span>
+          )}
+        </span>
+        <span className="text-xs text-white font-semibold px-2">Guests</span>
+      </div>
+      
       <div className={gridClasses[variant]}>
         {/* Property Selection */}
         <div className="relative">
           <div className="relative">
+            {/* Label removed as it's now in the top row */}
             <Building2 className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-600" />
             <select 
               className="w-full p-2 pl-8 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent bg-white appearance-none text-sm text-gray-800 font-medium"
@@ -232,57 +223,46 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
         {/* Check-in */}
         <div className="relative">
           <div className="relative">
+            {/* Label removed as it's now in the top row */}
             <Calendar className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-600" />
-            <div className="flex flex-col">
-              <label className="absolute -top-5 left-0 text-xs text-blue-600 font-semibold">Check-in Date</label>
-              <input 
-                type="date" 
-                aria-label="Check-in date"
-                className="w-full p-2 pl-8 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm text-gray-800 font-medium"
-                value={checkIn}
-                onChange={(e) => {
-                  setCheckIn(e.target.value);
-                  // If check-out date is before new check-in date, update it
-                  if (e.target.value > checkOut) {
-                    const nextDay = new Date(e.target.value);
-                    nextDay.setDate(nextDay.getDate() + 1);
-                    setCheckOut(nextDay.toISOString().split('T')[0]);
-                  }
-                }}
-                min={new Date().toISOString().split('T')[0]} // Today's date
-              />
-            </div>
+            <input 
+              type="date" 
+              aria-label="Check-in date"
+              className="w-full p-2 pl-8 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm text-gray-800 font-medium"
+              value={checkIn}
+              onChange={(e) => {
+                setCheckIn(e.target.value);
+                // If check-out date is before new check-in date, update it
+                if (e.target.value > checkOut) {
+                  const nextDay = new Date(e.target.value);
+                  nextDay.setDate(nextDay.getDate() + 1);
+                  setCheckOut(nextDay.toISOString().split('T')[0]);
+                }
+              }}
+              min={new Date().toISOString().split('T')[0]} // Today's date
+            />
           </div>
         </div>
 
         {/* Check-out */}
         <div className="relative">
           <div className="relative">
+            {/* Label removed as it's now in the top row */}
             <Calendar className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-600" />
-            <div className="flex flex-col">
-              <label className="absolute -top-5 left-0 text-xs text-blue-600 font-semibold">Check-out Date</label>
-              <input 
-                type="date" 
-                aria-label="Check-out date"
-                className="w-full p-2 pl-8 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm text-gray-800 font-medium"
-                value={checkOut}
-                onChange={(e) => setCheckOut(e.target.value)}
-                min={checkIn || new Date().toISOString().split('T')[0]} // Minimum is check-in date or today
-              />
-            </div>
-          </div>
-          <div className="mt-1 text-xs text-gray-500">
-            {checkIn && checkOut && new Date(checkOut) > new Date(checkIn) && (
-              <span>
-                {Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24))} night{Math.ceil((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / (1000 * 60 * 60 * 24)) !== 1 ? 's' : ''}
-              </span>
-            )}
+            <input 
+              type="date" 
+              aria-label="Check-out date"
+              className="w-full p-2 pl-8 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent text-sm text-gray-800 font-medium"
+              value={checkOut}
+              onChange={(e) => setCheckOut(e.target.value)}
+              min={checkIn || new Date().toISOString().split('T')[0]} // Minimum is check-in date or today
+            />
           </div>
         </div>
-
         {/* Guests */}
         <div className="relative">
           <div className="relative">
+            {/* Label removed as it's now in the top row */}
             <Users className="absolute left-2 top-1/2 transform -translate-y-1/2 h-4 w-4 text-blue-600" />
             <select 
               className="w-full p-2 pl-8 border border-gray-400 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-600 focus:border-transparent appearance-none bg-white text-sm text-gray-800 font-medium"
@@ -299,6 +279,8 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
           </div>
         </div>
       </div>
+      
+      {/* We'll remove this separate indicator as we'll put it back in the checkout field */}
 
       {/* Search Button */}
       <Button 

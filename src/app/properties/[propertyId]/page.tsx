@@ -60,25 +60,31 @@ type BookingDetails = {
 function getAvailableRoomsCount(roomType: RoomType | null): number {
   if (!roomType) return 0;
   
-  // If calculatedAvailableRooms is a number, use it directly
+  // Try calculatedAvailableRooms first (set by the API)
   if (typeof (roomType as any).calculatedAvailableRooms === 'number') {
     return (roomType as any).calculatedAvailableRooms;
   }
   
-  // If it's an object with the new structure, extract just the availableRooms number
-  if (typeof (roomType as any).calculatedAvailableRooms === 'object' && 
-      (roomType as any).calculatedAvailableRooms?.availableRooms !== undefined) {
-    return (roomType as any).calculatedAvailableRooms.availableRooms;
+  // Next try the availableRooms property
+  if (typeof roomType.availableRooms === 'number') {
+    return roomType.availableRooms;
   }
   
-  // Fall back to other available properties
-  return (roomType as any).availableRooms || roomType.totalRooms;
+  // Fall back to total rooms as a last resort
+  return roomType.totalRooms;
 }
 
 export default function PropertyDetailsPage({ params }: { params: Promise<{ propertyId: string }> }) {
   const router = useRouter();
   const [property, setProperty] = useState<Property | null>(null);
   const [loading, setLoading] = useState(true);
+  
+  // Only log that we're loading the property detail page
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      console.log('Property detail page loaded');
+    }
+  }, []);
   const [error, setError] = useState('');
   
   // Use React.use() to unwrap the params promise
@@ -245,7 +251,8 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
             'Cache-Control': 'no-cache, no-store, must-revalidate',
             'Pragma': 'no-cache',
             'Expires': '0'
-          }
+          },
+          cache: 'no-store' // Disable caching completely for fetch API
         });
         
         if (!response.ok) {
@@ -349,15 +356,26 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
       return;
     }
     
-    // Use our utility to store search parameters consistently
-    storeBookingSearch({
-      checkIn: cleanCheckIn,
-      checkOut: cleanCheckOut,
-      guests: bookingDetails.guests,
-      propertyId
-    });
-    
-    console.log(`Refreshing availability for dates: ${cleanCheckIn} to ${cleanCheckOut}`);
+    try {
+      // Clear any existing search data first to prevent stale state
+      sessionStorage.removeItem('lastSearch');
+      
+      // Store search parameters in session storage for consistency
+      // This exactly matches the format used in the properties listing page
+      const searchData = {
+        checkIn: cleanCheckIn || '',
+        checkOut: cleanCheckOut || '',
+        guests: bookingDetails.guests || '',
+        propertyId: propertyId
+      };
+      
+      sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
+      console.log('Stored search data for availability refresh:', searchData);
+    } catch (error) {
+      console.error('Error storing booking search:', error);
+      
+      // If session storage fails, we still want to continue with the page refresh
+    }
     
     // Show loading indicator
     const refreshBtn = document.getElementById('refresh-btn');
@@ -366,9 +384,18 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
       refreshBtn.classList.add('opacity-50');
     }
     
-    // Instead of using router.replace, use window.location for a full page reload
-    // This avoids the useSearchParams issue during build and ensures we get fresh data
-    const url = `/properties/${propertyId}?checkIn=${cleanCheckIn}&checkOut=${cleanCheckOut}&guests=${bookingDetails.guests}&_t=${timestamp}`;
+    // Build URL parameters
+    const params = new URLSearchParams();
+    if (cleanCheckIn) params.append('checkIn', cleanCheckIn);
+    if (cleanCheckOut) params.append('checkOut', cleanCheckOut);
+    if (bookingDetails.guests) params.append('guests', bookingDetails.guests.toString());
+    params.append('_t', timestamp.toString());
+    
+    // Navigate to the URL with parameters but don't force an additional reload
+    const url = `/properties/${propertyId}?${params.toString()}`;
+    console.log('Refreshing availability with URL:', url);
+    
+    // Update the URL which will load fresh data
     window.location.href = url;
   };
   
