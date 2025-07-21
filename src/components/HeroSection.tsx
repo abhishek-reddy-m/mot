@@ -84,7 +84,7 @@ export function HeroSection() {
           {/* Badge */}
           <div className="animate-text mb-4">
             <span className="inline-block px-6 py-2 bg-white/95 backdrop-blur-md text-gray-800 text-sm font-semibold rounded-full shadow-2xl border border-gray-200/50 shadow-gray-900/20">
-              � Find Your <span className="text-blue-600 font-bold">Perfect Stay</span>
+              🌴 Find Your <span className="text-blue-600 font-bold">Perfect Stay</span>
             </span>
           </div>
 

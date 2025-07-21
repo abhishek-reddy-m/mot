@@ -136,24 +136,34 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
       console.error('Error storing search data:', e);
     }
     
-    // Dispatch a custom event to refresh only property cards without page reload
-    if (typeof window !== 'undefined') {
-      const searchEvent = new CustomEvent('refreshPropertyCards', { 
-        detail: { 
-          checkIn: formattedCheckIn,
-          checkOut: formattedCheckOut,
-          guests: guests,
-          propertyId: selectedProperty,
-          timestamp: timestamp
-        }
-      });
-      // Update URL without page refresh using history API
+    // Check if we're currently on the properties page
+    const isOnPropertiesPage = typeof window !== 'undefined' && window.location.pathname === '/properties';
+    
+    if (isOnPropertiesPage) {
+      // If we're already on the properties page, just refresh the data without navigation
+      if (typeof window !== 'undefined') {
+        const searchEvent = new CustomEvent('refreshPropertyCards', { 
+          detail: { 
+            checkIn: formattedCheckIn,
+            checkOut: formattedCheckOut,
+            guests: guests,
+            propertyId: selectedProperty,
+            timestamp: timestamp
+          }
+        });
+        // Update URL without page refresh using history API
+        const newUrl = `/properties?${queryString}`;
+        window.history.pushState({ path: newUrl }, '', newUrl);
+        
+        // Dispatch the event to trigger property card refresh
+        console.log('Dispatching refreshPropertyCards event');
+        window.dispatchEvent(searchEvent);
+      }
+    } else {
+      // If we're not on the properties page, navigate there
       const newUrl = `/properties?${queryString}`;
-      window.history.pushState({ path: newUrl }, '', newUrl);
-      
-      // Dispatch the event to trigger property card refresh
-      console.log('Dispatching refreshPropertyCards event');
-      window.dispatchEvent(searchEvent);
+      console.log('Navigating to properties page:', newUrl);
+      router.push(newUrl);
     }
     
   };

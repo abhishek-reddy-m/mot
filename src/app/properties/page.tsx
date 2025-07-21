@@ -26,7 +26,6 @@ import {
   Home,
   Building2,
   UtensilsCrossed as Utensils,
-  PalmtreeIcon as Palmtree,
   Clapperboard as Film,
   Calendar,
   Users
@@ -621,7 +620,7 @@ export default function PropertiesPage() {
             ) : (
               <>
                 <div className="flex items-center mb-2">
-                  <MapPin className="h-5 w-5 text-yellow-400 mr-2" />
+                  <span className="text-yellow-400 mr-2 text-lg">•</span>
                   <span className="text-yellow-300 font-medium">Find Your Perfect Stay</span>
                 </div>
                 <h1 className="text-4xl md:text-5xl font-bold mb-4">Discover Amazing Places to Stay</h1>
@@ -778,15 +777,15 @@ export default function PropertiesPage() {
             {/* LA Perks */}
             <div className="mt-8 flex flex-wrap justify-center gap-x-8 gap-y-4">
               <div className="flex items-center">
-                <Palmtree className="h-5 w-5 text-yellow-400 mr-2" />
+                <Coffee className="h-5 w-5 text-yellow-400 mr-2" />
                 <span className="text-sm">Beach Access Deals</span>
               </div>
               <div className="flex items-center">
-                <Film className="h-5 w-5 text-yellow-400 mr-2" />
+                <Car className="h-5 w-5 text-yellow-400 mr-2" />
                 <span className="text-sm">Studio Tour Discounts</span>
               </div>
               <div className="flex items-center">
-                <Star className="h-5 w-5 text-yellow-400 mr-2" />
+                <Wifi className="h-5 w-5 text-yellow-400 mr-2" />
                 <span className="text-sm">Celebrity Hotspot Info</span>
               </div>
             </div>
