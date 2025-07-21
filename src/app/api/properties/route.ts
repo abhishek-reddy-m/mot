@@ -240,9 +240,13 @@ export async function GET(
       // Recalculate totals with only available room types
       availableRoomTypes.forEach(roomType => {
         totalRooms += roomType.totalRooms;
+        
         // Use the calculated available rooms from earlier
         // We use the dynamic property we added earlier
-        realAvailableRooms += (roomType as any).availableRooms || 0;
+        const roomTypeAvailable = (roomType as any).availableRooms || 0;
+        realAvailableRooms += roomTypeAvailable;
+        
+        console.log(`Room type ${roomType.name}: ${roomTypeAvailable}/${roomType.totalRooms} rooms available`);
         
         // Track lowest price
         const basePrice = Number(roomType.basePrice);
@@ -270,7 +274,7 @@ export async function GET(
 
     console.log(`Returning ${propertiesWithAvailability.length} properties with availability`);
     propertiesWithAvailability.forEach(p => {
-      console.log(`Property ${p.name}: ${p.availableRooms}/${p.totalRooms} rooms available, ${p.roomTypeCount} room types available`);
+      console.log(`Property ${p.name}: ${p.availableRooms}/${p.totalRooms} total rooms available (across ${p.roomTypeCount} room types)`);
     });
     
     return NextResponse.json(propertiesWithAvailability);

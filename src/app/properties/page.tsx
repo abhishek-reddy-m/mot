@@ -124,6 +124,21 @@ export default function PropertiesPage() {
     guests?: string;
   }>({});
   
+  // Function to update search parameters and refresh availability
+  const updateAvailability = (newCheckIn: string, newCheckOut: string, newGuests: string) => {
+    // Add timestamp to force cache busting
+    const timestamp = new Date().getTime();
+    const params = new URLSearchParams();
+    
+    if (newCheckIn) params.append('checkIn', newCheckIn);
+    if (newCheckOut) params.append('checkOut', newCheckOut);
+    if (newGuests) params.append('guests', newGuests);
+    params.append('_t', timestamp.toString());
+    
+    // Force reload with new parameters
+    window.location.href = `/properties?${params.toString()}`;
+  };
+  
   useEffect(() => {
     // If propertyId is provided, find the property name
     const propertyName = urlParams.propertyId 
@@ -244,7 +259,7 @@ export default function PropertiesPage() {
               )}
               {property.availableRooms > 0 && (
                 <span className="block text-xs text-gray-500 mt-1">
-                  {property.availableRooms} {property.availableRooms === 1 ? 'room' : 'rooms'} available
+                  {property.availableRooms} {property.availableRooms === 1 ? 'room' : 'rooms'} available (total across all room types)
                 </span>
               )}
             </div>
@@ -258,6 +273,9 @@ export default function PropertiesPage() {
                 const checkIn = currentParams.get('checkIn');
                 const checkOut = currentParams.get('checkOut');
                 const guests = currentParams.get('guests');
+                
+                // Add timestamp to force fresh data
+                const timestamp = new Date().getTime().toString();
                 
                 if (checkIn) params.append('checkIn', checkIn);
                 if (checkOut) params.append('checkOut', checkOut);
@@ -284,8 +302,12 @@ export default function PropertiesPage() {
                   console.error('Error storing search data:', e);
                 }
                 
+                // Add timestamp for cache busting
+                params.append('_t', new Date().getTime().toString());
+                
                 // Navigate to property details with search parameters
-                router.push(`/properties/${property.id}?${params.toString()}`);
+                // Use window.location for a full page reload to ensure fresh data
+                window.location.href = `/properties/${property.id}?${params.toString()}`;
               }}
               className="bg-blue-600 hover:bg-blue-700 text-white"
             >
