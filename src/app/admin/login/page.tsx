@@ -38,19 +38,12 @@ function LoginForm() {
 
       if (result?.error) {
         setError('Invalid admin credentials. Please try again.');
-      } else {
-        // Add a slight delay to ensure the session is properly set
-        setTimeout(() => {
-          if (result?.url) {
-            // Our middleware will handle redirecting non-admin users
-            console.log("Admin login success, redirecting to:", result.url);
-            router.push(result.url);
-          } else {
-            console.log("Admin login success, redirecting to dashboard");
-            router.push('/admin/dashboard');
-          }
-          router.refresh();
-        }, 500);
+      } else if (result?.ok) {
+        // Successful login - force a page reload to ensure session is recognized
+        console.log("Admin login successful, reloading page to ensure session recognition");
+        
+        // Use window.location for a hard redirect that ensures session persistence
+        window.location.href = callbackUrl;
       }
     } catch (error) {
       console.error('Admin login error:', error);
