@@ -4,7 +4,7 @@
 const fetch = require('node-fetch');
 
 async function testAvailabilityIntegration() {
-  const baseUrl = 'http://localhost:3001';
+  const baseUrl = 'http://localhost:3000';
   
   // Test parameters
   const checkIn = '2025-07-25';

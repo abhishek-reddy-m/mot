@@ -17,13 +17,15 @@ import {
   Bed,
   BarChart3,
   ChevronDown,
-  User
+  User,
+  DollarSign
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: Home },
   { name: 'Properties', href: '/admin/properties', icon: Building2 },
   { name: 'Room Types', href: '/admin/room-types', icon: Bed },
+  { name: 'Rate Calendar', href: '/admin/rate-calendar', icon: DollarSign },
   { name: 'Bookings', href: '/admin/bookings', icon: Calendar },
   { name: 'Users', href: '/admin/users', icon: Users },
   { name: 'Analytics', href: '/admin/analytics', icon: BarChart3 },

@@ -71,6 +71,7 @@ model RoomType {
   bookings         Booking[]
   roomAvailability RoomAvailability[]
   photos           RoomTypePhoto[]
+  dailyRates       RoomTypeRate[]
   property         Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@map("room_types")
@@ -134,6 +135,20 @@ model BookingStatusHistory {
   booking   Booking       @relation(fields: [bookingId], references: [id], onDelete: Cascade)
 
   @@map("booking_status_history")
+}
+
+model RoomTypeRate {
+  id         String   @id @default(cuid())
+  roomTypeId String
+  date       DateTime @db.Date
+  price      Decimal  @db.Decimal(10, 2)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  roomType   RoomType @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+
+  @@unique([roomTypeId, date])
+  @@index([date])
+  @@map("room_type_rates")
 }
 
 enum UserRole {

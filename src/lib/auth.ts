@@ -10,7 +10,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   // Use explicit host configuration to avoid UntrustedHost errors
   basePath: "/api/auth",
   // Make sure cookies are properly configured
-  useSecureCookies: false, // Set to false to avoid secure cookie issues in development
+  useSecureCookies: process.env.NODE_ENV === "production", // Only use secure cookies in production
   cookies: {
     sessionToken: {
       name: "next-auth.session-token",
@@ -18,7 +18,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         httpOnly: true,
         sameSite: "lax",
         path: "/",
-        secure: false, // Set to false to avoid secure cookie issues in development
+        secure: process.env.NODE_ENV === "production", // Only use secure cookies in production
       },
     },
   },

@@ -104,7 +104,7 @@ export async function POST(req: NextRequest) {
   try {
     const session = await auth();
     
-    if (!session || session.user.role !== 'ADMIN') {
+    if (!session?.user || session.user.role !== 'ADMIN') {
       return NextResponse.json(
         { error: 'Unauthorized' },
         { status: 401 }
@@ -161,6 +161,24 @@ export async function POST(req: NextRequest) {
         }
       }
     });
+
+    // Initialize room rates for the next 2 years using the base price
+    try {
+      // Use internal call pattern to avoid API call overhead
+      await fetch(`${req.nextUrl.origin}/api/admin/initialize-rates`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          // Pass the auth cookie through
+          'Cookie': req.headers.get('cookie') || '',
+        },
+        body: JSON.stringify({ roomTypeId: roomType.id }),
+      });
+      console.log(`Initialized rates for new room type: ${roomType.name} (${roomType.id})`);
+    } catch (rateError) {
+      // Log error but don't fail the room type creation
+      console.error('Error initializing rates for new room type:', rateError);
+    }
 
     return NextResponse.json(roomType, { status: 201 });
   } catch (error) {
