@@ -5,7 +5,19 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Calendar, User, Building2, DollarSign, Clock, Loader2 } from 'lucide-react';
+import { ArrowLeft, Calendar, User, Building2, DollarSign, Clock, Loader2, CreditCard, Eye, EyeOff } from 'lucide-react';
+
+type PaymentDetails = {
+  cardNumber: string;
+  maskedCardNumber: string;
+  cardLast4: string;
+  cardBrand: string;
+  cardExpMonth: number;
+  cardExpYear: number;
+  cardCvv: string;
+  billingName: string;
+  billingZip: string;
+};
 
 type BookingDetailsType = {
   id: string;
@@ -19,6 +31,13 @@ type BookingDetailsType = {
   totalPrice: number;
   status: string;
   notes?: string;
+  // Payment details
+  cardLast4?: string;
+  cardBrand?: string;
+  cardExpMonth?: number;
+  cardExpYear?: number;
+  billingName?: string;
+  billingZip?: string;
   createdAt: string;
   updatedAt: string;
   user: {
@@ -44,18 +63,33 @@ type BookingDetailsType = {
   }[];
 };
 
-export default function AdminBookingDetailsPage({ params }: { params: { bookingId: string } }) {
+export default function AdminBookingDetailsPage({ params }: { params: Promise<{ bookingId: string }> }) {
   const router = useRouter();
-  const { bookingId } = params;
+  const [bookingId, setBookingId] = useState<string>('');
   
   const [booking, setBooking] = useState<BookingDetailsType | null>(null);
   const [loading, setLoading] = useState(true);
   const [updating, setUpdating] = useState(false);
   const [error, setError] = useState('');
   const [statusNotes, setStatusNotes] = useState('');
+  
+  // Payment details state
+  const [paymentDetails, setPaymentDetails] = useState<PaymentDetails | null>(null);
+  const [showFullCard, setShowFullCard] = useState(false);
+  const [showCvv, setShowCvv] = useState(false);
+  const [loadingPayment, setLoadingPayment] = useState(false);
+
+  // Unwrap params Promise
+  useEffect(() => {
+    params.then((resolvedParams) => {
+      setBookingId(resolvedParams.bookingId);
+    });
+  }, [params]);
 
   // Fetch booking details
   useEffect(() => {
+    if (!bookingId) return;
+    
     const fetchBookingDetails = async () => {
       try {
         setLoading(true);
@@ -77,6 +111,27 @@ export default function AdminBookingDetailsPage({ params }: { params: { bookingI
 
     fetchBookingDetails();
   }, [bookingId]);
+
+  // Fetch payment details
+  const fetchPaymentDetails = async () => {
+    if (!bookingId || paymentDetails) return; // Don't fetch if already loaded
+    
+    try {
+      setLoadingPayment(true);
+      const response = await fetch(`/api/admin/bookings/${bookingId}/payment`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch payment details');
+      }
+      
+      const data = await response.json();
+      setPaymentDetails(data);
+    } catch (err) {
+      console.error('Error fetching payment details:', err);
+    } finally {
+      setLoadingPayment(false);
+    }
+  };
 
   // Format dates
   const formatDate = (dateString: string) => {
@@ -272,6 +327,99 @@ export default function AdminBookingDetailsPage({ params }: { params: { bookingI
                 <div className="mt-6 p-4 bg-gray-50 rounded-md">
                   <p className="text-sm font-medium text-gray-500">Notes</p>
                   <p className="mt-1">{booking.notes}</p>
+                </div>
+              )}
+              
+              {/* Payment Information */}
+              {booking.cardLast4 && (
+                <div className="mt-6 p-4 bg-blue-50 rounded-md">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
+                      <CreditCard className="h-4 w-4" />
+                      Payment Information
+                    </p>
+                    {!paymentDetails && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={fetchPaymentDetails}
+                        disabled={loadingPayment}
+                      >
+                        {loadingPayment ? (
+                          <Loader2 className="h-4 w-4 animate-spin mr-1" />
+                        ) : (
+                          <Eye className="h-4 w-4 mr-1" />
+                        )}
+                        View Full Details
+                      </Button>
+                    )}
+                  </div>
+                  
+                  <div className="grid md:grid-cols-2 gap-4 text-sm">
+                    <div>
+                      <span className="text-gray-500">Card:</span>{' '}
+                      {paymentDetails ? (
+                        <span className="font-medium font-mono">
+                          {showFullCard ? paymentDetails.cardNumber : paymentDetails.maskedCardNumber}
+                          <button
+                            onClick={() => setShowFullCard(!showFullCard)}
+                            className="ml-2 text-blue-600 hover:text-blue-800"
+                          >
+                            {showFullCard ? <EyeOff className="h-3 w-3 inline" /> : <Eye className="h-3 w-3 inline" />}
+                          </button>
+                        </span>
+                      ) : (
+                        <span className="font-medium">{booking.cardBrand} •••• {booking.cardLast4}</span>
+                      )}
+                    </div>
+                    <div>
+                      <span className="text-gray-500">Expires:</span>{' '}
+                      <span className="font-medium">
+                        {paymentDetails 
+                          ? `${paymentDetails.cardExpMonth?.toString().padStart(2, '0')}/${paymentDetails.cardExpYear}`
+                          : `${booking.cardExpMonth?.toString().padStart(2, '0')}/${booking.cardExpYear}`
+                        }
+                      </span>
+                    </div>
+                    {paymentDetails && (
+                      <div>
+                        <span className="text-gray-500">CVV:</span>{' '}
+                        <span className="font-medium font-mono">
+                          {showCvv ? paymentDetails.cardCvv : '•••'}
+                          <button
+                            onClick={() => setShowCvv(!showCvv)}
+                            className="ml-2 text-blue-600 hover:text-blue-800"
+                          >
+                            {showCvv ? <EyeOff className="h-3 w-3 inline" /> : <Eye className="h-3 w-3 inline" />}
+                          </button>
+                        </span>
+                      </div>
+                    )}
+                    <div>
+                      <span className="text-gray-500">Name:</span>{' '}
+                      <span className="font-medium">{paymentDetails?.billingName || booking.billingName}</span>
+                    </div>
+                    {(paymentDetails?.billingZip || booking.billingZip) && (
+                      <div>
+                        <span className="text-gray-500">Billing Zip:</span>{' '}
+                        <span className="font-medium">{paymentDetails?.billingZip || booking.billingZip}</span>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {paymentDetails && (
+                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
+                      <strong>⚠️ Security Notice:</strong> Full card details are displayed for no-show charge purposes only. 
+                      Do not share or store these details outside this system.
+                    </div>
+                  )}
+                  
+                  <p className="text-xs text-gray-500 mt-3">
+                    {paymentDetails 
+                      ? 'Use these details to process no-show charges if needed.'
+                      : 'Card not charged - payment details held for reservation guarantee. Click "View Full Details" to see complete card info for no-show charges.'
+                    }
+                  </p>
                 </div>
               )}
             </CardContent>

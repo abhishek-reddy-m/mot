@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { parseBookingDate, toDateString, getDateRange } from '@/lib/date-utils';
+import { encrypt } from '@/lib/encryption';
 
 export async function POST(request: NextRequest) {
   try {
@@ -44,7 +46,14 @@ export async function POST(request: NextRequest) {
       checkOut, 
       guests,
       rooms = 1,
-      totalPrice 
+      totalPrice,
+      // Payment details
+      cardNumber,
+      cardExpMonth,
+      cardExpYear,
+      cardCvv,
+      billingName,
+      billingZip
     } = body;
 
     // Validate required fields
@@ -54,15 +63,42 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    
+    // Validate payment details
+    if (!cardNumber || !cardExpMonth || !cardExpYear || !cardCvv || !billingName) {
+      return NextResponse.json(
+        { error: 'Missing required payment details' },
+        { status: 400 }
+      );
+    }
+    
+    // Basic card number validation (should be 13-19 digits)
+    const cleanCardNumber = cardNumber.replace(/\s/g, '');
+    if (!/^\d{13,19}$/.test(cleanCardNumber)) {
+      return NextResponse.json(
+        { error: 'Invalid card number' },
+        { status: 400 }
+      );
+    }
+    
+    // Detect card brand
+    let cardBrand = 'Unknown';
+    if (/^4/.test(cleanCardNumber)) cardBrand = 'Visa';
+    else if (/^5[1-5]/.test(cleanCardNumber) || /^2[2-7]/.test(cleanCardNumber)) cardBrand = 'Mastercard';
+    else if (/^3[47]/.test(cleanCardNumber)) cardBrand = 'Amex';
+    else if (/^6(?:011|5)/.test(cleanCardNumber)) cardBrand = 'Discover';
+    
+    // Get last 4 digits
+    const cardLast4 = cleanCardNumber.slice(-4);
 
     // First ensure dates are in valid YYYY-MM-DD format
     const cleanCheckIn = checkIn.trim().match(/^\d{4}-\d{2}-\d{2}$/) 
       ? checkIn.trim()
-      : null;
+      : toDateString(checkIn);
       
     const cleanCheckOut = checkOut.trim().match(/^\d{4}-\d{2}-\d{2}$/)
       ? checkOut.trim()
-      : null;
+      : toDateString(checkOut);
       
     // Validate date format first
     if (!cleanCheckIn || !cleanCheckOut) {
@@ -72,9 +108,9 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Convert string dates to Date objects and normalize to noon UTC to avoid timezone issues
-    const checkInDate = new Date(`${cleanCheckIn}T12:00:00Z`);
-    const checkOutDate = new Date(`${cleanCheckOut}T12:00:00Z`);
+    // Convert string dates to Date objects using timezone-safe parsing
+    const checkInDate = parseBookingDate(cleanCheckIn);
+    const checkOutDate = parseBookingDate(cleanCheckOut);
     
     // Log the dates for debugging
     console.log('Booking request dates:', {
@@ -137,49 +173,15 @@ export async function POST(request: NextRequest) {
       );
     }
     
-    // Calculate available rooms based on existing bookings
-    const availabilityData = await prisma.booking.findMany({
-      where: {
-        roomTypeId,
-        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        OR: [
-          { 
-            checkIn: { lte: checkOutDate },
-            checkOut: { gte: checkInDate }
-          }
-        ]
-      },
-      select: {
-        rooms: true
-      }
-    });
-    
-    // Calculate total booked rooms for this period
-    let totalBookedRooms = 0;
-    availabilityData.forEach((record: { rooms: number }) => {
-      totalBookedRooms += record.rooms || 1;
-    });
-    
-    // Calculate available rooms
-    const availableRooms = Math.max(0, roomType.totalRooms - totalBookedRooms);
-
-    // Check if there are enough available rooms
-    if (availableRooms < rooms) {
-      return NextResponse.json(
-        { error: `Not enough rooms available. Only ${availableRooms} rooms available.` },
-        { status: 400 }
-      );
-    }
-    
-    // Check for existing bookings that would overlap with this date range
+    // Get all bookings that overlap with our date range
     const existingBookings = await prisma.booking.findMany({
       where: {
         roomTypeId,
-        status: { notIn: ['CANCELLED'] },
-        // Use the overlap condition: booking starts before our end and ends after our start
+        status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+        // Booking overlaps if it starts before our checkout and ends after our checkin
         AND: [
-          { checkIn: { lt: checkOutDate } }, // Existing booking starts before our checkout
-          { checkOut: { gt: checkInDate } }  // Existing booking ends after our checkin
+          { checkIn: { lt: checkOutDate } },
+          { checkOut: { gt: checkInDate } }
         ]
       },
       select: {
@@ -189,65 +191,42 @@ export async function POST(request: NextRequest) {
       }
     });
     
-    console.log(`Found ${existingBookings.length} potentially conflicting bookings for this date range`);
+    console.log(`Found ${existingBookings.length} potentially overlapping bookings`);
     
-    // If we found overlapping bookings, we need to check if there's enough capacity
-    if (existingBookings.length > 0) {
-      // Helper function to get all dates in a range as strings
-      function getDateRange(start: Date, end: Date): string[] {
-        const dateRange: string[] = [];
-        const currentDate = new Date(start);
+    // Get all dates in our booking range using the timezone-safe utility
+    const bookingDates = getDateRange(checkInDate, checkOutDate);
+    
+    // Calculate max rooms booked on any single day in our date range
+    let maxBookedRooms = 0;
+    
+    for (const dateStr of bookingDates) {
+      const currentDate = parseBookingDate(dateStr);
+      let bookedOnThisDate = 0;
+      
+      for (const booking of existingBookings) {
+        const bookingStart = parseBookingDate(booking.checkIn);
+        const bookingEnd = parseBookingDate(booking.checkOut);
         
-        // Normalize to start of day for consistent comparison
-        currentDate.setUTCHours(0, 0, 0, 0);
-        
-        const endDateNorm = new Date(end);
-        endDateNorm.setUTCHours(0, 0, 0, 0);
-        
-        while (currentDate < endDateNorm) {
-          // Store dates as YYYY-MM-DD strings for consistent comparison
-          dateRange.push(currentDate.toISOString().split('T')[0]);
-          currentDate.setDate(currentDate.getDate() + 1);
+        // If this booking covers the current date, add its rooms
+        if (currentDate >= bookingStart && currentDate < bookingEnd) {
+          bookedOnThisDate += booking.rooms || 1;
         }
-        return dateRange;
       }
       
-      // Get all dates in the requested booking period
-      const requestedDates = getDateRange(checkInDate, checkOutDate);
-      console.log(`Requested dates: ${requestedDates.join(', ')}`);
-      
-      // Track bookings per date
-      const bookedRoomsByDate: Record<string, number> = {};
-      
-      // For each existing booking, mark the rooms as booked for each date
-      existingBookings.forEach(booking => {
-        const bookingDates = getDateRange(booking.checkIn, booking.checkOut);
-        bookingDates.forEach(date => {
-          // If the date is in our requested range, count it
-          if (requestedDates.includes(date)) {
-            if (!bookedRoomsByDate[date]) bookedRoomsByDate[date] = 0;
-            bookedRoomsByDate[date] += booking.rooms;
-          }
-        });
-      });
-      
-      // Find the maximum number of booked rooms for any date
-      let maxBookedRooms = 0;
-      Object.entries(bookedRoomsByDate).forEach(([date, count]) => {
-        console.log(`Date ${date}: ${count} rooms already booked`);
-        maxBookedRooms = Math.max(maxBookedRooms, count);
-      });
-      
-      console.log(`Maximum rooms booked on any date: ${maxBookedRooms}`);
-      console.log(`Total rooms: ${roomType.totalRooms}, Available: ${roomType.availableRooms}`);
-      
-      // If there aren't enough rooms available for the requested dates, reject the booking
-      if (roomType.totalRooms - maxBookedRooms < rooms) {
-        return NextResponse.json(
-          { error: `Not enough rooms available for the selected dates. Maximum available: ${roomType.totalRooms - maxBookedRooms}.` },
-          { status: 400 }
-        );
-      }
+      maxBookedRooms = Math.max(maxBookedRooms, bookedOnThisDate);
+    }
+    
+    // Calculate available rooms based on the day with most bookings
+    const availableRooms = Math.max(0, roomType.totalRooms - maxBookedRooms);
+    
+    console.log(`Room type ${roomType.name}: total=${roomType.totalRooms}, maxBooked=${maxBookedRooms}, available=${availableRooms}, requested=${rooms}`);
+
+    // Check if there are enough available rooms
+    if (availableRooms < rooms) {
+      return NextResponse.json(
+        { error: `Not enough rooms available. Only ${availableRooms} rooms available.` },
+        { status: 400 }
+      );
     }
     
     // Import the room availability update function
@@ -267,6 +246,15 @@ export async function POST(request: NextRequest) {
           rooms,
           totalPrice: totalPrice || parseFloat(roomType.basePrice.toString()) * rooms,
           status: 'PENDING',
+          // Store payment details (encrypted for no-show charges)
+          cardNumber: encrypt(cleanCardNumber), // Encrypted full card number
+          cardLast4,
+          cardBrand,
+          cardExpMonth: parseInt(cardExpMonth),
+          cardExpYear: parseInt(cardExpYear),
+          cardCvv: encrypt(cardCvv), // Encrypted CVV
+          billingName,
+          billingZip: billingZip || null,
           statusHistory: {
             create: {
               status: 'PENDING',
@@ -369,7 +357,11 @@ export async function GET(request: NextRequest) {
         roomType: {
           select: {
             name: true,
-            capacity: true
+            capacity: true,
+            photos: {
+              orderBy: { isMain: 'desc' },
+              take: 3
+            }
           }
         },
         statusHistory: {

@@ -1,5 +1,10 @@
 import { prisma } from '@/lib/prisma';
 import { safeQuery } from '@/lib/db-utils';
+import { 
+  parseBookingDate, 
+  toDateString, 
+  getDateRange as getDateRangeStrings 
+} from '@/lib/date-utils';
 
 /**
  * Calculate the maximum number of booked rooms for any single day in a date range
@@ -35,12 +40,15 @@ async function calculateMaxBookedRoomsInRange(
     const dateRange = getDateRange(checkIn, checkOut);
     let maxBookedRooms = 0;
     const bookedRoomsByDate = new Map<string, number>();
+    
+    console.log(`Calculating max booked rooms for ${checkIn.toISOString()} to ${checkOut.toISOString()}`);
+    console.log(`Generated ${dateRange.length} dates to check`);
 
     // For each date in our range, calculate how many rooms are booked
     for (const date of dateRange) {
       let bookedRoomsOnDate = 0;
       const currentDate = new Date(date);
-      currentDate.setUTCHours(0, 0, 0, 0);
+      currentDate.setUTCHours(12, 0, 0, 0);
       const dateStr = currentDate.toISOString().split('T')[0];
       
       // Check each overlapping booking to see if it covers this date
@@ -48,9 +56,9 @@ async function calculateMaxBookedRoomsInRange(
         const bookingStart = new Date(booking.checkIn);
         const bookingEnd = new Date(booking.checkOut);
         
-        // Normalize all dates to start of day for consistent comparison
-        bookingStart.setUTCHours(0, 0, 0, 0);
-        bookingEnd.setUTCHours(0, 0, 0, 0);
+        // Normalize all dates to noon UTC for consistent comparison
+        bookingStart.setUTCHours(12, 0, 0, 0);
+        bookingEnd.setUTCHours(12, 0, 0, 0);
         
         // If this booking covers the current date, add its rooms
         if (currentDate >= bookingStart && currentDate < bookingEnd) {
@@ -211,21 +219,18 @@ export async function updateRoomAvailability(
 
 /**
  * Helper function to generate a range of dates
+ * Returns Date objects at noon UTC for each date in the range
+ * Uses the centralized date utilities for consistent timezone handling
  */
 export function getDateRange(start: Date, end: Date): Date[] {
-  const dateRange: Date[] = [];
-  const currentDate = new Date(start);
+  // Use the centralized date utility for consistent handling
+  const dateStrings = getDateRangeStrings(start, end);
   
-  // Normalize to noon UTC for consistent comparison
-  currentDate.setUTCHours(12, 0, 0, 0);
+  // Convert strings back to Date objects at noon UTC
+  const dates = dateStrings.map(str => parseBookingDate(str));
   
-  const endDateNorm = new Date(end);
-  endDateNorm.setUTCHours(12, 0, 0, 0);
+  console.log(`getDateRange: from ${toDateString(start)} to ${toDateString(end)}`);
+  console.log(`getDateRange: generated ${dates.length} dates:`, dateStrings);
   
-  while (currentDate < endDateNorm) {
-    dateRange.push(new Date(currentDate));
-    currentDate.setDate(currentDate.getDate() + 1);
-  }
-  
-  return dateRange;
+  return dates;
 }

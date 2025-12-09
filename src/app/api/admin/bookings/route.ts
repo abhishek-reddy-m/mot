@@ -23,15 +23,18 @@ export async function GET() {
             firstName: true,
             lastName: true,
             email: true,
+            phone: true,
           }
         },
         property: {
           select: {
+            id: true,
             name: true,
           }
         },
         roomType: {
           select: {
+            id: true,
             name: true,
           }
         },

@@ -162,6 +162,7 @@ export async function GET(
         state: property.state,
         zipCode: property.zipCode,
         mainPhoto: property.photos[0]?.url || null,
+        photos: property.photos.map(p => ({ id: p.id, url: p.url, isMain: p.isMain })),
         totalRooms,
         availableRooms: totalAvailableRooms,
         lowestPrice,

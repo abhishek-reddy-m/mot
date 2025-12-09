@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Navigation from '@/components/Navigation';
 import { SearchBar } from '@/components/search-bar';
+import { ImageCarousel } from '@/components/ImageCarousel';
 import { formatDateForDisplay, storeBookingSearch } from '@/lib/date-utils';
 import { 
   MapPin, 
@@ -40,6 +41,7 @@ type PropertyWithAvailability = {
   state: string;
   zipCode: string;
   mainPhoto: string | null;
+  photos: Array<{ id: string; url: string; isMain: boolean }>;
   totalRooms: number;
   availableRooms: number;
   lowestPrice: number | null;
@@ -318,21 +320,16 @@ export default function PropertiesPage() {
   function PropertyCard({ property }: { property: PropertyWithAvailability }) {
     return (
       <Card className="overflow-hidden hover:shadow-xl transition-all duration-300 group border-gray-100">
-        <div className="aspect-[4/3] relative overflow-hidden">
-          {property.mainPhoto ? (
-            <img
-              src={property.mainPhoto}
-              alt={property.name}
-              className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
-            />
-          ) : (
-            <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-              <span className="text-gray-400">No image available</span>
-            </div>
-          )}
+        <div className="relative">
+          <ImageCarousel 
+            photos={property.photos || (property.mainPhoto ? [{ id: '1', url: property.mainPhoto, isMain: true }] : [])} 
+            alt={property.name}
+            height="h-48"
+            autoPlay={false}
+          />
           
           {/* Rating badge */}
-          <div className="absolute top-4 right-4 bg-white px-2 py-1 rounded-md shadow-md">
+          <div className="absolute top-4 right-4 bg-white px-2 py-1 rounded-md shadow-md z-10">
             <div className="flex items-center space-x-1">
               <Star className="h-4 w-4 text-yellow-400 fill-current" />
               <span className="text-sm font-medium">4.8</span>
@@ -341,7 +338,7 @@ export default function PropertiesPage() {
           
           {/* Availability badge */}
           {property.hasAvailability && (
-            <div className="absolute top-4 left-4 bg-green-100 text-green-800 text-xs px-2 py-1 rounded-md font-medium">
+            <div className="absolute top-4 left-4 bg-green-100 text-green-800 text-xs px-2 py-1 rounded-md font-medium z-10">
               Available Now
             </div>
           )}

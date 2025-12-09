@@ -1,11 +1,10 @@
 import NextAuth from "next-auth"
-import { PrismaAdapter } from "@auth/prisma-adapter"
 import CredentialsProvider from "next-auth/providers/credentials"
+import GoogleProvider from "next-auth/providers/google"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma"
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
-  adapter: PrismaAdapter(prisma),
   trustHost: true, // Trust all hosts in production
   
   // Production-specific configuration
@@ -26,8 +25,29 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   providers: [
+    GoogleProvider({
+      clientId: process.env.GOOGLE_CLIENT_ID!,
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
+      authorization: {
+        params: {
+          prompt: "consent",
+          access_type: "offline",
+          response_type: "code"
+        }
+      },
+      profile(profile) {
+        return {
+          id: profile.sub,
+          name: profile.name,
+          email: profile.email,
+          image: profile.picture,
+          role: "CUSTOMER" as const,
+        }
+      },
+    }),
     CredentialsProvider({
-      name: "credentials",
+      id: "admin-credentials",
+      name: "Admin Login",
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" }
@@ -44,7 +64,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           }
         })
 
-        if (!user) {
+        if (!user || user.role !== "ADMIN") {
           return null
         }
 
@@ -68,23 +88,65 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   ],
   session: {
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60, // 30 days for longer session persistence
+    maxAge: 7 * 24 * 60 * 60, // 7 days for better security
+    updateAge: 24 * 60 * 60, // Update session every 24 hours
   },
   callbacks: {
-    async jwt({ token, user }) {
+    async signIn({ user, account, profile }) {
+      // Allow Google sign-in only for customers
+      if (account?.provider === "google") {
+        // Check if user exists
+        const existingUser = await prisma.user.findUnique({
+          where: { email: user.email! }
+        })
+
+        // If user doesn't exist, create a new customer account
+        if (!existingUser) {
+          const [firstName, ...lastNameParts] = (user.name || "").split(" ")
+          await prisma.user.create({
+            data: {
+              email: user.email!,
+              password: "", // No password for OAuth users
+              firstName: firstName || "User",
+              lastName: lastNameParts.join(" ") || "Google",
+              role: "CUSTOMER",
+              isActive: true,
+            }
+          })
+        } else if (existingUser.role === "ADMIN") {
+          // Prevent admins from logging in with Google
+          return false
+        }
+        return true
+      }
+      // Allow credentials login (admin only now)
+      return true
+    },
+    async jwt({ token, user, account }) {
       if (user) {
         token.role = user.role
         token.email = user.email
         token.name = user.name
         token.id = user.id
       }
+      
+      // Fetch fresh user data to ensure role is up-to-date
+      if (token.email) {
+        const dbUser = await prisma.user.findUnique({
+          where: { email: token.email as string }
+        })
+        if (dbUser) {
+          token.role = dbUser.role
+          token.id = dbUser.id
+        }
+      }
+      
       return token
     },
     async session({ session, token }) {
       if (token) {
         session.user = {
           ...session.user,
-          // Use token.id if available, fallback to token.sub
           id: token.id as string || token.sub || "",
           role: (token.role as "ADMIN" | "CUSTOMER") || "CUSTOMER",
           email: token.email as string,

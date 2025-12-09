@@ -18,11 +18,15 @@ import {
   BarChart3,
   ChevronDown,
   User,
-  DollarSign
+  DollarSign,
+  ClipboardList,
+  Sparkles
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: Home },
+  { name: 'Front Desk', href: '/admin/front-desk', icon: ClipboardList },
+  { name: 'Housekeeping', href: '/admin/housekeeping', icon: Sparkles },
   { name: 'Properties', href: '/admin/properties', icon: Building2 },
   { name: 'Room Types', href: '/admin/room-types', icon: Bed },
   { name: 'Rate Calendar', href: '/admin/rate-calendar', icon: DollarSign },

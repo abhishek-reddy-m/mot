@@ -1,16 +1,24 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Save } from 'lucide-react';
+import { ArrowLeft, Save, Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
+
+type PreviewImage = {
+  file: File;
+  preview: string;
+};
 
 export default function AddPropertyPage() {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<PreviewImage[]>([]);
+  const [error, setError] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -23,13 +31,57 @@ export default function AddPropertyPage() {
     amenities: ''
   });
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+
+    const newImages: PreviewImage[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        setError(`File "${file.name}" is not an image`);
+        continue;
+      }
+      
+      // Validate file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setError(`File "${file.name}" is too large. Maximum size is 5MB`);
+        continue;
+      }
+      
+      newImages.push({
+        file,
+        preview: URL.createObjectURL(file)
+      });
+    }
+    
+    setSelectedImages([...selectedImages, ...newImages]);
+    
+    // Clear input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  const removeImage = (index: number) => {
+    const newImages = [...selectedImages];
+    URL.revokeObjectURL(newImages[index].preview);
+    newImages.splice(index, 1);
+    setSelectedImages(newImages);
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError('');
 
     try {
       const amenitiesArray = formData.amenities.split(',').map(item => item.trim()).filter(item => item);
       
+      // First, create the property
       const response = await fetch('/api/admin/properties', {
         method: 'POST',
         headers: {
@@ -41,13 +93,43 @@ export default function AddPropertyPage() {
         }),
       });
 
-      if (response.ok) {
-        router.push('/admin/properties');
-      } else {
-        alert('Error creating property. Please try again.');
+      if (!response.ok) {
+        throw new Error('Error creating property');
       }
+
+      const property = await response.json();
+
+      // If we have images, upload them
+      if (selectedImages.length > 0) {
+        const base64Images: string[] = [];
+        
+        for (const img of selectedImages) {
+          const base64 = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = reject;
+            reader.readAsDataURL(img.file);
+          });
+          base64Images.push(base64);
+        }
+
+        // Upload photos
+        const photoResponse = await fetch(`/api/admin/properties/${property.id}/photos`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ images: base64Images }),
+        });
+
+        if (!photoResponse.ok) {
+          console.error('Failed to upload photos, but property was created');
+        }
+      }
+
+      router.push('/admin/properties');
     } catch (error) {
-      alert('Error creating property. Please try again.');
+      setError('Error creating property. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -224,7 +306,80 @@ export default function AddPropertyPage() {
                   Separate multiple amenities with commas
                 </p>
               </div>
+
+              {/* Photo Upload Section */}
+              <div className="md:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Property Photos
+                </label>
+                <div className="space-y-4">
+                  {/* Upload Button */}
+                  <div className="flex items-center gap-4">
+                    <input
+                      type="file"
+                      ref={fileInputRef}
+                      onChange={handleFileSelect}
+                      multiple
+                      accept="image/*"
+                      className="hidden"
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      <Upload className="h-4 w-4 mr-2" />
+                      Select Photos
+                    </Button>
+                    <span className="text-sm text-gray-500">
+                      Max 5MB per image. JPG, PNG, GIF supported.
+                    </span>
+                  </div>
+
+                  {/* Selected Images Preview */}
+                  {selectedImages.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                      {selectedImages.map((img, index) => (
+                        <div
+                          key={index}
+                          className="relative group rounded-lg overflow-hidden border border-gray-200"
+                        >
+                          <img
+                            src={img.preview}
+                            alt={`Preview ${index + 1}`}
+                            className="w-full h-24 object-cover"
+                          />
+                          {index === 0 && (
+                            <div className="absolute top-1 left-1 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
+                              Main
+                            </div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeImage(index)}
+                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                          >
+                            <X className="h-3 w-3" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-gray-500 border-2 border-dashed rounded-lg">
+                      <ImageIcon className="h-8 w-8 mx-auto mb-2 text-gray-400" />
+                      <p className="text-sm">No photos selected</p>
+                      <p className="text-xs">The first photo will be set as the main image</p>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
+
+            {error && (
+              <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-md text-sm">
+                {error}
+              </div>
+            )}
 
             <div className="flex justify-end space-x-4">
               <Button
@@ -236,7 +391,10 @@ export default function AddPropertyPage() {
               </Button>
               <Button type="submit" disabled={isLoading}>
                 {isLoading ? (
-                  'Creating...'
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
                 ) : (
                   <>
                     <Save className="h-4 w-4 mr-2" />

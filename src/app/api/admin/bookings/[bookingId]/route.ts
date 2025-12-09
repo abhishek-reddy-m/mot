@@ -5,9 +5,10 @@ import { prisma } from '@/lib/prisma';
 // GET a specific booking by ID
 export async function GET(
   request: NextRequest,
-  { params }: { params: { bookingId: string } }
+  { params }: { params: Promise<{ bookingId: string }> }
 ) {
   try {
+    const { bookingId } = await params;
     // Check authentication
     const session = await auth();
     
@@ -17,8 +18,6 @@ export async function GET(
         { status: 401 }
       );
     }
-
-    const bookingId = params.bookingId;
     
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
@@ -61,9 +60,10 @@ export async function GET(
 // PATCH to update booking status
 export async function PATCH(
   request: NextRequest,
-  { params }: { params: { bookingId: string } }
+  { params }: { params: Promise<{ bookingId: string }> }
 ) {
   try {
+    const { bookingId } = await params;
     // Check authentication
     const session = await auth();
     
@@ -74,11 +74,10 @@ export async function PATCH(
       );
     }
 
-    const bookingId = params.bookingId;
     const { status, notes } = await request.json();
     
     // Validate status
-    const validStatuses = ['PENDING', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED', 'COMPLETED'];
+    const validStatuses = ['PENDING', 'CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT', 'CANCELLED', 'COMPLETED', 'NO_SHOW'];
     if (!validStatuses.includes(status)) {
       return NextResponse.json(
         { error: 'Invalid status value' },
@@ -114,8 +113,8 @@ export async function PATCH(
       });
 
       // 4. Handle room inventory updates based on status change
-      if (status === 'CANCELLED' && booking.status !== 'CANCELLED') {
-        // If cancelling, decrease booked rooms (effectively making them available)
+      if ((status === 'CANCELLED' || status === 'NO_SHOW') && booking.status !== 'CANCELLED' && booking.status !== 'NO_SHOW') {
+        // If cancelling or marking no-show, decrease booked rooms (effectively making them available)
         const { updateRoomAvailability } = await import('@/lib/room-availability');
         await updateRoomAvailability(
           booking.roomTypeId,
@@ -124,8 +123,8 @@ export async function PATCH(
           booking.rooms,
           true // isCancel = true
         );
-        console.log(`Cancelled booking - freed ${booking.rooms} rooms for dates ${booking.checkIn} to ${booking.checkOut}`);
-      } else if (booking.status === 'CANCELLED' && status !== 'CANCELLED') {
+        console.log(`${status} booking - freed ${booking.rooms} rooms for dates ${booking.checkIn} to ${booking.checkOut}`);
+      } else if ((booking.status === 'CANCELLED' || booking.status === 'NO_SHOW') && status !== 'CANCELLED' && status !== 'NO_SHOW') {
         // If un-cancelling, increase booked rooms (making them unavailable again)
         const { updateRoomAvailability } = await import('@/lib/room-availability');
         await updateRoomAvailability(

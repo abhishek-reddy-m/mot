@@ -4,11 +4,11 @@ import { prisma } from '@/lib/prisma';
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { bookingId: string } }
+  { params }: { params: Promise<{ bookingId: string }> }
 ) {
   try {
+    const { bookingId } = await params;
     const session = await auth();
-    const bookingId = params.bookingId;
     
     if (!session?.user) {
       return NextResponse.json(
@@ -58,17 +58,23 @@ export async function PUT(
       );
     }
     
-    // Check cancellation timeframe - customers can only cancel 24 hours before check-in
+    // Check cancellation timeframe - 24 hours before 3 PM on check-in day
     // Admins can bypass this restriction
     if (!isAdmin) {
       const checkInDate = new Date(booking.checkIn);
-      const now = new Date();
-      const timeDiff = checkInDate.getTime() - now.getTime();
-      const hoursDiff = timeDiff / (1000 * 60 * 60);
+      const cancellationDeadline = new Date(checkInDate);
+      cancellationDeadline.setHours(15, 0, 0, 0); // Set to 3 PM
+      cancellationDeadline.setDate(cancellationDeadline.getDate() - 1); // Previous day
       
-      if (hoursDiff < 24) {
+      const now = new Date();
+      
+      if (now >= cancellationDeadline) {
+        const formattedDeadline = cancellationDeadline.toLocaleString('en-US', {
+          dateStyle: 'medium',
+          timeStyle: 'short'
+        });
         return NextResponse.json(
-          { error: 'Bookings can only be cancelled at least 24 hours before check-in' },
+          { error: `Cancellation deadline has passed. Bookings must be cancelled before ${formattedDeadline}` },
           { status: 400 }
         );
       }

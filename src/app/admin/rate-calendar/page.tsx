@@ -14,7 +14,13 @@ import {
   SelectValue
 } from '@/components/ui/select';
 import { DollarSign, Loader2, CheckCircle2, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, isWeekend, addMonths, getDay } from 'date-fns';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameMonth, isSameDay, addMonths, getDay } from 'date-fns';
+
+// Custom weekend function: Friday (5) and Saturday (6) are weekend days for hotel pricing
+const isWeekendDay = (date: Date): boolean => {
+  const day = getDay(date);
+  return day === 5 || day === 6; // Friday = 5, Saturday = 6
+};
 
 type Property = {
   id: string;
@@ -455,14 +461,15 @@ export default function RateCalendarPage() {
   };
 
   // Update multiple days (weekends, weekdays, or all days)
+  // Note: Weekend = Friday & Saturday for hotel pricing
   const bulkUpdateRates = (type: 'weekends' | 'weekdays' | 'all', price: number) => {
     const updatedRates = [...rates];
     
     daysInMonth.forEach(day => {
       if (
         type === 'all' || 
-        (type === 'weekends' && isWeekend(day)) || 
-        (type === 'weekdays' && !isWeekend(day))
+        (type === 'weekends' && isWeekendDay(day)) || 
+        (type === 'weekdays' && !isWeekendDay(day))
       ) {
         // Get the normalized date string for comparison
         const formattedDate = format(day, 'yyyy-MM-dd');
@@ -586,8 +593,9 @@ export default function RateCalendarPage() {
                     }}
                     variant="outline"
                     size="sm"
+                    title="Friday & Saturday"
                   >
-                    Set Weekends
+                    Set Weekends (Fri-Sat)
                   </Button>
                 </div>
                 
@@ -704,17 +712,9 @@ export default function RateCalendarPage() {
               <div className="flex justify-center items-center py-12">
                 <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
               </div>
-            ) : rates.length === 0 ? (
+            ) : !selectedRoomTypeId ? (
               <div className="flex flex-col justify-center items-center py-12 text-center">
-                <p className="text-gray-500 mb-4">No rates found for this room type and month.</p>
-                <Button 
-                  onClick={refreshRates}
-                  variant="outline"
-                  size="sm"
-                >
-                  <RefreshCw className="h-4 w-4 mr-2" />
-                  Refresh Rates
-                </Button>
+                <p className="text-gray-500 mb-4">Please select a property and room type to view rates.</p>
               </div>
             ) : (
               <>
@@ -749,7 +749,7 @@ export default function RateCalendarPage() {
                   ))}
                   
                   {daysInMonth.map((day, i) => {
-                    const isWeekendDay = isWeekend(day);
+                    const isWeekend = isWeekendDay(day); // Friday & Saturday
                     const formattedDay = format(day, 'yyyy-MM-dd');
                     const dayRate = getDayRate(day);
                     
@@ -757,7 +757,7 @@ export default function RateCalendarPage() {
                       <div 
                         key={i} 
                         className={`p-3 border rounded-md flex flex-col min-h-[120px] ${
-                          isWeekendDay ? 'bg-blue-50' : ''
+                          isWeekend ? 'bg-blue-50' : ''
                         }`}
                       >
                         <div className="text-right text-sm font-medium">

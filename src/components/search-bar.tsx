@@ -47,6 +47,22 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
   const [checkOut, setCheckOut] = useState(initialValues.checkOut || getDayAfterTomorrow());
   const [guests, setGuests] = useState(initialValues.guests || '');
 
+  // Sync internal state when initialValues prop changes (e.g., when URL params update)
+  useEffect(() => {
+    if (initialValues.checkIn) {
+      setCheckIn(initialValues.checkIn);
+    }
+    if (initialValues.checkOut) {
+      setCheckOut(initialValues.checkOut);
+    }
+    if (initialValues.guests) {
+      setGuests(initialValues.guests);
+    }
+    if (initialValues.propertyId !== undefined) {
+      setSelectedProperty(initialValues.propertyId);
+    }
+  }, [initialValues.checkIn, initialValues.checkOut, initialValues.guests, initialValues.propertyId]);
+
   // Auto-search functionality disabled to prevent unwanted refreshes
   const performAutoSearch = useCallback(() => {
     // Auto-search disabled - only manual search now
@@ -301,7 +317,7 @@ export function SearchBar({ variant = 'default', initialValues = {} }: SearchBar
         <Search className="h-4 w-4 mr-2 relative z-10" />
         <span className="relative z-10">
           {checkIn && checkOut ? 
-            `Update Availability for ${formatDateForDisplay(checkIn, 'short')} - ${formatDateForDisplay(checkOut, 'short')}` : 
+            `Check Availability: ${formatDateForDisplay(checkIn, 'compact')} - ${formatDateForDisplay(checkOut, 'compact')}` : 
             'Find Available Properties'}
         </span>
         {initialValues.checkIn && initialValues.checkOut && (checkIn !== initialValues.checkIn || checkOut !== initialValues.checkOut) && (

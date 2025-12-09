@@ -111,6 +111,15 @@ export default function Navigation() {
                       My Dashboard
                     </Link>
                     
+                    <Link
+                      href="/profile"
+                      className="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg mx-2 transition-colors duration-200"
+                      onClick={() => setIsUserMenuOpen(false)}
+                    >
+                      <User className="h-4 w-4 mr-3 text-gray-600" />
+                      My Profile
+                    </Link>
+                    
                     {session.user.role === 'ADMIN' && (
                       <Link
                         href="/admin/dashboard"
@@ -229,6 +238,15 @@ export default function Navigation() {
                   >
                     <User className="h-5 w-5 text-blue-600" />
                     <span>My Dashboard</span>
+                  </Link>
+                  
+                  <Link 
+                    href="/profile"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="py-3 px-4 text-blue-700 hover:bg-blue-50 rounded-lg flex items-center space-x-3 transition-colors duration-200"
+                  >
+                    <User className="h-5 w-5 text-blue-600" />
+                    <span>My Profile</span>
                   </Link>
                   
                   {session.user.role === 'ADMIN' && (

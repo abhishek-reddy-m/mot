@@ -1,12 +1,12 @@
 'use client';
 
-import { useState, useEffect, use } from 'react';
+import { useState, useEffect, use, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { CheckCircle2, Save, Loader2, ArrowLeft, Plus, Trash2 } from 'lucide-react';
+import { CheckCircle2, Save, Loader2, ArrowLeft, Plus, Trash2, Upload, Star, X, Image as ImageIcon } from 'lucide-react';
 
 type PropertyFormData = {
   name: string;
@@ -33,6 +33,14 @@ type RoomType = {
   isActive: boolean;
 };
 
+type PropertyPhoto = {
+  id: string;
+  url: string;
+  publicId: string;
+  isMain: boolean;
+  createdAt: string;
+};
+
 export default function EditPropertyPage({ params }: { params: Promise<{ propertyId: string }> }) {
   const router = useRouter();
   // Use React.use() to unwrap the params promise
@@ -52,11 +60,14 @@ export default function EditPropertyPage({ params }: { params: Promise<{ propert
   });
 
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
+  const [photos, setPhotos] = useState<PropertyPhoto[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [uploadingPhotos, setUploadingPhotos] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState(false);
   const [newAmenity, setNewAmenity] = useState('');
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const fetchProperty = async () => {
@@ -84,6 +95,7 @@ export default function EditPropertyPage({ params }: { params: Promise<{ propert
         });
         
         setRoomTypes(property.roomTypes || []);
+        setPhotos(property.photos || []);
       } catch (err) {
         console.error('Error fetching property:', err);
         setError('Failed to load property. Please try again.');
@@ -153,6 +165,125 @@ export default function EditPropertyPage({ params }: { params: Promise<{ propert
       ...formData,
       amenities: formData.amenities.filter(a => a !== amenity)
     });
+  };
+
+  // Photo management functions
+  const handleFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+
+    setUploadingPhotos(true);
+    setError('');
+
+    try {
+      const base64Images: string[] = [];
+      
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        
+        // Validate file type
+        if (!file.type.startsWith('image/')) {
+          throw new Error(`File "${file.name}" is not an image`);
+        }
+        
+        // Validate file size (max 5MB)
+        if (file.size > 5 * 1024 * 1024) {
+          throw new Error(`File "${file.name}" is too large. Maximum size is 5MB`);
+        }
+        
+        // Convert to base64
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.onerror = reject;
+          reader.readAsDataURL(file);
+        });
+        
+        base64Images.push(base64);
+      }
+
+      // Upload to API
+      const response = await fetch(`/api/admin/properties/${propertyId}/photos`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ images: base64Images }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to upload photos');
+      }
+
+      const result = await response.json();
+      setPhotos([...photos, ...result.photos]);
+      
+      // Clear the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    } catch (err) {
+      console.error('Error uploading photos:', err);
+      setError(err instanceof Error ? err.message : 'Failed to upload photos');
+    } finally {
+      setUploadingPhotos(false);
+    }
+  };
+
+  const deletePhoto = async (photoId: string) => {
+    if (!confirm('Are you sure you want to delete this photo?')) return;
+
+    try {
+      const response = await fetch(`/api/admin/properties/${propertyId}/photos?photoId=${photoId}`, {
+        method: 'DELETE',
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to delete photo');
+      }
+
+      // Remove from local state
+      const deletedPhoto = photos.find(p => p.id === photoId);
+      const updatedPhotos = photos.filter(p => p.id !== photoId);
+      
+      // If deleted photo was main and there are other photos, the first one becomes main
+      if (deletedPhoto?.isMain && updatedPhotos.length > 0) {
+        updatedPhotos[0].isMain = true;
+      }
+      
+      setPhotos(updatedPhotos);
+    } catch (err) {
+      console.error('Error deleting photo:', err);
+      setError(err instanceof Error ? err.message : 'Failed to delete photo');
+    }
+  };
+
+  const setMainPhoto = async (photoId: string) => {
+    try {
+      const response = await fetch(`/api/admin/properties/${propertyId}/photos`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ photoId }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to set main photo');
+      }
+
+      // Update local state
+      setPhotos(photos.map(p => ({
+        ...p,
+        isMain: p.id === photoId
+      })));
+    } catch (err) {
+      console.error('Error setting main photo:', err);
+      setError(err instanceof Error ? err.message : 'Failed to set main photo');
+    }
   };
 
   const navigateToRoomTypeEdit = (roomTypeId: string) => {
@@ -292,6 +423,105 @@ export default function EditPropertyPage({ params }: { params: Promise<{ propert
                     />
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+            
+            {/* Photos Section */}
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center">
+                  <ImageIcon className="h-5 w-5 mr-2" />
+                  Property Photos
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Upload Button */}
+                <div className="flex items-center gap-4">
+                  <input
+                    type="file"
+                    ref={fileInputRef}
+                    onChange={handleFileSelect}
+                    multiple
+                    accept="image/*"
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={uploadingPhotos}
+                  >
+                    {uploadingPhotos ? (
+                      <>
+                        <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                        Uploading...
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="h-4 w-4 mr-2" />
+                        Upload Photos
+                      </>
+                    )}
+                  </Button>
+                  <span className="text-sm text-gray-500">
+                    Max 5MB per image. JPG, PNG, GIF supported.
+                  </span>
+                </div>
+
+                {/* Photos Grid */}
+                {photos.length > 0 ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                    {photos.map((photo) => (
+                      <div
+                        key={photo.id}
+                        className={`relative group rounded-lg overflow-hidden border-2 ${
+                          photo.isMain ? 'border-blue-500' : 'border-gray-200'
+                        }`}
+                      >
+                        <img
+                          src={photo.url}
+                          alt="Property photo"
+                          className="w-full h-32 object-cover"
+                        />
+                        {photo.isMain && (
+                          <div className="absolute top-2 left-2 bg-blue-500 text-white text-xs px-2 py-1 rounded-full flex items-center">
+                            <Star className="h-3 w-3 mr-1" />
+                            Main
+                          </div>
+                        )}
+                        {/* Hover overlay with actions */}
+                        <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                          {!photo.isMain && (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              onClick={() => setMainPhoto(photo.id)}
+                              title="Set as main photo"
+                            >
+                              <Star className="h-4 w-4" />
+                            </Button>
+                          )}
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => deletePhoto(photo.id)}
+                            title="Delete photo"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-8 text-gray-500 border-2 border-dashed rounded-lg">
+                    <ImageIcon className="h-12 w-12 mx-auto mb-2 text-gray-400" />
+                    <p>No photos uploaded yet</p>
+                    <p className="text-sm">Click "Upload Photos" to add images</p>
+                  </div>
+                )}
               </CardContent>
             </Card>
             

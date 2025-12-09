@@ -80,17 +80,17 @@ export async function GET() {
       }
     });
 
-    // Get total rooms across all properties using a raw query to avoid schema issues
-    const totalRoomsResult = await prisma.$queryRaw`
-      SELECT SUM("totalRooms") as "totalRooms"
-      FROM room_types
-      WHERE "isActive" = true
-    `;
+    // Get total rooms across all properties - use Prisma aggregation instead of raw query
+    const roomTypesAgg = await prisma.roomType.aggregate({
+      where: {
+        isActive: true
+      },
+      _sum: {
+        totalRooms: true
+      }
+    });
     
-    // Handle the result safely
-    const totalRoomsData = Array.isArray(totalRoomsResult) && totalRoomsResult.length > 0 ? 
-      totalRoomsResult[0] : { totalRooms: 0 };
-    const totalRooms = Number(totalRoomsData.totalRooms) || 0;
+    const totalRooms = roomTypesAgg._sum.totalRooms || 0;
     
     const occupiedRooms = occupancyData.reduce((sum: number, booking) => sum + booking.rooms, 0);
     const occupancyRate = totalRooms > 0 ? ((occupiedRooms / totalRooms) * 100).toFixed(1) : 0;
@@ -136,8 +136,13 @@ export async function GET() {
     });
   } catch (error) {
     console.error('Error fetching dashboard stats:', error);
+    console.error('Error details:', error instanceof Error ? error.message : String(error));
+    console.error('Stack trace:', error instanceof Error ? error.stack : 'No stack trace');
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { 
+        error: 'Internal server error',
+        details: error instanceof Error ? error.message : String(error)
+      },
       { status: 500 }
     );
   }

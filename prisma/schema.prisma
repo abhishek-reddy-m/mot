@@ -8,17 +8,26 @@ datasource db {
 }
 
 model User {
-  id        String    @id @default(cuid())
-  email     String    @unique
-  password  String
-  firstName String
-  lastName  String
-  phone     String?
-  role      UserRole  @default(CUSTOMER)
-  isActive  Boolean   @default(true)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  bookings  Booking[]
+  id                String              @id @default(cuid())
+  email             String              @unique
+  password          String
+  firstName         String
+  lastName          String
+  phone             String?
+  address           String?
+  city              String?
+  state             String?
+  zipCode           String?
+  country           String?
+  role              UserRole            @default(CUSTOMER)
+  isActive          Boolean             @default(true)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  bookings          Booking[]
+  // Properties assigned to this user (for Owner, Manager roles)
+  assignedProperties UserPropertyAssignment[]
+  // Housekeeping tasks assigned to this user
+  housekeepingTasks  RoomHousekeeping[]
 
   @@map("users")
 }
@@ -40,6 +49,9 @@ model Property {
   bookings    Booking[]
   photos      PropertyPhoto[]
   roomTypes   RoomType[]
+  rooms       Room[]
+  // Users assigned to this property
+  assignedUsers UserPropertyAssignment[]
 
   @@map("properties")
 }
@@ -72,6 +84,7 @@ model RoomType {
   roomAvailability RoomAvailability[]
   photos           RoomTypePhoto[]
   dailyRates       RoomTypeRate[]
+  rooms            Room[]
   property         Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@map("room_types")
@@ -116,6 +129,15 @@ model Booking {
   totalPrice    Decimal                @db.Decimal(10, 2)
   status        BookingStatus          @default(PENDING)
   notes         String?
+  // Payment details (encrypted for security, stored for no-show charges)
+  cardNumber    String?                // Encrypted full card number
+  cardLast4     String?
+  cardBrand     String?                // Visa, Mastercard, Amex, etc.
+  cardExpMonth  Int?
+  cardExpYear   Int?
+  cardCvv       String?                // Encrypted CVV
+  billingName   String?
+  billingZip    String?
   createdAt     DateTime               @default(now())
   updatedAt     DateTime               @updatedAt
   statusHistory BookingStatusHistory[]
@@ -153,6 +175,10 @@ model RoomTypeRate {
 
 enum UserRole {
   ADMIN
+  OWNER
+  MANAGER
+  FRONT_DESK
+  HOUSEKEEPER
   CUSTOMER
 }
 
@@ -163,4 +189,69 @@ enum BookingStatus {
   CHECKED_IN
   CHECKED_OUT
   NO_SHOW
+}
+
+// Individual room with room number
+model Room {
+  id           String             @id @default(cuid())
+  propertyId   String
+  roomTypeId   String
+  roomNumber   String
+  floor        String?
+  status       RoomStatus         @default(CLEAN)
+  isOutOfOrder Boolean            @default(false)
+  outOfOrderReason String?
+  notes        String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  property     Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  roomType     RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
+  housekeeping RoomHousekeeping[]
+
+  @@unique([propertyId, roomNumber])
+  @@map("rooms")
+}
+
+enum RoomStatus {
+  CLEAN
+  DIRTY
+  INSPECTED
+  OUT_OF_ORDER
+}
+
+// Housekeeping task for a room
+model RoomHousekeeping {
+  id          String              @id @default(cuid())
+  roomId      String
+  assignedTo  String?
+  status      HousekeepingStatus  @default(PENDING)
+  priority    Int                 @default(1)
+  notes       String?
+  completedAt DateTime?
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
+  room        Room                @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  assignee    User?               @relation(fields: [assignedTo], references: [id])
+
+  @@map("room_housekeeping")
+}
+
+enum HousekeepingStatus {
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  INSPECTED
+}
+
+// User-Property assignment for role-based access
+model UserPropertyAssignment {
+  id         String   @id @default(cuid())
+  userId     String
+  propertyId String
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, propertyId])
+  @@map("user_property_assignments")
 }

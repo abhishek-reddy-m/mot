@@ -9,6 +9,7 @@ import { MapPin, Star, Calendar, Users, Coffee, Wifi, Car, CheckCircle2 } from '
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { normalizeDate, calculateNights, storeBookingSearch, getBookingSearch, formatDateForDisplay } from '@/lib/date-utils';
+import { ImageCarousel } from '@/components/ImageCarousel';
 
 type RoomTypeRate = {
   id: string;
@@ -65,6 +66,13 @@ type BookingDetails = {
   guests: number;
   roomTypeId: string;
   rooms: number;
+  // Payment details
+  cardNumber: string;
+  cardExpMonth: string;
+  cardExpYear: string;
+  cardCvv: string;
+  billingName: string;
+  billingZip: string;
 };
 
 // Helper function to extract available rooms count from various data structures
@@ -116,7 +124,14 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
     checkOut: new Date(Date.now() + 86400000).toISOString().split('T')[0], // tomorrow
     guests: 1,
     roomTypeId: '',
-    rooms: 1
+    rooms: 1,
+    // Payment details
+    cardNumber: '',
+    cardExpMonth: '',
+    cardExpYear: '',
+    cardCvv: '',
+    billingName: '',
+    billingZip: ''
   });
   
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | null>(null);
@@ -842,6 +857,68 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
       setIsBooking(true);
       setBookingError('');
       
+      // Validate dates before proceeding
+      if (!bookingDetails.checkIn || !bookingDetails.checkOut) {
+        setBookingError('Please select both check-in and check-out dates');
+        setIsBooking(false);
+        return;
+      }
+      
+      const checkInDate = new Date(bookingDetails.checkIn);
+      const checkOutDate = new Date(bookingDetails.checkOut);
+      
+      if (checkOutDate <= checkInDate) {
+        setBookingError('Check-out date must be after check-in date');
+        setIsBooking(false);
+        return;
+      }
+      
+      if (!bookingDetails.roomTypeId) {
+        setBookingError('Please select a room type');
+        setIsBooking(false);
+        return;
+      }
+      
+      // Validate payment details
+      if (!bookingDetails.cardNumber || !bookingDetails.cardExpMonth || 
+          !bookingDetails.cardExpYear || !bookingDetails.cardCvv || !bookingDetails.billingName) {
+        setBookingError('Please fill in all payment details');
+        setIsBooking(false);
+        return;
+      }
+      
+      // Validate card number format (basic validation)
+      const cleanCard = bookingDetails.cardNumber.replace(/\s/g, '');
+      if (!/^\d{13,19}$/.test(cleanCard)) {
+        setBookingError('Please enter a valid card number');
+        setIsBooking(false);
+        return;
+      }
+      
+      // Validate expiry
+      const expMonth = parseInt(bookingDetails.cardExpMonth);
+      const expYear = parseInt(bookingDetails.cardExpYear);
+      if (expMonth < 1 || expMonth > 12) {
+        setBookingError('Please enter a valid expiry month (01-12)');
+        setIsBooking(false);
+        return;
+      }
+      
+      const currentYear = new Date().getFullYear() % 100;
+      const currentMonth = new Date().getMonth() + 1;
+      if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
+        setBookingError('Card has expired');
+        setIsBooking(false);
+        return;
+      }
+      
+      // Validate CVV
+      if (!/^\d{3,4}$/.test(bookingDetails.cardCvv)) {
+        setBookingError('Please enter a valid CVV (3 or 4 digits)');
+        setIsBooking(false);
+        return;
+      }
+      
       // Check if user is logged in
       const authResponse = await fetch('/api/auth/session');
       const authData = await authResponse.json();
@@ -893,7 +970,14 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
           checkOut: formattedCheckOut,
           guests: bookingDetails.guests,
           rooms: bookingDetails.rooms,
-          totalPrice: calculateTotalPrice()
+          totalPrice: calculateTotalPrice(),
+          // Payment details
+          cardNumber: bookingDetails.cardNumber,
+          cardExpMonth: bookingDetails.cardExpMonth,
+          cardExpYear: bookingDetails.cardExpYear,
+          cardCvv: bookingDetails.cardCvv,
+          billingName: bookingDetails.billingName,
+          billingZip: bookingDetails.billingZip
         }),
       });
       
@@ -970,20 +1054,14 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
             </div>
           </div>
           
-          {/* Main Photo */}
-          <div className="aspect-[16/9] w-full overflow-hidden rounded-lg shadow-md">
-            {mainPhoto ? (
-              <img 
-                src={mainPhoto}
-                alt={property.name}
-                className="w-full h-full object-cover"
-              />
-            ) : (
-              <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                <span className="text-gray-400">No image available</span>
-              </div>
-            )}
-          </div>
+          {/* Property Photo Carousel */}
+          <ImageCarousel 
+            photos={property.photos} 
+            alt={property.name}
+            height="h-72 md:h-80"
+            autoPlay={true}
+            autoPlayInterval={5000}
+          />
         </div>
 
         {/* Property Description & Amenities */}
@@ -1089,18 +1167,13 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                     }`}
                     onClick={() => isAvailable && handleRoomTypeChange(roomType.id)}
                   >
-                    <div className="aspect-video relative overflow-hidden">
-                      {roomPhoto ? (
-                        <img
-                          src={roomPhoto}
-                          alt={roomType.name}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <div className="w-full h-full bg-gray-200 flex items-center justify-center">
-                          <span className="text-gray-400">No image available</span>
-                        </div>
-                      )}
+                    <div className="relative">
+                      <ImageCarousel 
+                        photos={roomType.photos.length > 0 ? roomType.photos : (property.photos.length > 0 ? [property.photos[0]] : [])} 
+                        alt={roomType.name}
+                        height="h-48"
+                        autoPlay={false}
+                      />
                       
                       {!isAvailable && (
                         <div className="absolute inset-0 bg-black bg-opacity-60 flex items-center justify-center">
@@ -1302,6 +1375,19 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                   </div>
                 </div>
                 
+                {/* Date validation message */}
+                {bookingDetails.checkIn && bookingDetails.checkOut && 
+                 new Date(bookingDetails.checkOut) <= new Date(bookingDetails.checkIn) && (
+                  <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-md text-sm flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <circle cx="12" cy="12" r="10"></circle>
+                      <line x1="12" y1="8" x2="12" y2="12"></line>
+                      <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                    </svg>
+                    Check-out date must be after check-in date
+                  </div>
+                )}
+                
                 {/* Date change notification */}
                 <div 
                   id="date-change-message" 
@@ -1350,6 +1436,116 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                         <option key={num} value={num}>{num} room{num !== 1 ? 's' : ''}</option>
                       ))}
                     </select>
+                  </div>
+                </div>
+                
+                {/* Payment Details Section */}
+                <div className="border-t border-gray-200 pt-6 mt-6">
+                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <rect width="20" height="14" x="2" y="5" rx="2"/>
+                      <line x1="2" x2="22" y1="10" y2="10"/>
+                    </svg>
+                    Payment Details
+                  </h3>
+                  <p className="text-sm text-gray-500 mb-4">Your card will not be charged. We collect payment details for reservation guarantee only.</p>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Name on Card *</label>
+                      <Input 
+                        type="text"
+                        name="billingName"
+                        value={bookingDetails.billingName}
+                        onChange={handleBookingDetailsChange}
+                        placeholder="John Doe"
+                        className="w-full"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Card Number *</label>
+                      <Input 
+                        type="text"
+                        name="cardNumber"
+                        value={bookingDetails.cardNumber}
+                        onChange={(e) => {
+                          // Format card number with spaces every 4 digits
+                          let value = e.target.value.replace(/\s/g, '').replace(/\D/g, '');
+                          value = value.substring(0, 16);
+                          const formatted = value.replace(/(\d{4})(?=\d)/g, '$1 ');
+                          setBookingDetails(prev => ({ ...prev, cardNumber: formatted }));
+                        }}
+                        placeholder="1234 5678 9012 3456"
+                        className="w-full"
+                        maxLength={19}
+                      />
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-4">
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Exp Month *</label>
+                        <select
+                          name="cardExpMonth"
+                          value={bookingDetails.cardExpMonth}
+                          onChange={handleBookingDetailsChange}
+                          className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          <option value="">MM</option>
+                          {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
+                            <option key={month} value={month.toString().padStart(2, '0')}>
+                              {month.toString().padStart(2, '0')}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium mb-2">Exp Year *</label>
+                        <select
+                          name="cardExpYear"
+                          value={bookingDetails.cardExpYear}
+                          onChange={handleBookingDetailsChange}
+                          className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        >
+                          <option value="">YY</option>
+                          {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() % 100 + i).map(year => (
+                            <option key={year} value={year.toString()}>
+                              {year}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      <div>
+                        <label className="block text-sm font-medium mb-2">CVV *</label>
+                        <Input 
+                          type="text"
+                          name="cardCvv"
+                          value={bookingDetails.cardCvv}
+                          onChange={(e) => {
+                            const value = e.target.value.replace(/\D/g, '').substring(0, 4);
+                            setBookingDetails(prev => ({ ...prev, cardCvv: value }));
+                          }}
+                          placeholder="123"
+                          className="w-full"
+                          maxLength={4}
+                        />
+                      </div>
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium mb-2">Billing Zip Code</label>
+                      <Input 
+                        type="text"
+                        name="billingZip"
+                        value={bookingDetails.billingZip}
+                        onChange={handleBookingDetailsChange}
+                        placeholder="12345"
+                        className="w-full max-w-[150px]"
+                        maxLength={10}
+                      />
+                    </div>
                   </div>
                 </div>
                 
@@ -1440,7 +1636,10 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                 
                   <Button
                     className="w-full mt-4"
-                    disabled={isBooking}
+                    disabled={isBooking || !bookingDetails.checkIn || !bookingDetails.checkOut || 
+                             new Date(bookingDetails.checkOut) <= new Date(bookingDetails.checkIn) ||
+                             !bookingDetails.cardNumber || !bookingDetails.cardExpMonth || 
+                             !bookingDetails.cardExpYear || !bookingDetails.cardCvv || !bookingDetails.billingName}
                     onClick={handleBookNow}
                   >
                     {isBooking ? 'Processing...' : 'Book Now'}

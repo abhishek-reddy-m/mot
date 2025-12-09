@@ -27,7 +27,7 @@ function LoginForm() {
     console.log("Admin login attempt for:", email);
 
     try {
-      const result = await signIn('credentials', {
+      const result = await signIn('admin-credentials', {
         email,
         password,
         redirect: false,

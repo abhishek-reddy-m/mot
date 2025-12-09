@@ -30,6 +30,11 @@ type Booking = {
   roomType: {
     name: string;
     capacity: number;
+    photos?: Array<{
+      id: string;
+      url: string;
+      isMain: boolean;
+    }>;
   };
 };
 
@@ -205,7 +210,11 @@ export default function UserDashboard() {
                 const timeDiff = checkInDate.getTime() - now.getTime();
                 const hoursDiff = timeDiff / (1000 * 60 * 60);
                 const canModify = hoursDiff >= 24 && ['PENDING', 'CONFIRMED'].includes(booking.status.toUpperCase());
-                const mainPhoto = booking.property.photos?.[0]?.url || '/placeholder-motel.jpg';
+                
+                // Use room type photo first, then fall back to property photo
+                const roomTypePhoto = booking.roomType.photos?.[0]?.url;
+                const propertyPhoto = booking.property.photos?.[0]?.url;
+                const mainPhoto = roomTypePhoto || propertyPhoto || '/placeholder-motel.jpg';
                 
                 return (
                   <Card key={booking.id} className="overflow-hidden">
@@ -262,29 +271,9 @@ export default function UserDashboard() {
                           </div>
                           
                           <div className="flex space-x-2">
-                            {canModify && (
-                              <>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  className="text-yellow-600 border-yellow-600 hover:bg-yellow-50"
-                                  onClick={() => router.push(`/bookings/${booking.id}/modify`)}
-                                >
-                                  Modify
-                                </Button>
-                                <Button 
-                                  variant="outline" 
-                                  size="sm"
-                                  className="text-red-600 border-red-600 hover:bg-red-50"
-                                  onClick={() => router.push(`/bookings/${booking.id}/cancel`)}
-                                >
-                                  Cancel
-                                </Button>
-                              </>
-                            )}
                             <Button variant="outline" size="sm" onClick={() => router.push(`/bookings/${booking.id}`)}>
                               <Eye className="h-4 w-4 mr-1" />
-                              Details
+                              View & Modify
                             </Button>
                           </div>
                         </div>

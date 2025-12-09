@@ -1,14 +1,126 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { parseBookingDate, toDateString } from '@/lib/date-utils';
+
+// GET single booking details
+export async function GET(
+  request: NextRequest,
+  { params }: { params: Promise<{ bookingId: string }> }
+) {
+  try {
+    const { bookingId } = await params;
+    const session = await auth();
+    
+    if (!session || !session.user) {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
+    const booking = await prisma.booking.findUnique({
+      where: { id: bookingId },
+      include: {
+        property: {
+          select: {
+            name: true,
+            address: true,
+            city: true,
+            photos: {
+              where: { isMain: true },
+              take: 1,
+              select: { url: true }
+            }
+          }
+        },
+        roomType: {
+          select: {
+            name: true,
+            basePrice: true,
+            photos: {
+              where: { isMain: true },
+              take: 1,
+              select: { url: true }
+            }
+          }
+        }
+      }
+    });
+
+    if (!booking) {
+      return NextResponse.json(
+        { error: 'Booking not found' },
+        { status: 404 }
+      );
+    }
+
+    // Check if user owns this booking (or is admin)
+    if (booking.userId !== session.user.id && session.user.role !== 'ADMIN') {
+      return NextResponse.json(
+        { error: 'Unauthorized' },
+        { status: 403 }
+      );
+    }
+
+    // Calculate cancellation deadline using timezone-safe date parsing
+    // 24 hours before 3 PM on check-in day
+    const checkInStr = toDateString(booking.checkIn);
+    const checkInDate = parseBookingDate(checkInStr);
+    
+    // Create cancellation deadline: 3 PM on the day before check-in (using UTC)
+    const cancellationDeadline = new Date(checkInDate);
+    cancellationDeadline.setUTCDate(cancellationDeadline.getUTCDate() - 1); // Previous day
+    cancellationDeadline.setUTCHours(15, 0, 0, 0); // 3 PM UTC (for PST hotels, this is 7 AM PST)
+
+    const now = new Date();
+    
+    console.log('Booking modification check:', {
+      checkInDate: checkInDate.toISOString(),
+      cancellationDeadline: cancellationDeadline.toISOString(),
+      now: now.toISOString(),
+      isWithinWindow: now >= cancellationDeadline
+    });
+    
+    // Parse checkout date for comparison
+    const checkOutStr = toDateString(booking.checkOut);
+    const checkOutDate = parseBookingDate(checkOutStr);
+    
+    // Cancel and check-in modification use the 24-hour window deadline
+    const canCancel = now < cancellationDeadline && (booking.status === 'CONFIRMED' || booking.status === 'PENDING');
+    const canModifyCheckIn = now < cancellationDeadline && (booking.status === 'CONFIRMED' || booking.status === 'PENDING');
+    // Check-out can be extended as long as the current checkout hasn't passed yet
+    // This allows guests to extend their stay during their visit
+    const canModifyCheckOut = now < checkOutDate && (booking.status === 'CONFIRMED' || booking.status === 'PENDING' || booking.status === 'CHECKED_IN');
+    const canModify = canModifyCheckIn || canModifyCheckOut;
+
+    return NextResponse.json({
+      ...booking,
+      checkIn: booking.checkIn.toISOString(),
+      checkOut: booking.checkOut.toISOString(),
+      totalPrice: Number(booking.totalPrice),
+      canCancel,
+      canModify,
+      canModifyCheckIn,
+      canModifyCheckOut,
+      cancellationDeadline: cancellationDeadline.toISOString(),
+    });
+  } catch (error) {
+    console.error('Error fetching booking:', error);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
+}
 
 export async function PUT(
   request: NextRequest,
-  { params }: { params: { bookingId: string } }
+  { params }: { params: Promise<{ bookingId: string }> }
 ) {
   try {
+    const { bookingId } = await params;
     const session = await auth();
-    const bookingId = params.bookingId;
     
     if (!session?.user) {
       return NextResponse.json(
