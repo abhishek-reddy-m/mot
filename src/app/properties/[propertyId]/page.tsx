@@ -66,13 +66,9 @@ type BookingDetails = {
   guests: number;
   roomTypeId: string;
   rooms: number;
-  // Payment details
-  cardNumber: string;
-  cardExpMonth: string;
-  cardExpYear: string;
-  cardCvv: string;
-  billingName: string;
-  billingZip: string;
+  // Payment method: 'pay_at_property' (default) or 'stripe' (card via Stripe Checkout).
+  // Raw card numbers/CVVs are never collected (PCI compliance).
+  paymentMethod: 'pay_at_property' | 'stripe';
 };
 
 // Helper function to extract available rooms count from various data structures
@@ -125,14 +121,17 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
     guests: 1,
     roomTypeId: '',
     rooms: 1,
-    // Payment details
-    cardNumber: '',
-    cardExpMonth: '',
-    cardExpYear: '',
-    cardCvv: '',
-    billingName: '',
-    billingZip: ''
+    paymentMethod: 'pay_at_property',
   });
+
+  // Whether Stripe card payments are available (from /api/config)
+  const [stripeEnabled, setStripeEnabled] = useState(false);
+  useEffect(() => {
+    fetch('/api/config')
+      .then(r => r.json())
+      .then(cfg => setStripeEnabled(!!cfg.stripeEnabled))
+      .catch(() => setStripeEnabled(false));
+  }, []);
   
   const [selectedRoomType, setSelectedRoomType] = useState<RoomType | null>(null);
   const [showBookingForm, setShowBookingForm] = useState(false);
@@ -879,42 +878,9 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
         return;
       }
       
-      // Validate payment details
-      if (!bookingDetails.cardNumber || !bookingDetails.cardExpMonth || 
-          !bookingDetails.cardExpYear || !bookingDetails.cardCvv || !bookingDetails.billingName) {
-        setBookingError('Please fill in all payment details');
-        setIsBooking(false);
-        return;
-      }
-      
-      // Validate card number format (basic validation)
-      const cleanCard = bookingDetails.cardNumber.replace(/\s/g, '');
-      if (!/^\d{13,19}$/.test(cleanCard)) {
-        setBookingError('Please enter a valid card number');
-        setIsBooking(false);
-        return;
-      }
-      
-      // Validate expiry
-      const expMonth = parseInt(bookingDetails.cardExpMonth);
-      const expYear = parseInt(bookingDetails.cardExpYear);
-      if (expMonth < 1 || expMonth > 12) {
-        setBookingError('Please enter a valid expiry month (01-12)');
-        setIsBooking(false);
-        return;
-      }
-      
-      const currentYear = new Date().getFullYear() % 100;
-      const currentMonth = new Date().getMonth() + 1;
-      if (expYear < currentYear || (expYear === currentYear && expMonth < currentMonth)) {
-        setBookingError('Card has expired');
-        setIsBooking(false);
-        return;
-      }
-      
-      // Validate CVV
-      if (!/^\d{3,4}$/.test(bookingDetails.cardCvv)) {
-        setBookingError('Please enter a valid CVV (3 or 4 digits)');
+      // Validate payment method (no card details are collected — PCI compliance)
+      if (bookingDetails.paymentMethod === 'stripe' && !stripeEnabled) {
+        setBookingError('Online card payment is not available right now. Please choose "Pay at property".');
         setIsBooking(false);
         return;
       }
@@ -971,13 +937,7 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
           guests: bookingDetails.guests,
           rooms: bookingDetails.rooms,
           totalPrice: calculateTotalPrice(),
-          // Payment details
-          cardNumber: bookingDetails.cardNumber,
-          cardExpMonth: bookingDetails.cardExpMonth,
-          cardExpYear: bookingDetails.cardExpYear,
-          cardCvv: bookingDetails.cardCvv,
-          billingName: bookingDetails.billingName,
-          billingZip: bookingDetails.billingZip
+          paymentMethod: bookingDetails.paymentMethod,
         }),
       });
       
@@ -985,9 +945,17 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
         const errorData = await response.json();
         throw new Error(errorData.error || 'Failed to create booking');
       }
-      
+
+      const result = await response.json();
+
+      // Stripe path: redirect to hosted checkout
+      if (result.requiresPayment && result.checkoutUrl) {
+        window.location.href = result.checkoutUrl;
+        return;
+      }
+
       setBookingSuccess(true);
-      
+
       // Redirect to bookings page after 2 seconds
       setTimeout(() => {
         router.push('/dashboard');
@@ -1439,116 +1407,45 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                   </div>
                 </div>
                 
-                {/* Payment Details Section */}
+                {/* Payment Method Section */}
                 <div className="border-t border-gray-200 pt-6 mt-6">
-                  <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <rect width="20" height="14" x="2" y="5" rx="2"/>
-                      <line x1="2" x2="22" y1="10" y2="10"/>
-                    </svg>
-                    Payment Details
-                  </h3>
-                  <p className="text-sm text-gray-500 mb-4">Your card will not be charged. We collect payment details for reservation guarantee only.</p>
-                  
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Name on Card *</label>
-                      <Input 
-                        type="text"
-                        name="billingName"
-                        value={bookingDetails.billingName}
-                        onChange={handleBookingDetailsChange}
-                        placeholder="John Doe"
-                        className="w-full"
+                  <h3 className="text-lg font-semibold mb-4">Payment Method</h3>
+                  <div className="space-y-3">
+                    <label className="flex items-start gap-3 p-4 border rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                      <input
+                        type="radio"
+                        name="paymentMethod"
+                        value="pay_at_property"
+                        checked={bookingDetails.paymentMethod === 'pay_at_property'}
+                        onChange={() => setBookingDetails(prev => ({ ...prev, paymentMethod: 'pay_at_property' }))}
+                        className="mt-1"
                       />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Card Number *</label>
-                      <Input 
-                        type="text"
-                        name="cardNumber"
-                        value={bookingDetails.cardNumber}
-                        onChange={(e) => {
-                          // Format card number with spaces every 4 digits
-                          let value = e.target.value.replace(/\s/g, '').replace(/\D/g, '');
-                          value = value.substring(0, 16);
-                          const formatted = value.replace(/(\d{4})(?=\d)/g, '$1 ');
-                          setBookingDetails(prev => ({ ...prev, cardNumber: formatted }));
-                        }}
-                        placeholder="1234 5678 9012 3456"
-                        className="w-full"
-                        maxLength={19}
-                      />
-                    </div>
-                    
-                    <div className="grid grid-cols-3 gap-4">
                       <div>
-                        <label className="block text-sm font-medium mb-2">Exp Month *</label>
-                        <select
-                          name="cardExpMonth"
-                          value={bookingDetails.cardExpMonth}
-                          onChange={handleBookingDetailsChange}
-                          className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">MM</option>
-                          {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
-                            <option key={month} value={month.toString().padStart(2, '0')}>
-                              {month.toString().padStart(2, '0')}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="font-medium">Pay at property</div>
+                        <div className="text-sm text-gray-500">Reserve now, pay when you arrive. No card required.</div>
                       </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium mb-2">Exp Year *</label>
-                        <select
-                          name="cardExpYear"
-                          value={bookingDetails.cardExpYear}
-                          onChange={handleBookingDetailsChange}
-                          className="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                        >
-                          <option value="">YY</option>
-                          {Array.from({ length: 10 }, (_, i) => new Date().getFullYear() % 100 + i).map(year => (
-                            <option key={year} value={year.toString()}>
-                              {year}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                      
-                      <div>
-                        <label className="block text-sm font-medium mb-2">CVV *</label>
-                        <Input 
-                          type="text"
-                          name="cardCvv"
-                          value={bookingDetails.cardCvv}
-                          onChange={(e) => {
-                            const value = e.target.value.replace(/\D/g, '').substring(0, 4);
-                            setBookingDetails(prev => ({ ...prev, cardCvv: value }));
-                          }}
-                          placeholder="123"
-                          className="w-full"
-                          maxLength={4}
+                    </label>
+                    {stripeEnabled ? (
+                      <label className="flex items-start gap-3 p-4 border rounded-lg cursor-pointer hover:bg-gray-50 has-[:checked]:border-blue-500 has-[:checked]:bg-blue-50">
+                        <input
+                          type="radio"
+                          name="paymentMethod"
+                          value="stripe"
+                          checked={bookingDetails.paymentMethod === 'stripe'}
+                          onChange={() => setBookingDetails(prev => ({ ...prev, paymentMethod: 'stripe' }))}
+                          className="mt-1"
                         />
-                      </div>
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium mb-2">Billing Zip Code</label>
-                      <Input 
-                        type="text"
-                        name="billingZip"
-                        value={bookingDetails.billingZip}
-                        onChange={handleBookingDetailsChange}
-                        placeholder="12345"
-                        className="w-full max-w-[150px]"
-                        maxLength={10}
-                      />
-                    </div>
+                        <div>
+                          <div className="font-medium">Pay by card now</div>
+                          <div className="text-sm text-gray-500">Secure checkout via Stripe. You&apos;ll be redirected to complete payment.</div>
+                        </div>
+                      </label>
+                    ) : (
+                      <p className="text-sm text-gray-400">Online card payment is not enabled for this property.</p>
+                    )}
                   </div>
                 </div>
-                
+
                 <div className="border-t border-gray-200 pt-4 mt-6">
                   <div className="flex justify-between items-center mb-4">
                     <span className="font-semibold">Selected Room:</span>
@@ -1636,10 +1533,9 @@ export default function PropertyDetailsPage({ params }: { params: Promise<{ prop
                 
                   <Button
                     className="w-full mt-4"
-                    disabled={isBooking || !bookingDetails.checkIn || !bookingDetails.checkOut || 
+                    disabled={isBooking || !bookingDetails.checkIn || !bookingDetails.checkOut ||
                              new Date(bookingDetails.checkOut) <= new Date(bookingDetails.checkIn) ||
-                             !bookingDetails.cardNumber || !bookingDetails.cardExpMonth || 
-                             !bookingDetails.cardExpYear || !bookingDetails.cardCvv || !bookingDetails.billingName}
+                             !bookingDetails.roomTypeId}
                     onClick={handleBookNow}
                   >
                     {isBooking ? 'Processing...' : 'Book Now'}
