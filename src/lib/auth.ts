@@ -4,50 +4,63 @@ import GoogleProvider from "next-auth/providers/google"
 import bcrypt from "bcryptjs"
 import { prisma } from "@/lib/prisma"
 
+// Google OAuth is optional — only registered when credentials are configured.
+// Without it, customers use email/password (via /register) instead.
+const googleClientId = process.env.GOOGLE_CLIENT_ID;
+const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+const googleEnabled = !!googleClientId && !!googleClientSecret;
+if (!googleEnabled) {
+  console.warn("GOOGLE_CLIENT_ID/GOOGLE_CLIENT_SECRET not set — Google sign-in is disabled; email/password login remains available.");
+}
+
 export const { handlers, auth, signIn, signOut } = NextAuth({
   trustHost: true, // Trust all hosts in production
-  
+
   // Production-specific configuration
   cookies: {
     sessionToken: {
-      name: process.env.NODE_ENV === "production" 
-        ? "__Secure-next-auth.session-token" 
+      name: process.env.NODE_ENV === "production"
+        ? "__Secure-next-auth.session-token"
         : "next-auth.session-token",
       options: {
         httpOnly: true,
         sameSite: "lax",
         path: "/",
         secure: process.env.NODE_ENV === "production",
-        domain: process.env.NODE_ENV === "production" 
-          ? process.env.NEXTAUTH_DOMAIN 
+        domain: process.env.NODE_ENV === "production"
+          ? process.env.NEXTAUTH_DOMAIN
           : undefined,
       },
     },
   },
   providers: [
-    GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID!,
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
-      authorization: {
-        params: {
-          prompt: "consent",
-          access_type: "offline",
-          response_type: "code"
-        }
-      },
-      profile(profile) {
-        return {
-          id: profile.sub,
-          name: profile.name,
-          email: profile.email,
-          image: profile.picture,
-          role: "CUSTOMER" as const,
-        }
-      },
-    }),
+    ...(googleEnabled
+      ? [
+          GoogleProvider({
+            clientId: googleClientId!,
+            clientSecret: googleClientSecret!,
+            authorization: {
+              params: {
+                prompt: "consent",
+                access_type: "offline",
+                response_type: "code"
+              }
+            },
+            profile(profile) {
+              return {
+                id: profile.sub,
+                name: profile.name,
+                email: profile.email,
+                image: profile.picture,
+                role: "CUSTOMER" as const,
+              }
+            },
+          }),
+        ]
+      : []),
     CredentialsProvider({
-      id: "admin-credentials",
-      name: "Admin Login",
+      id: "credentials",
+      name: "Email and password",
       credentials: {
         email: { label: "Email", type: "email" },
         password: { label: "Password", type: "password" }
@@ -58,13 +71,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
 
         const user = await prisma.user.findUnique({
-          where: { 
+          where: {
             email: credentials.email as string,
             isActive: true
           }
         })
 
-        if (!user || user.role !== "ADMIN") {
+        // Email/password login is available to customers and staff.
+        // (OAuth users have an empty password hash and can never match.)
+        if (!user || !user.password) {
           return null
         }
 
@@ -119,7 +134,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         }
         return true
       }
-      // Allow credentials login (admin only now)
+      // Credentials login allowed for all active users with a password
       return true
     },
     async jwt({ token, user, account }) {
@@ -129,7 +144,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         token.name = user.name
         token.id = user.id
       }
-      
+
       // Fetch fresh user data to ensure role is up-to-date
       if (token.email) {
         const dbUser = await prisma.user.findUnique({
@@ -140,7 +155,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           token.id = dbUser.id
         }
       }
-      
+
       return token
     },
     async session({ session, token }) {
