@@ -2,13 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { parseBookingDate, toDateString, getDateRange } from '@/lib/date-utils';
-import { encrypt } from '@/lib/encryption';
+import { isStripeConfigured, getStripe } from '@/lib/stripe';
+import { sendBookingConfirmation } from '@/lib/email';
 
 export async function POST(request: NextRequest) {
   try {
     // Get the authenticated user
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { error: 'You must be logged in to make a booking' },
@@ -26,34 +27,30 @@ export async function POST(request: NextRequest) {
 
     const userId = session.user.id;
     const body = await request.json();
-    
+
     // Verify that the user actually exists in the database
     const userExists = await prisma.user.findUnique({
       where: { id: userId }
     });
-    
+
     if (!userExists) {
       return NextResponse.json(
         { error: 'User not found. Please try logging in again.' },
         { status: 404 }
       );
     }
-    
-    const { 
-      propertyId, 
-      roomTypeId, 
-      checkIn, 
-      checkOut, 
+
+    const {
+      propertyId,
+      roomTypeId,
+      checkIn,
+      checkOut,
       guests,
       rooms = 1,
       totalPrice,
-      // Payment details
-      cardNumber,
-      cardExpMonth,
-      cardExpYear,
-      cardCvv,
-      billingName,
-      billingZip
+      notes,
+      // 'pay_at_property' (default) or 'stripe'
+      paymentMethod = 'pay_at_property',
     } = body;
 
     // Validate required fields
@@ -63,43 +60,24 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    
-    // Validate payment details
-    if (!cardNumber || !cardExpMonth || !cardExpYear || !cardCvv || !billingName) {
-      return NextResponse.json(
-        { error: 'Missing required payment details' },
-        { status: 400 }
-      );
-    }
-    
-    // Basic card number validation (should be 13-19 digits)
-    const cleanCardNumber = cardNumber.replace(/\s/g, '');
-    if (!/^\d{13,19}$/.test(cleanCardNumber)) {
-      return NextResponse.json(
-        { error: 'Invalid card number' },
-        { status: 400 }
-      );
-    }
-    
-    // Detect card brand
-    let cardBrand = 'Unknown';
-    if (/^4/.test(cleanCardNumber)) cardBrand = 'Visa';
-    else if (/^5[1-5]/.test(cleanCardNumber) || /^2[2-7]/.test(cleanCardNumber)) cardBrand = 'Mastercard';
-    else if (/^3[47]/.test(cleanCardNumber)) cardBrand = 'Amex';
-    else if (/^6(?:011|5)/.test(cleanCardNumber)) cardBrand = 'Discover';
-    
-    // Get last 4 digits
-    const cardLast4 = cleanCardNumber.slice(-4);
 
-    // First ensure dates are in valid YYYY-MM-DD format
-    const cleanCheckIn = checkIn.trim().match(/^\d{4}-\d{2}-\d{2}$/) 
-      ? checkIn.trim()
-      : toDateString(checkIn);
-      
-    const cleanCheckOut = checkOut.trim().match(/^\d{4}-\d{2}-\d{2}$/)
+    // NOTE: raw card numbers / CVVs are never accepted or stored (PCI compliance).
+    // Online card payment goes through Stripe Checkout; otherwise pay at property.
+    if (paymentMethod === 'stripe' && !isStripeConfigured()) {
+      return NextResponse.json(
+        { error: 'Online card payment is not enabled. Please choose "Pay at property".' },
+        { status: 400 }
+      );
+    }
+
+    // Handle date strings - could be ISO datetime or YYYY-MM-DD
+    const cleanCheckIn = typeof checkIn === 'string' && checkIn.includes('T')
+      ? checkIn.split('T')[0]
+      : checkIn;
+    const cleanCheckOut = typeof checkOut === 'string' && checkOut.includes('T')
       ? checkOut.trim()
       : toDateString(checkOut);
-      
+
     // Validate date format first
     if (!cleanCheckIn || !cleanCheckOut) {
       return NextResponse.json(
@@ -107,21 +85,11 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     // Convert string dates to Date objects using timezone-safe parsing
     const checkInDate = parseBookingDate(cleanCheckIn);
     const checkOutDate = parseBookingDate(cleanCheckOut);
-    
-    // Log the dates for debugging
-    console.log('Booking request dates:', {
-      rawCheckIn: checkIn,
-      rawCheckOut: checkOut,
-      cleanCheckIn,
-      cleanCheckOut,
-      parsedCheckIn: checkInDate.toISOString(),
-      parsedCheckOut: checkOutDate.toISOString()
-    });
-    
+
     // Double-check date validity after parsing
     if (isNaN(checkInDate.getTime()) || isNaN(checkOutDate.getTime())) {
       return NextResponse.json(
@@ -129,7 +97,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    
+
     // Validate date logic
     if (checkInDate >= checkOutDate) {
       return NextResponse.json(
@@ -141,14 +109,14 @@ export async function POST(request: NextRequest) {
     // Get today's date at the start of day UTC for fair comparison
     const today = new Date();
     today.setUTCHours(0, 0, 0, 0);
-    
+
     if (checkInDate < today) {
       return NextResponse.json(
         { error: 'Check-in date cannot be in the past' },
         { status: 400 }
       );
     }
-    
+
     // Ensure booking period is reasonable (e.g., not more than 30 days)
     const daysDiff = (checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24);
     if (daysDiff > 30) {
@@ -163,7 +131,8 @@ export async function POST(request: NextRequest) {
       where: {
         id: roomTypeId,
         isActive: true,
-      }
+      },
+      include: { property: true },
     });
 
     if (!roomType) {
@@ -172,13 +141,12 @@ export async function POST(request: NextRequest) {
         { status: 404 }
       );
     }
-    
+
     // Get all bookings that overlap with our date range
     const existingBookings = await prisma.booking.findMany({
       where: {
         roomTypeId,
         status: { notIn: ['CANCELLED', 'NO_SHOW'] },
-        // Booking overlaps if it starts before our checkout and ends after our checkin
         AND: [
           { checkIn: { lt: checkOutDate } },
           { checkOut: { gt: checkInDate } }
@@ -190,36 +158,31 @@ export async function POST(request: NextRequest) {
         checkOut: true
       }
     });
-    
-    console.log(`Found ${existingBookings.length} potentially overlapping bookings`);
-    
+
     // Get all dates in our booking range using the timezone-safe utility
     const bookingDates = getDateRange(checkInDate, checkOutDate);
-    
+
     // Calculate max rooms booked on any single day in our date range
     let maxBookedRooms = 0;
-    
+
     for (const dateStr of bookingDates) {
       const currentDate = parseBookingDate(dateStr);
       let bookedOnThisDate = 0;
-      
+
       for (const booking of existingBookings) {
         const bookingStart = parseBookingDate(booking.checkIn);
         const bookingEnd = parseBookingDate(booking.checkOut);
-        
-        // If this booking covers the current date, add its rooms
+
         if (currentDate >= bookingStart && currentDate < bookingEnd) {
           bookedOnThisDate += booking.rooms || 1;
         }
       }
-      
+
       maxBookedRooms = Math.max(maxBookedRooms, bookedOnThisDate);
     }
-    
+
     // Calculate available rooms based on the day with most bookings
     const availableRooms = Math.max(0, roomType.totalRooms - maxBookedRooms);
-    
-    console.log(`Room type ${roomType.name}: total=${roomType.totalRooms}, maxBooked=${maxBookedRooms}, available=${availableRooms}, requested=${rooms}`);
 
     // Check if there are enough available rooms
     if (availableRooms < rooms) {
@@ -228,14 +191,75 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
-    
+
+    const finalPrice = totalPrice || parseFloat(roomType.basePrice.toString()) * rooms;
+
     // Import the room availability update function
     const { updateRoomAvailability } = await import('@/lib/room-availability');
 
-    // Use a transaction to create booking and update room availability
-    const booking = await prisma.$transaction(async (prisma) => {
-      // Create the booking
-      const newBooking = await prisma.booking.create({
+    // ---- Stripe path: create a PENDING booking, then a Checkout Session ----
+    if (paymentMethod === 'stripe') {
+      const stripe = getStripe();
+      const booking = await prisma.$transaction(async (tx: any) => {
+        const newBooking = await tx.booking.create({
+          data: {
+            userId,
+            propertyId,
+            roomTypeId,
+            checkIn: checkInDate,
+            checkOut: checkOutDate,
+            guests,
+            rooms,
+            totalPrice: finalPrice,
+            status: 'PENDING',
+            paymentStatus: 'AWAITING_PAYMENT',
+            notes: notes || null,
+            statusHistory: {
+              create: { status: 'PENDING', notes: 'Booking created — awaiting Stripe payment' }
+            }
+          }
+        });
+        return newBooking;
+      });
+
+      const siteUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+      const checkoutSession = await stripe.checkout.sessions.create({
+        mode: 'payment',
+        payment_method_types: ['card'],
+        line_items: [
+          {
+            price_data: {
+              currency: 'usd',
+              product_data: {
+                name: `${roomType.property.name} — ${roomType.name}`,
+                description: `${cleanCheckIn} → ${cleanCheckOut}, ${rooms} room(s), ${guests} guest(s)`,
+              },
+              unit_amount: Math.round(finalPrice * 100),
+            },
+            quantity: 1,
+          },
+        ],
+        metadata: { bookingId: booking.id },
+        success_url: `${siteUrl}/bookings/${booking.id}?payment=success`,
+        cancel_url: `${siteUrl}/bookings/${booking.id}?payment=cancelled`,
+      });
+
+      await prisma.booking.update({
+        where: { id: booking.id },
+        data: { stripeCheckoutSessionId: checkoutSession.id },
+      });
+
+      return NextResponse.json({
+        success: true,
+        requiresPayment: true,
+        checkoutUrl: checkoutSession.url,
+        booking: { id: booking.id, status: booking.status },
+      });
+    }
+
+    // ---- Pay-at-property path (default) ----
+    const booking = await prisma.$transaction(async (tx: any) => {
+      const newBooking = await tx.booking.create({
         data: {
           userId,
           propertyId,
@@ -244,45 +268,52 @@ export async function POST(request: NextRequest) {
           checkOut: checkOutDate,
           guests,
           rooms,
-          totalPrice: totalPrice || parseFloat(roomType.basePrice.toString()) * rooms,
+          totalPrice: finalPrice,
           status: 'PENDING',
-          // Store payment details (encrypted for no-show charges)
-          cardNumber: encrypt(cleanCardNumber), // Encrypted full card number
-          cardLast4,
-          cardBrand,
-          cardExpMonth: parseInt(cardExpMonth),
-          cardExpYear: parseInt(cardExpYear),
-          cardCvv: encrypt(cardCvv), // Encrypted CVV
-          billingName,
-          billingZip: billingZip || null,
+          paymentStatus: 'PAY_AT_PROPERTY',
+          notes: notes || null,
           statusHistory: {
-            create: {
-              status: 'PENDING',
-              notes: 'Booking created'
-            }
+            create: { status: 'PENDING', notes: 'Booking created — pay at property' }
           }
         }
       });
-      
       return newBooking;
     });
-    
+
     // Update room availability records after transaction is complete
     await updateRoomAvailability(
-      roomTypeId, 
-      checkInDate, 
-      checkOutDate, 
+      roomTypeId,
+      checkInDate,
+      checkOutDate,
       rooms,
       false // Not a cancellation
     );
 
-    return NextResponse.json({ 
-      success: true, 
+    // Send confirmation email (skipped silently when Resend is not configured)
+    const guestName = `${userExists.firstName} ${userExists.lastName}`.trim();
+    await sendBookingConfirmation({
+      to: userExists.email,
+      guestName: guestName || userExists.email,
+      propertyName: roomType.property.name,
+      roomTypeName: roomType.name,
+      checkIn: cleanCheckIn,
+      checkOut: cleanCheckOut,
+      guests,
+      rooms,
+      totalPrice: finalPrice.toString(),
+      bookingId: booking.id,
+      paymentStatus: 'PAY_AT_PROPERTY',
+    });
+
+    return NextResponse.json({
+      success: true,
+      requiresPayment: false,
       booking: {
         id: booking.id,
         checkIn: booking.checkIn,
         checkOut: booking.checkOut,
-        status: booking.status
+        status: booking.status,
+        paymentStatus: 'PAY_AT_PROPERTY',
       }
     });
 
@@ -299,7 +330,7 @@ export async function GET(request: NextRequest) {
   try {
     // Get the authenticated user
     const session = await auth();
-    
+
     if (!session || !session.user) {
       return NextResponse.json(
         { error: 'Unauthorized' },
@@ -309,37 +340,32 @@ export async function GET(request: NextRequest) {
 
     const userId = session.user.id;
     const isAdmin = session.user.role === 'ADMIN';
-    
+
     // Parse query parameters
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
-    
+
     // Build the query
-    // Define a type that includes the possible booking properties
     type BookingWhereClause = {
       userId?: string;
       status?: "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
     };
-    
+
     const whereClause: BookingWhereClause = {};
-    
+
     // If not admin, only show the user's bookings
     if (!isAdmin) {
       whereClause.userId = userId;
     }
-    
+
     // Filter by status if provided
     if (status) {
       const upperStatus = status.toUpperCase();
-      // Type guard to check if status is valid
       if (['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED'].includes(upperStatus)) {
         whereClause.status = upperStatus as "PENDING" | "CONFIRMED" | "CANCELLED" | "COMPLETED";
       }
     }
 
-    // Use type assertion to convert to the Prisma where clause type
-    // The Prisma type definition is complex, but our whereClause is compatible at runtime
-    // Using a more specific type instead of any
     const bookings = await prisma.booking.findMany({
       where: whereClause as Record<string, unknown>,
       include: {

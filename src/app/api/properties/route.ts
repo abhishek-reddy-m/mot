@@ -98,7 +98,7 @@ export async function GET(
     });
 
     // Transform the response to include real-time availability information
-    const propertiesWithAvailability = await Promise.all(properties.map(async (property) => {
+    const propertiesWithAvailability = await Promise.all(properties.map(async (property: any) => {
       // Track overall availability and pricing
       let totalRooms = 0;
       let totalAvailableRooms = 0;
@@ -162,17 +162,17 @@ export async function GET(
         state: property.state,
         zipCode: property.zipCode,
         mainPhoto: property.photos[0]?.url || null,
-        photos: property.photos.map(p => ({ id: p.id, url: p.url, isMain: p.isMain })),
+        photos: property.photos.map((p: any) => ({ id: p.id, url: p.url, isMain: p.isMain })),
         totalRooms,
         availableRooms: totalAvailableRooms,
         lowestPrice,
-        roomTypeCount: property.roomTypes.filter(rt => (rt as any).availableRooms > 0).length,
+        roomTypeCount: property.roomTypes.filter((rt: any) => (rt as any).availableRooms > 0).length,
         hasAvailability: totalAvailableRooms > 0
       };
     }));
 
     console.log(`Returning ${propertiesWithAvailability.length} properties with availability`);
-    propertiesWithAvailability.forEach(p => {
+    propertiesWithAvailability.forEach((p: any) => {
       console.log(`Property ${p.name}: ${p.availableRooms}/${p.totalRooms} total rooms available (across ${p.roomTypeCount} room types)`);
     });
     

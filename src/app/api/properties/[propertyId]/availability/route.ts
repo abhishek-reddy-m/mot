@@ -67,7 +67,7 @@ export async function GET(
     
     // Calculate availability for each room type
     const roomTypesWithAvailability = await Promise.all(
-      property.roomTypes.map(async (roomType) => {
+      property.roomTypes.map(async (roomType: any) => {
         const { availableRooms, availabilityByDate } = await getAvailableRooms(roomType.id, checkIn, checkOut);
         
         return {

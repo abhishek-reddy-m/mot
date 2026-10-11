@@ -65,7 +65,7 @@ export async function PUT(
     }
     
     // Handle inventory changes based on status transition
-    const updatedBooking = await prisma.$transaction(async (prisma) => {
+    const updatedBooking = await prisma.$transaction(async (prisma: any) => {
       // Case 1: Any status -> CANCELLED - release inventory
       if (newStatus === 'CANCELLED' && booking.status !== 'CANCELLED') {
         await prisma.roomType.update({

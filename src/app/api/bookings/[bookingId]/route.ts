@@ -201,7 +201,7 @@ export async function PUT(
     const roomDifference = rooms - booking.rooms;
     
     // Use a transaction to update booking and adjust room inventory
-    const updatedBooking = await prisma.$transaction(async (prisma) => {
+    const updatedBooking = await prisma.$transaction(async (prisma: any) => {
       // 1. Update room inventory if number of rooms has changed
       if (roomDifference !== 0) {
         await prisma.roomType.update({
