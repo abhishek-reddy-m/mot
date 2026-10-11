@@ -4,34 +4,55 @@ const bcrypt = require('bcryptjs');
 const prisma = new PrismaClient();
 
 async function main() {
-  // Delete all existing data (in reverse order of dependencies)
-  console.log('Clearing existing data...');
-  await prisma.roomAvailability.deleteMany({});
-  await prisma.booking.deleteMany({});
-  await prisma.roomTypePhoto.deleteMany({});
-  await prisma.propertyPhoto.deleteMany({});
-  await prisma.roomType.deleteMany({});
-  await prisma.property.deleteMany({});
-  await prisma.user.deleteMany({});
-  console.log('All existing data cleared.');
-  
-  // Create admin user
-  const hashedPassword = await bcrypt.hash('admin123', 10);
-  
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@motelbooking.com' },
-    update: {},
-    create: {
-      email: 'admin@motelbooking.com',
-      password: hashedPassword,
-      firstName: 'Admin',
-      lastName: 'User',
-      phone: '+1234567890',
-      role: 'ADMIN',
-    },
-  });
+  const isProduction = process.env.NODE_ENV === 'production';
 
-  console.log('Admin user created:', admin);
+  // DANGER: the original seed wiped the entire database. Only allow that
+  // with an explicit opt-in, never by default in production.
+  const allowWipe = process.env.ALLOW_SEED_WIPE === 'true' || !isProduction;
+  if (allowWipe) {
+    console.log('Clearing existing data...');
+    await prisma.roomAvailability.deleteMany({});
+    await prisma.booking.deleteMany({});
+    await prisma.roomTypePhoto.deleteMany({});
+    await prisma.propertyPhoto.deleteMany({});
+    await prisma.roomType.deleteMany({});
+    await prisma.property.deleteMany({});
+    await prisma.user.deleteMany({});
+    console.log('All existing data cleared.');
+  } else {
+    console.log('Skipping data wipe (production without ALLOW_SEED_WIPE=true).');
+  }
+
+  // Admin password comes from the environment. In production the seed refuses
+  // to create a default admin with a hardcoded password.
+  const adminPassword = process.env.ADMIN_SEED_PASSWORD;
+  if (isProduction && !adminPassword) {
+    console.warn(
+      'NODE_ENV=production and ADMIN_SEED_PASSWORD is not set — skipping default admin creation. ' +
+      'Set ADMIN_SEED_PASSWORD to seed an admin account.'
+    );
+  } else {
+    const passwordToHash = adminPassword || 'admin123';
+    if (!adminPassword) {
+      console.warn('ADMIN_SEED_PASSWORD not set — using insecure default admin password (dev only).');
+    }
+    const hashedPassword = await bcrypt.hash(passwordToHash, 10);
+
+    const admin = await prisma.user.upsert({
+      where: { email: 'admin@motelbooking.com' },
+      update: {},
+      create: {
+        email: 'admin@motelbooking.com',
+        password: hashedPassword,
+        firstName: 'Admin',
+        lastName: 'User',
+        phone: '+1234567890',
+        role: 'ADMIN',
+      },
+    });
+
+    console.log('Admin user created:', admin.email);
+  }
 
   // Create a test customer user
   const customerPassword = await bcrypt.hash('customer123', 10);

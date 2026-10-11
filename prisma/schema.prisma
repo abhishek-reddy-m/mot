@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
@@ -129,13 +130,13 @@ model Booking {
   totalPrice    Decimal                @db.Decimal(10, 2)
   status        BookingStatus          @default(PENDING)
   notes         String?
-  // Payment details (encrypted for security, stored for no-show charges)
-  cardNumber    String?                // Encrypted full card number
+  // Payment metadata (no raw card data is ever stored — PCI compliance).
+  // Card payments go through Stripe Checkout; otherwise pay at property.
+  paymentStatus          String?               @default("UNPAID")
+  stripeCheckoutSessionId String?
+  stripePaymentIntentId   String?
   cardLast4     String?
   cardBrand     String?                // Visa, Mastercard, Amex, etc.
-  cardExpMonth  Int?
-  cardExpYear   Int?
-  cardCvv       String?                // Encrypted CVV
   billingName   String?
   billingZip    String?
   createdAt     DateTime               @default(now())

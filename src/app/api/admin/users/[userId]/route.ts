@@ -82,7 +82,7 @@ export async function PATCH(
     }
 
     // Update user and property assignments in transaction
-    const user = await prisma.$transaction(async (tx) => {
+    const user = await prisma.$transaction(async (tx: any) => {
       const updatedUser = await tx.user.update({
         where: { id: userId },
         data: updateData,

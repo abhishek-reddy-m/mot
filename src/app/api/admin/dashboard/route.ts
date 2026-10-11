@@ -62,7 +62,7 @@ export async function GET() {
       }
     });
 
-    const totalRevenue = bookingsThisMonth.reduce((sum, booking) => 
+    const totalRevenue = bookingsThisMonth.reduce((sum: any, booking: any) => 
       sum + Number(booking.totalPrice), 0);
     
     // Calculate occupancy rate
@@ -92,7 +92,7 @@ export async function GET() {
     
     const totalRooms = roomTypesAgg._sum.totalRooms || 0;
     
-    const occupiedRooms = occupancyData.reduce((sum: number, booking) => sum + booking.rooms, 0);
+    const occupiedRooms = occupancyData.reduce((sum: number, booking: any) => sum + booking.rooms, 0);
     const occupancyRate = totalRooms > 0 ? ((occupiedRooms / totalRooms) * 100).toFixed(1) : 0;
 
     // Set a default average rating since there's no review model
@@ -126,7 +126,7 @@ export async function GET() {
       totalRevenue,
       occupancyRate,
       avgRating,
-      recentBookings: recentBookings.map(booking => ({
+      recentBookings: recentBookings.map((booking: any) => ({
         id: booking.id,
         guest: `${booking.user.firstName} ${booking.user.lastName}`,
         property: booking.property.name,

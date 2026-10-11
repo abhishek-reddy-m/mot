@@ -86,7 +86,7 @@ export async function PATCH(
     }
 
     // Start a transaction to update booking status and related data
-    const result = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx: any) => {
       // 1. Get the current booking
       const booking = await tx.booking.findUnique({
         where: { id: bookingId },

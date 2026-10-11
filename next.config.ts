@@ -1,19 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  /* config options here */
-  eslint: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has ESLint errors.
-    ignoreDuringBuilds: true,
-  },
-  typescript: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has type errors.
-    ignoreBuildErrors: true,
-  },
+  /* Build errors are NOT ignored — fix them instead of hiding them. */
   images: {
-    domains: ['res.cloudinary.com'], // If you're using Cloudinary for image hosting
+    remotePatterns: [
+      { protocol: 'https', hostname: 'images.unsplash.com' },
+      { protocol: 'https', hostname: 'res.cloudinary.com' },
+      { protocol: 'https', hostname: '**.public.blob.vercel-storage.com' },
+    ],
   },
   // Required for NextAuth.js on a custom domain or hosting platform
   async headers() {

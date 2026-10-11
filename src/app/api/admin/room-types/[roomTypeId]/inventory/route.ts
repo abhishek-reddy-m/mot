@@ -34,7 +34,7 @@ export async function GET(
     }
 
     // Just get the basic inventory data for now
-    const inventory = await prisma.roomInventory.findMany({
+    const inventory = await prisma.room.findMany({
       where: { roomTypeId },
       orderBy: { roomNumber: 'asc' }
     });
@@ -90,7 +90,7 @@ export async function POST(
     }
     
     // Check if room number already exists for this room type
-    const existingRoom = await prisma.roomInventory.findFirst({
+    const existingRoom = await prisma.room.findFirst({
       where: {
         roomTypeId,
         roomNumber
@@ -105,11 +105,11 @@ export async function POST(
     }
     
     // Create the new room
-    const newRoom = await prisma.roomInventory.create({
+    const newRoom = await prisma.room.create({
       data: {
+        propertyId: roomType.propertyId,
         roomTypeId,
-        roomNumber,
-        isActive: true
+        roomNumber
       }
     });
     

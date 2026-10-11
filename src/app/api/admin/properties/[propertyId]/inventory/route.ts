@@ -24,7 +24,7 @@ export async function GET(
         isActive: true
       },
       include: {
-        inventory: true,
+        rooms: true,
         bookings: {
           where: {
             // Only include active bookings
@@ -41,15 +41,15 @@ export async function GET(
     });
 
     // Calculate availability for each room type
-    const inventoryWithAvailability = roomTypes.map(roomType => {
+    const inventoryWithAvailability = roomTypes.map((roomType: any) => {
       // Get total rooms for this type
-      const totalInventory = roomType.inventory.length;
+      const totalInventory = roomType.rooms.length;
       
       // Count booked rooms for current date
       const today = new Date();
       today.setHours(0, 0, 0, 0);
       
-      const bookedToday = roomType.bookings.filter(booking => {
+      const bookedToday = roomType.bookings.filter((booking: any) => {
         const checkIn = new Date(booking.checkIn);
         const checkOut = new Date(booking.checkOut);
         return today >= checkIn && today < checkOut;
@@ -121,7 +121,7 @@ export async function POST(
     }
 
     // Get current inventory
-    const currentInventory = await prisma.roomInventory.count({
+    const currentInventory = await prisma.room.count({
       where: {
         roomTypeId
       }
@@ -134,33 +134,34 @@ export async function POST(
       for (let i = 0; i < count - currentInventory; i++) {
         // Generate a room number using the current count and an incrementing value
         const roomNumber = `${roomType.name.substring(0, 2).toUpperCase()}${currentInventory + i + 1}`.padStart(4, '0');
-        newItems.push({ 
-          roomTypeId, 
-          roomNumber 
+        newItems.push({
+          propertyId,
+          roomTypeId,
+          roomNumber
         });
       }
-      
+
       if (newItems.length > 0) {
-        await prisma.roomInventory.createMany({
+        await prisma.room.createMany({
           data: newItems
         });
       }
-    } 
+    }
     // If decreasing inventory
     else if (count < currentInventory) {
       // Get inventory items to delete
-      const inventoryItems = await prisma.roomInventory.findMany({
+      const inventoryItems = await prisma.room.findMany({
         where: {
           roomTypeId
         },
         take: currentInventory - count
       });
-      
+
       if (inventoryItems.length > 0) {
-        await prisma.roomInventory.deleteMany({
+        await prisma.room.deleteMany({
           where: {
             id: {
-              in: inventoryItems.map(item => item.id)
+              in: inventoryItems.map((item: any) => item.id)
             }
           }
         });
@@ -168,7 +169,7 @@ export async function POST(
     }
 
     // Get updated inventory
-    const updatedInventory = await prisma.roomInventory.count({
+    const updatedInventory = await prisma.room.count({
       where: {
         roomTypeId
       }

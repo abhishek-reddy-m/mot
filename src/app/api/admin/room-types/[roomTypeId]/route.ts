@@ -105,7 +105,7 @@ export async function PUT(
     }
 
     // Update the room type
-    const updatedRoomType = await prisma.$transaction(async (prisma) => {
+    const updatedRoomType = await prisma.$transaction(async (prisma: any) => {
       // Update the room type basic info
       const roomType = await prisma.roomType.update({
         where: { id: roomTypeId },

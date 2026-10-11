@@ -5,18 +5,17 @@ import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { ArrowLeft, Calendar, User, Building2, DollarSign, Clock, Loader2, CreditCard, Eye, EyeOff } from 'lucide-react';
+import { ArrowLeft, Calendar, User, Building2, DollarSign, Clock, Loader2, CreditCard } from 'lucide-react';
 
 type PaymentDetails = {
-  cardNumber: string;
-  maskedCardNumber: string;
-  cardLast4: string;
-  cardBrand: string;
-  cardExpMonth: number;
-  cardExpYear: number;
-  cardCvv: string;
-  billingName: string;
-  billingZip: string;
+  paymentStatus: string | null;
+  cardLast4: string | null;
+  cardBrand: string | null;
+  billingName: string | null;
+  billingZip: string | null;
+  stripeCheckoutSessionId: string | null;
+  stripePaymentIntentId: string | null;
+  totalPrice: unknown;
 };
 
 type BookingDetailsType = {
@@ -30,12 +29,11 @@ type BookingDetailsType = {
   rooms: number;
   totalPrice: number;
   status: string;
+  paymentStatus?: string | null;
   notes?: string;
   // Payment details
   cardLast4?: string;
   cardBrand?: string;
-  cardExpMonth?: number;
-  cardExpYear?: number;
   billingName?: string;
   billingZip?: string;
   createdAt: string;
@@ -75,8 +73,6 @@ export default function AdminBookingDetailsPage({ params }: { params: Promise<{ 
   
   // Payment details state
   const [paymentDetails, setPaymentDetails] = useState<PaymentDetails | null>(null);
-  const [showFullCard, setShowFullCard] = useState(false);
-  const [showCvv, setShowCvv] = useState(false);
   const [loadingPayment, setLoadingPayment] = useState(false);
 
   // Unwrap params Promise
@@ -112,26 +108,25 @@ export default function AdminBookingDetailsPage({ params }: { params: Promise<{ 
     fetchBookingDetails();
   }, [bookingId]);
 
-  // Fetch payment details
-  const fetchPaymentDetails = async () => {
-    if (!bookingId || paymentDetails) return; // Don't fetch if already loaded
-    
-    try {
-      setLoadingPayment(true);
-      const response = await fetch(`/api/admin/bookings/${bookingId}/payment`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch payment details');
+  // Fetch payment metadata alongside the booking
+  useEffect(() => {
+    if (!bookingId) return;
+    const fetchPaymentDetails = async () => {
+      try {
+        setLoadingPayment(true);
+        const response = await fetch(`/api/admin/bookings/${bookingId}/payment`);
+        if (response.ok) {
+          const data = await response.json();
+          setPaymentDetails(data);
+        }
+      } catch (err) {
+        console.error('Error fetching payment details:', err);
+      } finally {
+        setLoadingPayment(false);
       }
-      
-      const data = await response.json();
-      setPaymentDetails(data);
-    } catch (err) {
-      console.error('Error fetching payment details:', err);
-    } finally {
-      setLoadingPayment(false);
-    }
-  };
+    };
+    fetchPaymentDetails();
+  }, [bookingId]);
 
   // Format dates
   const formatDate = (dateString: string) => {
@@ -331,101 +326,45 @@ export default function AdminBookingDetailsPage({ params }: { params: Promise<{ 
               )}
               
               {/* Payment Information */}
-              {booking.cardLast4 && (
-                <div className="mt-6 p-4 bg-blue-50 rounded-md">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-sm font-medium text-gray-700 flex items-center gap-2">
-                      <CreditCard className="h-4 w-4" />
-                      Payment Information
-                    </p>
-                    {!paymentDetails && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={fetchPaymentDetails}
-                        disabled={loadingPayment}
-                      >
-                        {loadingPayment ? (
-                          <Loader2 className="h-4 w-4 animate-spin mr-1" />
-                        ) : (
-                          <Eye className="h-4 w-4 mr-1" />
-                        )}
-                        View Full Details
-                      </Button>
-                    )}
+              <div className="mt-6 p-4 bg-blue-50 rounded-md">
+                <p className="text-sm font-medium text-gray-700 flex items-center gap-2 mb-3">
+                  <CreditCard className="h-4 w-4" />
+                  Payment Information
+                </p>
+                <div className="grid md:grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-gray-500">Status:</span>{' '}
+                    <span className="font-medium">
+                      {booking.paymentStatus === 'PAID' ? 'Paid online (Stripe)'
+                        : booking.paymentStatus === 'PAY_AT_PROPERTY' ? 'Pay at property'
+                        : booking.paymentStatus === 'AWAITING_PAYMENT' ? 'Awaiting online payment'
+                        : (booking.paymentStatus || 'Unpaid')}
+                    </span>
                   </div>
-                  
-                  <div className="grid md:grid-cols-2 gap-4 text-sm">
+                  {(booking.cardBrand || booking.cardLast4) && (
                     <div>
                       <span className="text-gray-500">Card:</span>{' '}
-                      {paymentDetails ? (
-                        <span className="font-medium font-mono">
-                          {showFullCard ? paymentDetails.cardNumber : paymentDetails.maskedCardNumber}
-                          <button
-                            onClick={() => setShowFullCard(!showFullCard)}
-                            className="ml-2 text-blue-600 hover:text-blue-800"
-                          >
-                            {showFullCard ? <EyeOff className="h-3 w-3 inline" /> : <Eye className="h-3 w-3 inline" />}
-                          </button>
-                        </span>
-                      ) : (
-                        <span className="font-medium">{booking.cardBrand} •••• {booking.cardLast4}</span>
-                      )}
+                      <span className="font-medium">{booking.cardBrand} •••• {booking.cardLast4}</span>
                     </div>
+                  )}
+                  {paymentDetails?.stripePaymentIntentId && (
                     <div>
-                      <span className="text-gray-500">Expires:</span>{' '}
-                      <span className="font-medium">
-                        {paymentDetails 
-                          ? `${paymentDetails.cardExpMonth?.toString().padStart(2, '0')}/${paymentDetails.cardExpYear}`
-                          : `${booking.cardExpMonth?.toString().padStart(2, '0')}/${booking.cardExpYear}`
-                        }
-                      </span>
+                      <span className="text-gray-500">Stripe payment:</span>{' '}
+                      <span className="font-medium font-mono text-xs">{paymentDetails.stripePaymentIntentId}</span>
                     </div>
-                    {paymentDetails && (
-                      <div>
-                        <span className="text-gray-500">CVV:</span>{' '}
-                        <span className="font-medium font-mono">
-                          {showCvv ? paymentDetails.cardCvv : '•••'}
-                          <button
-                            onClick={() => setShowCvv(!showCvv)}
-                            className="ml-2 text-blue-600 hover:text-blue-800"
-                          >
-                            {showCvv ? <EyeOff className="h-3 w-3 inline" /> : <Eye className="h-3 w-3 inline" />}
-                          </button>
-                        </span>
-                      </div>
-                    )}
+                  )}
+                  {(paymentDetails?.billingName || booking.billingName) && (
                     <div>
                       <span className="text-gray-500">Name:</span>{' '}
                       <span className="font-medium">{paymentDetails?.billingName || booking.billingName}</span>
                     </div>
-                    {(paymentDetails?.billingZip || booking.billingZip) && (
-                      <div>
-                        <span className="text-gray-500">Billing Zip:</span>{' '}
-                        <span className="font-medium">{paymentDetails?.billingZip || booking.billingZip}</span>
-                      </div>
-                    )}
-                  </div>
-                  
-                  {paymentDetails && (
-                    <div className="mt-4 p-3 bg-yellow-50 border border-yellow-200 rounded text-xs text-yellow-800">
-                      <strong>⚠️ Security Notice:</strong> Full card details are displayed for no-show charge purposes only. 
-                      Do not share or store these details outside this system.
-                    </div>
                   )}
-                  
-                  <p className="text-xs text-gray-500 mt-3">
-                    {paymentDetails 
-                      ? 'Use these details to process no-show charges if needed.'
-                      : 'Card not charged - payment details held for reservation guarantee. Click "View Full Details" to see complete card info for no-show charges.'
-                    }
-                  </p>
                 </div>
-              )}
+              </div>
             </CardContent>
           </Card>
 
-          {/* Status History */}
+              {/* Status History */}
           <Card>
             <CardHeader>
               <CardTitle>Status History</CardTitle>
