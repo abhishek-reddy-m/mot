@@ -19,6 +19,7 @@ import { SmartImage } from '@/components/ui/smart-image';
 import { StaySearch, defaultStay, type StayQuery } from '@/components/guest/StaySearch';
 import { brandStyle } from '@/components/guest/brand';
 import { PRODUCT_NAME } from '@/config/product';
+import { GuestVoice } from '@/components/voice/GuestVoice';
 
 interface Photo {
   id: string;
@@ -40,6 +41,7 @@ interface PublicProperty {
   amenities: string[];
   primaryColor: string | null;
   isDemo: boolean;
+  voice?: { available: boolean };
   photos: Photo[];
   roomTypes: { id: string; name: string; description: string | null; capacity: number; basePrice: number; amenities: string[]; photos: Photo[] }[];
 }
@@ -369,6 +371,17 @@ function PropertyPage() {
           </>
         )}
       </main>
+
+      {p?.voice?.available && (
+        <GuestVoice
+          propertyId={p.id}
+          propertyName={p.name}
+          onStay={(v) => {
+            const q = new URLSearchParams({ checkIn: v.checkIn, checkOut: v.checkOut, guests: String(v.guests), rooms: String(v.rooms) });
+            router.replace(`/properties/${p.id}?${q}`, { scroll: false });
+          }}
+        />
+      )}
 
       {/* Mobile booking bar */}
       {p && (

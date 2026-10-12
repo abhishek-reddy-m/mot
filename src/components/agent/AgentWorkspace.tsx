@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { motion } from 'framer-motion';
 import useSWR from 'swr';
 import { ArrowDownToLine, ArrowUpFromLine, BedDouble, CalendarRange, ChartLine, ConciergeBell, History, ShieldCheck, Sparkles, SprayCan } from 'lucide-react';
@@ -23,9 +24,18 @@ const STARTERS = [
   { icon: ChartLine, title: 'Weekend outlook', hint: 'Occupancy and rate strategy', command: 'forecast the next 3 weekends' },
 ];
 
+const BRIDGE_STARTERS = [
+  { icon: ArrowDownToLine, title: 'Who’s arriving?', hint: 'Looked up in your PMS', command: 'who’s arriving today?' },
+  { icon: ConciergeBell, title: 'Check in a guest', hint: '“…Jordan Smith into room 204”', command: 'check in Jordan Smith into room 204' },
+  { icon: CalendarRange, title: 'Find a reservation', hint: 'By name or confirmation code', command: 'find the reservation for Grace Okafor' },
+  { icon: SprayCan, title: 'Rooms to clean', hint: 'Housekeeping status from your PMS', command: 'which rooms are dirty?' },
+];
+
 function Hero({ send }: { send: (cmd: string) => void }) {
   const { ctx, property } = useConsole();
   const first = ctx?.user.name.split(' ')[0] ?? '';
+  const bridged = property?.setupPath === 'BRIDGE';
+  const starters = bridged ? BRIDGE_STARTERS : STARTERS;
   return (
     <div className="flex min-h-[60vh] flex-col justify-center py-6">
       <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.5, ease: [0.22, 1, 0.36, 1] }}>
@@ -34,12 +44,21 @@ function Hero({ send }: { send: (cmd: string) => void }) {
           {greeting()}, {first}.
         </h1>
         <p className="mt-2 max-w-xl text-[15px] leading-relaxed text-muted-foreground">
-          I’m the front-desk agent for <span className="font-medium text-foreground">{property?.name}</span>. Ask in plain words — I answer from live data,
-          show you the right screen for it, and <span className="font-medium text-foreground">ask before changing anything</span>.
+          {bridged ? (
+            <>
+              I’m the front-desk agent for <span className="font-medium text-foreground">{property?.name}</span>. I work in your own PMS for you — look-ups go straight
+              through, and I <span className="font-medium text-foreground">ask before changing anything</span>.
+            </>
+          ) : (
+            <>
+              I’m the front-desk agent for <span className="font-medium text-foreground">{property?.name}</span>. Ask in plain words — I answer from live data,
+              show you the right screen for it, and <span className="font-medium text-foreground">ask before changing anything</span>.
+            </>
+          )}
         </p>
       </motion.div>
       <div className="mt-8 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
-        {STARTERS.map((s, i) => (
+        {starters.map((s, i) => (
           <motion.button
             key={s.title}
             initial={{ opacity: 0, y: 10 }}
@@ -143,11 +162,82 @@ function LiveRail({ agent }: { agent: AgentController }) {
   );
 }
 
+interface BridgeSnapshot {
+  connection: { system: string; mode: 'DESKTOP' | 'CLOUD'; status: string; online: boolean; hasCredentials: boolean; devicePaired: boolean } | null;
+  tasks: { id: string; instruction: string; status: string; summary: string | null; createdAt: string }[];
+}
+
+/** For hotels on their own PMS: connection health and the operator's recent work. */
+function BridgeRail({ agent }: { agent: AgentController }) {
+  const url = usePropertyUrl('/api/admin/bridge');
+  const { data } = useSWR<BridgeSnapshot>(url, fetcher, { refreshInterval: 8000 });
+  const c = data?.connection;
+  const ready = c && c.status !== 'PAUSED' && (c.mode === 'CLOUD' ? c.hasCredentials : c.devicePaired);
+  return (
+    <aside className="hidden w-[300px] shrink-0 overflow-y-auto border-l bg-surface/60 p-4 scrollbar-thin xl:block">
+      <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Your PMS</p>
+      {!data ? (
+        <Skeleton className="mt-3 h-20" />
+      ) : !c ? (
+        <Link href="/admin/connect" className="mt-3 block rounded-xl border border-dashed p-4 text-sm hover:bg-accent">
+          Connect your PMS so I can work in it →
+        </Link>
+      ) : (
+        <Link href="/admin/connect" className="mt-3 flex items-center gap-3 rounded-xl border bg-card p-3 shadow-xs hover:shadow-soft">
+          <span className={cn('h-2.5 w-2.5 rounded-full', ready ? (c.mode === 'DESKTOP' && !c.online ? 'bg-warning' : 'bg-success') : 'bg-muted-foreground/40')} />
+          <span className="min-w-0 flex-1">
+            <span className="block truncate text-sm font-medium">{c.system}</span>
+            <span className="block text-[11px] text-muted-foreground">
+              {!ready ? 'Finish setup' : c.mode === 'CLOUD' ? 'Cloud browser' : c.online ? 'Desktop connector online' : 'Desktop connector offline'}
+            </span>
+          </span>
+        </Link>
+      )}
+      {data && data.tasks.length > 0 && (
+        <div className="mt-5">
+          <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Recent work</p>
+          <ul className="mt-2 space-y-1.5">
+            {data.tasks.slice(0, 6).map((t) => (
+              <li key={t.id} className="rounded-xl border bg-card px-3 py-2 text-xs">
+                <span className="line-clamp-2 font-medium text-foreground">{t.instruction}</span>
+                <span className={cn('mt-0.5 block', t.status === 'DONE' ? 'text-success' : t.status === 'FAILED' || t.status === 'NEEDS_HELP' ? 'text-warning' : 'text-muted-foreground')}>
+                  {t.status.replace('_', ' ').toLowerCase()}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {agent.history.length > 0 && (
+        <div className="mt-5">
+          <p className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+            <History className="h-3 w-3" /> Recent
+          </p>
+          <ul className="mt-2 space-y-0.5">
+            {agent.history
+              .slice(-5)
+              .reverse()
+              .map((h) => (
+                <li key={h}>
+                  <button onClick={() => agent.send(h)} disabled={agent.busy} className="w-full truncate rounded-lg px-2 py-1.5 text-left text-xs text-muted-foreground hover:bg-accent hover:text-foreground">
+                    {h}
+                  </button>
+                </li>
+              ))}
+          </ul>
+        </div>
+      )}
+    </aside>
+  );
+}
+
 /** The full Agentic workspace: conversation in the middle, live context on the right. */
 export function AgentWorkspace() {
+  const { property } = useConsole();
+  const bridged = property?.setupPath === 'BRIDGE';
   return (
     <div className="h-[calc(100dvh-3.5rem)]">
-      <AgentPanel empty={(send) => <Hero send={send} />} rail={(agent) => <LiveRail agent={agent} />} />
+      <AgentPanel empty={(send) => <Hero send={send} />} rail={(agent) => (bridged ? <BridgeRail agent={agent} /> : <LiveRail agent={agent} />)} />
     </div>
   );
 }

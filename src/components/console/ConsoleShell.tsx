@@ -208,11 +208,11 @@ function ShellGate({ children }: { children: React.ReactNode }) {
 }
 
 export function ConsoleShell({ children }: { children: React.ReactNode }) {
-  const { ctx, mode, role, setCommandOpen, can } = useConsole();
+  const { ctx, mode, role, setCommandOpen, can, property } = useConsole();
   const pathname = usePathname();
   const [mobileOpen, setMobileOpen] = React.useState(false);
   const agentic = mode === 'AGENTIC';
-  const groups = navFor(role, { agentEnabled: can('agent.use') });
+  const groups = navFor(role, { agentEnabled: can('agent.use'), setupPath: property?.setupPath });
   const collapsed = agentic;
 
   return (
@@ -274,13 +274,17 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
             </div>
             <h1 className="truncate text-sm font-medium text-muted-foreground sm:hidden">{titleFor(pathname)}</h1>
             <div className="ml-auto flex items-center gap-2">
-              <div className="hidden sm:block">
-                <ModeSwitch />
-              </div>
-              <div className="sm:hidden">
-                <ModeSwitch size="sm" />
-              </div>
-              {!agentic && can('agent.use') && (
+              {(property?.setupPath ?? 'FULL') === 'FULL' && (
+                <>
+                  <div className="hidden sm:block">
+                    <ModeSwitch />
+                  </div>
+                  <div className="sm:hidden">
+                    <ModeSwitch size="sm" />
+                  </div>
+                </>
+              )}
+              {!agentic && can('agent.use') && property?.setupPath !== 'VOICE' && (
                 <Button variant="outline" size="sm" className="hidden gap-1.5 md:inline-flex" onClick={() => setCommandOpen(true)}>
                   <Command className="h-3.5 w-3.5" />
                   <span>Ask</span>

@@ -14,6 +14,8 @@ export interface AgentTurn {
   error?: string;
   /** For user turns: lets a failed command be retried. */
   retryable?: boolean;
+  /** How the request arrived (voice turns show a mic). */
+  via?: 'voice';
   at: number;
   ms?: number;
 }
@@ -100,10 +102,13 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
   const updateTurn = (id: string, fn: (t: AgentTurn) => AgentTurn) => setTurns((ts) => ts.map((t) => (t.id === id ? fn(t) : t)));
 
   const send = React.useCallback(
-    async (text: string) => {
+    async (text: string, opts: { via?: 'voice' } = {}): Promise<{ blocks: AgentBlock[]; error?: string }> => {
       const message = text.trim();
-      if (!message || !propertyId || busy) return;
-      const userTurn: AgentTurn = { id: uid(), role: 'user', text: message, blocks: [], at: Date.now() };
+      if (!message || !propertyId) return { blocks: [], error: 'Nothing to send.' };
+      if (busy) return { blocks: [], error: 'Still working on the previous request.' };
+      const collected: AgentBlock[] = [];
+      let failure: string | undefined;
+      const userTurn: AgentTurn = { id: uid(), role: 'user', text: message, blocks: [], at: Date.now(), via: opts.via };
       const agentTurn: AgentTurn = { id: uid(), role: 'agent', blocks: [], pending: true, status: 'Thinking…', at: Date.now() };
       setTurns((ts) => [...ts, userTurn, agentTurn]);
       setHistory((h) => [...h.filter((x) => x !== message), message].slice(-30));
@@ -135,18 +140,25 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
             if (!line) continue;
             const event = JSON.parse(line) as AgentEvent;
             if (event.type === 'status') updateTurn(agentTurn.id, (t) => ({ ...t, status: event.text }));
-            else if (event.type === 'block') updateTurn(agentTurn.id, (t) => ({ ...t, blocks: [...t.blocks, event.block] }));
-            else if (event.type === 'context') setContext(event.context);
-            else if (event.type === 'error') updateTurn(agentTurn.id, (t) => ({ ...t, error: event.message }));
+            else if (event.type === 'block') {
+              collected.push(event.block);
+              updateTurn(agentTurn.id, (t) => ({ ...t, blocks: [...t.blocks, event.block] }));
+            } else if (event.type === 'context') setContext(event.context);
+            else if (event.type === 'error') {
+              failure = event.message;
+              updateTurn(agentTurn.id, (t) => ({ ...t, error: event.message }));
+            }
             else if (event.type === 'done') updateTurn(agentTurn.id, (t) => ({ ...t, ms: event.ms }));
           }
         }
         updateTurn(agentTurn.id, (t) => ({ ...t, pending: false, status: undefined }));
       } catch (e) {
         if ((e as Error).name === 'AbortError') {
+          failure = 'Stopped.';
           updateTurn(agentTurn.id, (t) => ({ ...t, pending: false, status: undefined, error: t.blocks.length ? undefined : 'Stopped.' }));
         } else {
           const msg = e instanceof ApiError ? e.message : !navigator.onLine ? 'You’re offline — I’ll be here when you reconnect.' : 'Couldn’t reach the server.';
+          failure = msg;
           updateTurn(agentTurn.id, (t) => ({ ...t, pending: false, status: undefined, error: msg }));
           updateTurn(userTurn.id, (t) => ({ ...t, retryable: true }));
         }
@@ -154,6 +166,7 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
         setBusy(false);
         abortRef.current = null;
       }
+      return { blocks: collected, error: failure };
     },
     [propertyId, busy, context]
   );
@@ -161,8 +174,8 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
   const stop = React.useCallback(() => abortRef.current?.abort(), []);
 
   const confirm = React.useCallback(
-    async (token: string) => {
-      if (plans[token] === 'running' || plans[token] === 'done') return;
+    async (token: string): Promise<AgentBlock[]> => {
+      if (plans[token] === 'running' || plans[token] === 'done') return [];
       setPlans((p) => ({ ...p, [token]: 'running' }));
       try {
         const res = await api<{ blocks: AgentBlock[]; context: AgentContextState }>('/api/agent/confirm', { method: 'POST', json: { token } });
@@ -171,16 +184,25 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
         setTurns((ts) => [...ts, { id: uid(), role: 'agent', blocks: res.blocks, at: Date.now() }]);
         if (Object.keys(res.context ?? {}).length) setContext((c) => ({ ...c, ...res.context }));
         onChangeRef.current?.();
+        return res.blocks;
       } catch (e) {
+        const blocks: AgentBlock[] = [{ type: 'error', text: e instanceof ApiError ? e.message : 'Couldn’t confirm — try again.' }];
         setPlans((p) => ({ ...p, [token]: 'idle' }));
-        setTurns((ts) => [
-          ...ts,
-          { id: uid(), role: 'agent', blocks: [{ type: 'error', text: e instanceof ApiError ? e.message : 'Couldn’t confirm — try again.' }], at: Date.now() },
-        ]);
+        setTurns((ts) => [...ts, { id: uid(), role: 'agent', blocks, at: Date.now() }]);
+        return blocks;
       }
     },
     [plans]
   );
+
+  /** The newest plan still waiting for a decision (what "yes, go ahead" refers to). */
+  const pendingPlan = React.useMemo(() => {
+    for (let i = turns.length - 1; i >= 0; i--) {
+      const plan = turns[i].blocks.find((b): b is Extract<AgentBlock, { type: 'plan' }> => b.type === 'plan');
+      if (plan) return !plans[plan.plan.token] || plans[plan.plan.token] === 'idle' ? plan.plan : null;
+    }
+    return null;
+  }, [turns, plans]);
 
   const dismiss = React.useCallback((token: string) => setPlans((p) => ({ ...p, [token]: 'dismissed' })), []);
 
@@ -190,7 +212,7 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
     setPlans({});
   }, []);
 
-  return { turns, context, plans, history, busy, online, send, stop, confirm, dismiss, reset };
+  return { turns, context, plans, history, busy, online, send, stop, confirm, dismiss, reset, pendingPlan };
 }
 
 export type AgentController = ReturnType<typeof useAgent>;

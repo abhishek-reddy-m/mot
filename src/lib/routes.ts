@@ -17,6 +17,14 @@ export function isConsolePath(pathname: string): boolean {
 }
 
 /** Where a user should land after signing in, by role. */
+/** Console home for a role at a property, following how the hotel uses StayOS. */
+export function homeForProperty(role: string | null | undefined, setupPath: 'FULL' | 'BRIDGE' | 'VOICE' | undefined): string {
+  if (!isStaffRole(role)) return '/dashboard';
+  if (setupPath === 'VOICE') return '/admin/voice';
+  if (setupPath === 'BRIDGE') return role === 'HOUSEKEEPER' ? '/admin/voice' : '/admin/agent';
+  return homeForRole(role);
+}
+
 export function homeForRole(role: string | null | undefined): string {
   switch (role) {
     case 'ADMIN':
@@ -49,6 +57,8 @@ export const CONSOLE_ACCESS: { prefix: string; roles: readonly StaffRole[] }[] =
   { prefix: '/admin/activity', roles: ['ADMIN', 'OWNER', 'MANAGER'] },
   { prefix: '/admin/settings', roles: ['ADMIN', 'OWNER', 'MANAGER'] },
   { prefix: '/admin/analytics', roles: ['ADMIN', 'OWNER', 'MANAGER'] },
+  { prefix: '/admin/voice', roles: ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'] },
+  { prefix: '/admin/connect', roles: ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'] },
 ];
 
 export function canAccessConsolePath(role: string | null | undefined, pathname: string): boolean {

@@ -55,6 +55,8 @@ model Property {
   isDemo       Boolean         @default(false)
   // Classic (traditional UI) vs Agentic (natural-language beta interface)
   interfaceMode InterfaceMode  @default(CLASSIC)
+  // How the hotel adopted StayOS: everything on StayOS, keeping their PMS, or voice only
+  setupPath     SetupPath      @default(FULL)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   bookings    Booking[]
@@ -65,6 +67,11 @@ model Property {
   assignedUsers UserPropertyAssignment[]
   // Agentic-mode audit trail
   agentAuditLogs AgentAuditLog[]
+  voiceAgent     VoiceAgentConfig?
+  voiceSessions  VoiceSession[]
+  guestRequests  GuestRequest[]
+  pmsConnection  PmsConnection?
+  bridgeTasks    BridgeTask[]
 
   @@map("properties")
 }
@@ -302,4 +309,130 @@ model UserPropertyAssignment {
 
   @@unique([userId, propertyId])
   @@map("user_property_assignments")
+}
+
+enum SetupPath {
+  FULL
+  BRIDGE
+  VOICE
+}
+
+/// Voice front desk settings (GPT-Live). One per property.
+model VoiceAgentConfig {
+  id           String   @id @default(cuid())
+  propertyId   String   @unique
+  enabled      Boolean  @default(true)
+  voice        String   @default("marin")
+  greeting     String?
+  /// House style and rules for the voice ("we never quote parking prices", "always offer breakfast").
+  instructions String?
+  /// Frequently asked questions: [{ "q": string, "a": string }]
+  faqs         Json     @default("[]")
+  /// Where callers are sent when a person is needed.
+  handoffPhone String?
+  /// Show "Talk to us" on the public booking page.
+  guestWidget  Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  property     Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("voice_agent_configs")
+}
+
+/// One voice conversation (usage + outcome), guest or staff.
+model VoiceSession {
+  id              String    @id @default(cuid())
+  propertyId      String
+  userId          String?
+  audience        String // GUEST | STAFF
+  liveSessionId   String?
+  toolCalls       Int       @default(0)
+  summary         String?
+  startedAt       DateTime  @default(now())
+  endedAt         DateTime?
+  property        Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, startedAt])
+  @@map("voice_sessions")
+}
+
+/// Callback / message requests captured by the voice agent for the team.
+model GuestRequest {
+  id          String   @id @default(cuid())
+  propertyId  String
+  name        String
+  phone       String?
+  email       String?
+  message     String
+  source      String   @default("VOICE")
+  status      String   @default("NEW") // NEW | DONE
+  handledById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  property    Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, status, createdAt])
+  @@map("guest_requests")
+}
+
+enum PmsConnectionMode {
+  DESKTOP
+  CLOUD
+}
+
+enum PmsConnectionStatus {
+  PENDING
+  CONNECTED
+  ERROR
+  PAUSED
+}
+
+/// A hotel's existing PMS that StayOS operates for them instead of migrating.
+model PmsConnection {
+  id                String              @id @default(cuid())
+  propertyId        String              @unique
+  system            String
+  mode              PmsConnectionMode
+  status            PmsConnectionStatus @default(PENDING)
+  loginUrl          String?
+  /// AES-256-GCM sealed JSON { username, password, totpSecret? } — CLOUD mode only. Never returned to clients.
+  credentialsCipher String?
+  /// Desktop pairing: short code shown in the console, exchanged once for a device token.
+  pairingCode       String?             @unique
+  pairingExpiresAt  DateTime?
+  /// SHA-256 of the connector's device token.
+  deviceTokenHash   String?             @unique
+  deviceName        String?
+  lastSeenAt        DateTime?
+  lastError         String?
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  property          Property            @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  tasks             BridgeTask[]
+
+  @@map("pms_connections")
+}
+
+/// Work the agent sends to the hotel's own PMS through the bridge.
+model BridgeTask {
+  id            String        @id @default(cuid())
+  propertyId    String
+  connectionId  String
+  kind          String // LOOKUP | CHECK_IN | CHECK_OUT | NOTE | RATES | FREEFORM
+  instruction   String
+  payload       Json          @default("{}")
+  status        String        @default("QUEUED") // QUEUED | RUNNING | DONE | FAILED | NEEDS_HELP | CANCELLED
+  result        Json?
+  error         String?
+  requestedById String
+  attempts      Int           @default(0)
+  createdAt     DateTime      @default(now())
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  property      Property      @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  connection    PmsConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+
+  @@index([connectionId, status, createdAt])
+  @@index([propertyId, createdAt])
+  @@map("bridge_tasks")
 }

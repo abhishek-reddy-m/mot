@@ -130,12 +130,15 @@ export interface TeamMember {
   openTasks?: number;
 }
 
+export type SetupPath = 'FULL' | 'BRIDGE' | 'VOICE';
+
 export interface StaffProperty {
   id: string;
   name: string;
   city: string;
   state: string;
   interfaceMode: InterfaceMode;
+  setupPath: SetupPath;
   primaryColor: string | null;
   isDemo: boolean;
 }
@@ -145,7 +148,7 @@ export interface StaffContext {
   properties: StaffProperty[];
   permissions: string[];
   today: ISODate;
-  agent: { llmEnabled: boolean };
+  agent: { llmEnabled: boolean; voiceEnabled: boolean };
 }
 
 export interface ActivityEntry {

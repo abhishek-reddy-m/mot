@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { notFound } from '@/server/errors';
 import { handleRoute, json } from '@/server/http';
+import { voiceConfigured } from '@/server/voice/live';
 
 type Params = { params: Promise<{ propertyId: string }> };
 
@@ -20,6 +21,7 @@ export const GET = handleRoute(async (_req: NextRequest, { params }: Params) => 
         orderBy: { basePrice: 'asc' },
         include: { photos: { orderBy: [{ isMain: 'desc' }, { createdAt: 'asc' }], select: { id: true, url: true, isMain: true } } },
       },
+      voiceAgent: { select: { enabled: true, guestWidget: true } },
     },
   });
   if (!p) throw notFound('Property');
@@ -40,6 +42,7 @@ export const GET = handleRoute(async (_req: NextRequest, { params }: Params) => 
       primaryColor: p.primaryColor,
       logoUrl: p.logoUrl,
       isDemo: p.isDemo,
+      voice: { available: voiceConfigured() && (p.voiceAgent?.enabled ?? true) && (p.voiceAgent?.guestWidget ?? true) },
       photos: p.photos,
       roomTypes: p.roomTypes.map((rt) => ({
         id: rt.id,

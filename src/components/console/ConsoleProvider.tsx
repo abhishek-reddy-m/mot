@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import useSWR, { useSWRConfig } from 'swr';
 import type { InterfaceMode, StaffContext, StaffProperty } from '@/lib/dto';
 import { fetcher } from '@/lib/fetcher';
-import { homeForRole } from '@/lib/routes';
+import { homeForProperty } from '@/lib/routes';
 
 interface ConsoleState {
   ctx: StaffContext | undefined;
@@ -89,7 +89,7 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
   const canUseAgent = !!ctx?.permissions.includes('agent.use');
   const preferredMode: InterfaceMode = canUseAgent ? (modeOverride ?? property?.interfaceMode ?? 'CLASSIC') : 'CLASSIC';
   const mode: InterfaceMode = canUseAgent && pathname.startsWith('/admin/agent') ? 'AGENTIC' : 'CLASSIC';
-  const homeHref = homeForRole(ctx?.user.role);
+  const homeHref = homeForProperty(ctx?.user.role, property?.setupPath);
 
   const setPropertyId = React.useCallback(
     (id: string) => {

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
-import { RotateCcw } from 'lucide-react';
+import { RotateCcw, AudioLines } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { AgentTurn } from './useAgent';
 import { BlockRenderer } from './BlockRenderer';
@@ -51,6 +51,11 @@ export function Timeline({
             <div className="max-w-[85%] rounded-2xl rounded-br-md bg-foreground px-4 py-2.5 text-[14.5px] leading-relaxed text-background shadow-soft">
               {t.text}
             </div>
+            {t.via === 'voice' && (
+              <span className="inline-flex items-center gap-1 text-[11px] text-muted-foreground">
+                <AudioLines className="h-3 w-3" /> said aloud
+              </span>
+            )}
             {t.retryable && (
               <button onClick={() => onRetry(t.text!)} className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline">
                 <RotateCcw className="h-3 w-3" /> Retry

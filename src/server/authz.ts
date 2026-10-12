@@ -52,6 +52,11 @@ export const PERMISSIONS = {
   'activity.view': ['ADMIN', 'OWNER', 'MANAGER'],
   'agent.use': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
   'mode.setDefault': ['ADMIN', 'OWNER', 'MANAGER'],
+  'voice.use': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
+  'voice.manage': ['ADMIN', 'OWNER', 'MANAGER'],
+  'requests.view': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
+  'bridge.use': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
+  'bridge.manage': ['ADMIN', 'OWNER'],
 } as const satisfies Record<string, readonly StaffRole[]>;
 
 export type Permission = keyof typeof PERMISSIONS;

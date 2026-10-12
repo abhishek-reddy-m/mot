@@ -7,6 +7,7 @@ import { AgentUIProvider } from './AgentUI';
 import { Composer, type ComposerHandle } from './Composer';
 import { Timeline, useStickToBottom } from './Timeline';
 import { useAgent, type AgentController } from './useAgent';
+import { VoiceLiveBar, VoiceTalkButton, useStaffVoice } from '@/components/voice/StaffVoice';
 
 /**
  * Conversation + composer, shared by the full Agentic workspace and the ⌘K
@@ -23,8 +24,10 @@ export function AgentPanel({
   rail?: (agent: AgentController) => React.ReactNode;
   controllerRef?: React.MutableRefObject<AgentController | null>;
 }) {
-  const { propertyId, ctx, refresh, property, pendingCommand, takePendingCommand } = useConsole();
+  const { propertyId, ctx, refresh, property, pendingCommand, takePendingCommand, can } = useConsole();
   const agent = useAgent(propertyId, { onChange: refresh });
+  const voice = useStaffVoice(agent, propertyId);
+  const voiceReady = !!ctx?.agent.voiceEnabled && can('voice.use');
 
   // A command handed over from elsewhere in the console ("Fix" on an alert).
   React.useEffect(() => {
@@ -76,7 +79,9 @@ export function AgentPanel({
           </div>
           <div className={compact ? 'border-t bg-background/80 p-3' : 'bg-gradient-to-t from-background via-background to-background/0 pb-5 pt-2'}>
             <div className={compact ? '' : 'mx-auto w-full max-w-3xl px-4 sm:px-6'}>
+              {voiceReady && <VoiceLiveBar voice={voice} />}
               <Composer
+                extra={voiceReady ? <VoiceTalkButton voice={voice} compact={compact} /> : undefined}
                 ref={composer}
                 onSend={agent.send}
                 onStop={agent.stop}

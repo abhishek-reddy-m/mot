@@ -15,6 +15,7 @@ import { DomainError } from '../errors';
 import type { OpContext } from '../services/audit';
 import { listActivity } from '../services/audit';
 import { addBookingNote, allowedTransitions, assignRoom, checkTransition, suggestRooms, transitionBooking } from '../services/bookings';
+import { enqueueTask } from '../services/bridge';
 import { frontDeskSummary, occupancySeries } from '../services/frontdesk';
 import { assignRoomCleaning, listTasks, planAutoAssign } from '../services/housekeeping';
 import { propertyAvailability } from '../services/inventory';
@@ -757,6 +758,7 @@ export interface StepResult {
   ok: boolean;
   line: string;
   bookingId?: string;
+  bridgeTask?: { id: string; system: string; instruction: string; kind: string };
 }
 
 export async function executeStep(ctx: OpContext, step: PlanStep): Promise<StepResult> {
@@ -798,6 +800,10 @@ export async function executeStep(ctx: OpContext, step: PlanStep): Promise<StepR
       case 'adjust_rates': {
         const r = await changeRates(ctx, String(a.roomTypeId), String(a.startDate), String(a.endDate), { adjustPercent: Number(a.percent) });
         return { ok: true, line: r.summary };
+      }
+      case 'bridge_task': {
+        const { task, connection } = await enqueueTask(ctx, String(a.propertyId), { kind: String(a.kind ?? 'ACTION'), instruction: String(a.instruction) });
+        return { ok: true, line: `Sent to ${connection.system}: “${task.instruction}”`, bridgeTask: { id: task.id, system: connection.system, instruction: task.instruction, kind: task.kind } };
       }
       default:
         return { ok: false, line: `Unknown action “${step.tool}”.` };

@@ -10,7 +10,7 @@ export default function ConsoleHome() {
   const router = useRouter();
   useEffect(() => {
     if (!ctx || !property) return;
-    router.replace(preferredMode === 'AGENTIC' ? '/admin/agent' : homeHref);
+    router.replace(property?.setupPath === 'FULL' && preferredMode === 'AGENTIC' ? '/admin/agent' : homeHref);
   }, [ctx, property, preferredMode, homeHref, router]);
   return null;
 }

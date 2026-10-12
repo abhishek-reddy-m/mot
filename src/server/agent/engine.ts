@@ -12,6 +12,7 @@ import type { Actor } from '../authz';
 import { assertPropertyAccess, can } from '../authz';
 import { hotelToday } from '../dates';
 import { recordAudit } from '../services/audit';
+import { enqueueTask, getConnection } from '../services/bridge';
 import { bookingInclude, toBookingSummary } from '../services/mappers';
 import { runWithLLM } from './llm';
 import { parseMessage, WRITE_KINDS, type Intent } from './nlu';
@@ -33,7 +34,7 @@ export async function* runAgent(input: AgentRunInput): AsyncGenerator<AgentEvent
     yield { type: 'error', message: 'The agent is available to front desk, managers and owners.' };
     return;
   }
-  const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { id: true, name: true } });
+  const property = await prisma.property.findUnique({ where: { id: propertyId }, select: { id: true, name: true, setupPath: true } });
   if (!property) {
     yield { type: 'error', message: 'Property not found.' };
     return;
@@ -41,6 +42,13 @@ export async function* runAgent(input: AgentRunInput): AsyncGenerator<AgentEvent
   const message = input.message.trim().slice(0, 600);
   const today = hotelToday();
   const ctx = { actor, propertyId, propertyName: property.name, today, memory: { ...input.memory }, message };
+
+  // Hotels that kept their own PMS: the agent works it through the bridge.
+  if (property.setupPath === 'BRIDGE') {
+    yield* runBridged(input, message, today);
+    yield { type: 'done', engine: 'deterministic', ms: Date.now() - started };
+    return;
+  }
 
   // Optional language-model engine (same tools, same confirmation contract).
   const llm = await runWithLLM(ctx);
@@ -113,6 +121,55 @@ export async function* runAgent(input: AgentRunInput): AsyncGenerator<AgentEvent
   yield { type: 'done', engine: 'deterministic', ms: Date.now() - started };
 }
 
+async function* runBridged(input: AgentRunInput, message: string, today: string): AsyncGenerator<AgentEvent> {
+  const { actor, propertyId } = input;
+  const connection = await getConnection(propertyId);
+  if (!connection) {
+    yield { type: 'block', block: { type: 'text', text: 'Your hotel runs on its own PMS, and it isn’t connected yet. Connect it once and I can look things up and make changes there for you.' } };
+    yield { type: 'block', block: { type: 'navigate', label: 'Connect your PMS', href: '/admin/connect', description: 'Desktop connector or secure cloud browser' } };
+    return;
+  }
+  if (!can(actor, 'bridge.use')) {
+    yield { type: 'error', message: 'Your role can’t send work to the PMS.' };
+    return;
+  }
+  const intents = parseMessage(message, today);
+  const isWrite = intents.some((i) => WRITE_KINDS.has(i.kind));
+  yield { type: 'status', text: `Asking ${connection.system}…` };
+  if (!isWrite) {
+    // Look-ups are read-only for the operator, so they go straight through.
+    const { task } = await enqueueTask({ actor, source: 'agent' }, propertyId, { kind: 'LOOKUP', instruction: message });
+    yield { type: 'block', block: { type: 'bridgeTask', taskId: task.id, system: connection.system, instruction: task.instruction, kind: task.kind } };
+    await recordAudit({ actor, source: 'agent' }, propertyId, 'COMMAND', `Asked ${connection.system}: “${message.slice(0, 140)}”`, { message: message.slice(0, 300), engine: 'bridge' });
+    return;
+  }
+  const steps: PlanStep[] = [
+    {
+      tool: 'bridge_task',
+      args: { propertyId, instruction: message, kind: 'ACTION' },
+      summary: `In ${connection.system}: ${message}`,
+      detail: 'The operator makes only this change and reports exactly what it did.',
+    },
+  ];
+  const { token, expiresAt } = signPlan({ userId: actor.userId, propertyId, title: `Do this in ${connection.system}`, steps });
+  yield {
+    type: 'block',
+    block: {
+      type: 'plan',
+      plan: {
+        token,
+        title: `Do this in ${connection.system}`,
+        steps: steps.map((s) => ({ summary: s.summary, detail: s.detail })),
+        warnings: [`This changes data in ${connection.system}, not in StayOS.`],
+        risk: 'medium',
+        confirmLabel: 'Send to PMS',
+        expiresAt,
+      },
+    },
+  };
+  await recordAudit({ actor, source: 'agent' }, propertyId, 'COMMAND', `Asked: “${message.slice(0, 120)}” → proposed a ${connection.system} change`, { message: message.slice(0, 300), engine: 'bridge' });
+}
+
 function titleFor(intents: Intent[], steps: PlanStep[]): string {
   const primary = steps[0].summary;
   const kinds = new Set(intents.map((i) => i.kind));
@@ -143,6 +200,7 @@ export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmR
   const ctx = { actor, source: 'agent' as const };
   const lines: string[] = [];
   const touched = new Set<string>();
+  const bridged: NonNullable<Awaited<ReturnType<typeof executeStep>>['bridgeTask']>[] = [];
   let failed = false;
   for (const [i, step] of plan.steps.entries()) {
     if (failed) {
@@ -152,6 +210,7 @@ export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmR
     const r = await executeStep(ctx, step);
     lines.push(`${r.ok ? '✓' : '✗'} ${r.line}`);
     if (r.bookingId) touched.add(r.bookingId);
+    if (r.bridgeTask) bridged.push(r.bridgeTask);
     if (!r.ok) {
       failed = true;
       if (i < plan.steps.length - 1) lines.push('Stopped here so nothing half-finished goes through.');
@@ -171,6 +230,7 @@ export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmR
       lines,
     },
   ];
+  for (const t of bridged) blocks.push({ type: 'bridgeTask', taskId: t.id, system: t.system, instruction: t.instruction, kind: t.kind });
   const context: AgentContextState = {};
   const today = hotelToday();
   for (const id of [...touched].slice(0, 2)) {

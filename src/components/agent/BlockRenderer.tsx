@@ -5,6 +5,7 @@ import { BookingCard, BookingsBlock, RoomOptionsBlock } from './blocks/bookings'
 import { ClarifyBlock, ErrorBlock, NavigateBlock, ResultBlock, RichText, StatsBlock, SuggestionsBlock } from './blocks/core';
 import { ActivityBlock, AlertsBlock, HousekeepingBlock, RoomsBlock } from './blocks/ops';
 import { PlanCard } from './blocks/PlanCard';
+import { BridgeTaskBlock } from './blocks/bridge';
 import { AvailabilityBlock, ForecastBlock, OccupancyBlock } from './blocks/revenue';
 
 export function BlockRenderer({ block }: { block: AgentBlock }) {
@@ -45,6 +46,8 @@ export function BlockRenderer({ block }: { block: AgentBlock }) {
       return <ClarifyBlock block={block} />;
     case 'error':
       return <ErrorBlock block={block} />;
+    case 'bridgeTask':
+      return <BridgeTaskBlock block={block} />;
     default:
       return null;
   }

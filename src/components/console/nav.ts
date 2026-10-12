@@ -11,8 +11,11 @@ import {
   Sparkles,
   SprayCan,
   Users,
+  AudioLines,
+  Cable,
   type LucideIcon,
 } from 'lucide-react';
+import type { SetupPath } from '@/lib/dto';
 import { canAccessConsolePath } from '@/lib/routes';
 
 export interface NavItem {
@@ -21,7 +24,11 @@ export interface NavItem {
   icon: LucideIcon;
   /** Shown with the agent's aurora treatment. */
   agent?: boolean;
+  /** Setup paths this screen belongs to (default: running on StayOS). */
+  paths?: SetupPath[];
 }
+
+const ALL: SetupPath[] = ['FULL', 'BRIDGE', 'VOICE'];
 
 export interface NavGroup {
   label: string;
@@ -32,37 +39,40 @@ const GROUPS: NavGroup[] = [
   {
     label: 'Operate',
     items: [
-      { label: 'Agent', href: '/admin/agent', icon: Sparkles, agent: true },
+      { label: 'Agent', href: '/admin/agent', icon: Sparkles, agent: true, paths: ['FULL', 'BRIDGE'] },
+      { label: 'Your PMS', href: '/admin/connect', icon: Cable, paths: ['BRIDGE'] },
       { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
       { label: 'Front desk', href: '/admin/front-desk', icon: ConciergeBell },
       { label: 'Housekeeping', href: '/admin/housekeeping', icon: SprayCan },
       { label: 'Reservations', href: '/admin/bookings', icon: CalendarCheck2 },
+      { label: 'Voice', href: '/admin/voice', icon: AudioLines, paths: ALL },
     ],
   },
   {
     label: 'Revenue',
     items: [
-      { label: 'Rates', href: '/admin/rate-calendar', icon: BadgeDollarSign },
+      { label: 'Rates', href: '/admin/rate-calendar', icon: BadgeDollarSign, paths: ['FULL', 'VOICE'] },
       { label: 'Analytics', href: '/admin/analytics', icon: ChartLine },
     ],
   },
   {
     label: 'Setup',
     items: [
-      { label: 'Rooms', href: '/admin/room-types', icon: BedDouble },
-      { label: 'Properties', href: '/admin/properties', icon: Building2 },
-      { label: 'Team', href: '/admin/users', icon: Users },
-      { label: 'Activity', href: '/admin/activity', icon: History },
-      { label: 'Settings', href: '/admin/settings', icon: Settings2 },
+      { label: 'Rooms', href: '/admin/room-types', icon: BedDouble, paths: ALL },
+      { label: 'Properties', href: '/admin/properties', icon: Building2, paths: ALL },
+      { label: 'Team', href: '/admin/users', icon: Users, paths: ALL },
+      { label: 'Activity', href: '/admin/activity', icon: History, paths: ALL },
+      { label: 'Settings', href: '/admin/settings', icon: Settings2, paths: ALL },
     ],
   },
 ];
 
 /** Navigation filtered to what this role can open (same rules as middleware). */
-export function navFor(role: string | undefined, opts: { agentEnabled: boolean }): NavGroup[] {
+export function navFor(role: string | undefined, opts: { agentEnabled: boolean; setupPath?: SetupPath }): NavGroup[] {
+  const path = opts.setupPath ?? 'FULL';
   return GROUPS.map((g) => ({
     ...g,
-    items: g.items.filter((i) => canAccessConsolePath(role, i.href) && (!i.agent || opts.agentEnabled)),
+    items: g.items.filter((i) => canAccessConsolePath(role, i.href) && (!i.agent || opts.agentEnabled) && (i.paths ?? ['FULL']).includes(path)),
   })).filter((g) => g.items.length > 0);
 }
 

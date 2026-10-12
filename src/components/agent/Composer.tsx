@@ -58,10 +58,12 @@ export const Composer = React.forwardRef<
     online: boolean;
     history: string[];
     placeholder?: string;
+    /** Extra control rendered next to the mic (e.g. the live voice button). */
+    extra?: React.ReactNode;
     compact?: boolean;
     autoFocus?: boolean;
   }
->(function Composer({ onSend, onStop, busy, online, history, placeholder, compact, autoFocus }, ref) {
+>(function Composer({ onSend, onStop, busy, online, history, placeholder, compact, autoFocus, extra }, ref) {
   const [value, setValue] = React.useState('');
   const [historyIndex, setHistoryIndex] = React.useState<number | null>(null);
   const [highlight, setHighlight] = React.useState(0);
@@ -217,7 +219,8 @@ export const Composer = React.forwardRef<
           )}
         />
         <div className="absolute inset-x-2 bottom-2 flex items-center gap-1">
-          {speechOk && (
+          {extra}
+          {speechOk && !extra && (
             <Button
               type="button"
               variant="ghost"
