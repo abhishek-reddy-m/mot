@@ -70,9 +70,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           return null
         }
 
-        const user = await prisma.user.findUnique({
+        // Emails are matched case-insensitively ("Maya@Hotel.com" == "maya@hotel.com").
+        const user = await prisma.user.findFirst({
           where: {
-            email: credentials.email as string,
+            email: { equals: String(credentials.email).trim(), mode: "insensitive" },
             isActive: true
           }
         })

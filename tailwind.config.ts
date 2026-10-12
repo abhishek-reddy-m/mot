@@ -21,6 +21,8 @@ export default {
       height: { dvh: "100dvh" },
       minHeight: { dvh: "100dvh" },
       maxHeight: { dvh: "100dvh" },
+      // Finer opacity steps (core in 3.4) so modifiers like ring-primary/15 resolve.
+      opacity: { 15: "0.15", 35: "0.35", 45: "0.45", 55: "0.55", 65: "0.65", 85: "0.85" },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["var(--font-display)", "ui-serif", "Georgia", "serif"],

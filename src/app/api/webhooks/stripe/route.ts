@@ -76,16 +76,6 @@ export async function POST(request: NextRequest) {
         },
       });
 
-      // Update room availability now that payment is confirmed
-      const { updateRoomAvailability } = await import('@/lib/room-availability');
-      await updateRoomAvailability(
-        booking.roomTypeId,
-        booking.checkIn,
-        booking.checkOut,
-        booking.rooms,
-        false
-      );
-
       const guestName = `${booking.user.firstName} ${booking.user.lastName}`.trim();
       await sendBookingConfirmation({
         to: booking.user.email,
@@ -100,6 +90,21 @@ export async function POST(request: NextRequest) {
         bookingId: booking.id,
         paymentStatus: 'PAID',
       });
+    }
+  }
+
+  // Abandoned checkout: release the held rooms so they can be sold again.
+  if (event.type === 'checkout.session.expired') {
+    const expired = event.data.object as { metadata?: { bookingId?: string } };
+    const bookingId = expired.metadata?.bookingId;
+    if (bookingId) {
+      const { count } = await prisma.booking.updateMany({
+        where: { id: bookingId, status: 'PENDING', paymentStatus: 'AWAITING_PAYMENT' },
+        data: { status: 'CANCELLED', paymentStatus: 'EXPIRED' },
+      });
+      if (count) {
+        await prisma.bookingStatusHistory.create({ data: { bookingId, status: 'CANCELLED', notes: 'Online payment not completed — rooms released' } });
+      }
     }
   }
 

@@ -1,183 +1,202 @@
 'use client';
 
-import { useState } from 'react';
+import * as React from 'react';
 import Link from 'next/link';
-import { useSession, signOut } from 'next-auth/react';
+import { usePathname } from 'next/navigation';
+import { signOut, useSession } from 'next-auth/react';
+import { CalendarCheck2, LayoutDashboard, LogOut, Menu, Search, UserRound } from 'lucide-react';
+import { isStaffRole } from '@/lib/routes';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Building2, User, LogIn, LogOut, Menu, X, ChevronDown, PlayCircle, Rocket } from 'lucide-react';
-import { PRODUCT_NAME } from '@/config/product';
+import { Avatar } from '@/components/ui/primitives';
+import { Logo } from '@/components/brand/Logo';
+import { Sheet, SheetContent, SheetTitle } from '@/components/ui/sheet';
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 
-export default function Navigation() {
+const MARKETING_LINKS = [
+  { href: '/#agent', label: 'The agent' },
+  { href: '/#features', label: 'Features' },
+  { href: '/#how-it-works', label: 'How it works' },
+  { href: '/#pricing', label: 'Pricing' },
+];
+const GUEST_LINKS = [
+  { href: '/properties', label: 'Find a stay', icon: Search },
+  { href: '/dashboard', label: 'My trips', icon: CalendarCheck2, auth: true },
+];
+
+/**
+ * Site navigation. `marketing` is the product site (for hotels); `guest`
+ * is the booking experience (for travellers).
+ */
+export default function Navigation({
+  variant = 'guest',
+  className,
+  brand,
+}: {
+  variant?: 'marketing' | 'guest';
+  className?: string;
+  /** White-label: show the hotel's name instead of the platform logo. */
+  brand?: { name: string; href: string };
+}) {
   const { data: session, status } = useSession();
-  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false);
+  const pathname = usePathname();
+  const [open, setOpen] = React.useState(false);
+  const [scrolled, setScrolled] = React.useState(false);
+  const user = session?.user;
+  const staff = isStaffRole(user?.role);
 
-  const handleSignOut = () => {
-    signOut({ callbackUrl: '/' });
-  };
+  React.useEffect(() => {
+    const onScroll = () => setScrolled(window.scrollY > 8);
+    onScroll();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    return () => window.removeEventListener('scroll', onScroll);
+  }, []);
 
-  const isOwner = session?.user?.role === 'OWNER' || session?.user?.role === 'ADMIN' || session?.user?.role === 'MANAGER';
+  const links = variant === 'marketing' ? MARKETING_LINKS.map((l) => ({ ...l, icon: undefined, auth: false })) : GUEST_LINKS.filter((l) => !l.auth || user);
 
   return (
-    <nav className="sticky top-0 z-50 bg-white/95 backdrop-blur-xl border-b border-gray-100 shadow-sm">
-      <div className="container mx-auto px-4">
-        <div className="flex items-center justify-between h-16">
-          {/* Logo — platform brand */}
-          <Link href="/" className="flex items-center space-x-3 group">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-cyan-600 to-cyan-800 shadow-lg flex items-center justify-center">
-              <Building2 className="h-5 w-5 text-white" />
-            </div>
-            <span className="text-2xl font-extrabold tracking-tight text-slate-900">
-              {PRODUCT_NAME}
-            </span>
+    <header className={cn('sticky top-0 z-50 transition-all duration-300', scrolled ? 'glass border-b shadow-xs' : 'border-b border-transparent bg-background/0', className)}>
+      <div className="mx-auto flex h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6">
+        {brand ? (
+          <Link href={brand.href} className="min-w-0 shrink truncate font-display text-xl tracking-tight text-brand">
+            {brand.name}
           </Link>
+        ) : (
+          <Link href="/" className="shrink-0" aria-label="StayOS home">
+            <Logo />
+          </Link>
+        )}
 
-          {/* Desktop links */}
-          <div className="hidden lg:flex items-center space-x-1">
-            <a href="/#features" className="px-3 py-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-50 font-medium transition-colors">Features</a>
-            <a href="/#how-it-works" className="px-3 py-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-50 font-medium transition-colors">How it works</a>
-            <a href="/#pricing" className="px-3 py-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-50 font-medium transition-colors">Pricing</a>
-            <a href="/#faq" className="px-3 py-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-50 font-medium transition-colors">FAQ</a>
-            <Link href="/properties" className="px-3 py-2 rounded-lg text-gray-700 hover:text-gray-900 hover:bg-gray-50 font-medium transition-colors flex items-center gap-1.5">
-              <PlayCircle className="h-4 w-4" />
-              Live demo
+        <nav className="hidden items-center gap-1 md:flex" aria-label="Main">
+          {links.map((l) => {
+            const active = !l.href.includes('#') && pathname.startsWith(l.href);
+            return (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={cn('rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-accent', active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground')}
+              >
+                {l.label}
+              </Link>
+            );
+          })}
+          {variant === 'marketing' && (
+            <Link href="/properties" className="rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+              Guest demo
             </Link>
-          </div>
+          )}
+        </nav>
 
-          {/* Auth / CTA — Desktop */}
-          <div className="hidden lg:flex items-center space-x-3">
-            {status === 'loading' ? (
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-cyan-700" />
-            ) : session ? (
-              <div className="relative">
-                <Button
-                  variant="ghost"
-                  onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                  className="flex items-center space-x-2 py-2 px-3 hover:bg-gray-50 rounded-lg"
-                >
-                  <div className="w-8 h-8 bg-gradient-to-r from-cyan-600 to-cyan-800 rounded-full flex items-center justify-center">
-                    <span className="font-medium text-white text-sm">
-                      {session.user.name ? session.user.name.charAt(0).toUpperCase() : 'U'}
-                    </span>
-                  </div>
-                  <span className="text-sm font-medium text-gray-900">{session.user.name || 'User'}</span>
-                  <ChevronDown className="h-4 w-4 text-gray-500" />
+        <div className="flex items-center gap-2">
+          {status === 'loading' ? (
+            <div className="h-9 w-24 animate-pulse rounded-lg bg-muted" />
+          ) : user ? (
+            <>
+              {staff && (
+                <Button asChild size="sm" variant="outline" className="hidden sm:inline-flex">
+                  <Link href="/admin">
+                    <LayoutDashboard className="h-4 w-4" /> Console
+                  </Link>
                 </Button>
+              )}
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button className="rounded-full ring-offset-2 transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring" aria-label="Account menu">
+                    <Avatar name={user.name ?? user.email ?? 'You'} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-56">
+                  <DropdownMenuLabel className="font-normal">
+                    <p className="truncate text-sm font-medium">{user.name}</p>
+                    <p className="truncate text-xs text-muted-foreground">{user.email}</p>
+                  </DropdownMenuLabel>
+                  <DropdownMenuSeparator />
+                  {staff && (
+                    <DropdownMenuItem asChild>
+                      <Link href="/admin">
+                        <LayoutDashboard className="h-4 w-4" /> Hotel console
+                      </Link>
+                    </DropdownMenuItem>
+                  )}
+                  <DropdownMenuItem asChild>
+                    <Link href="/dashboard">
+                      <CalendarCheck2 className="h-4 w-4" /> My trips
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem asChild>
+                    <Link href="/profile">
+                      <UserRound className="h-4 w-4" /> Profile
+                    </Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onSelect={() => signOut({ callbackUrl: '/' })}>
+                    <LogOut className="h-4 w-4" /> Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </>
+          ) : (
+            <>
+              <Button asChild variant="ghost" size="sm" className="hidden sm:inline-flex">
+                <Link href={`/login${pathname && pathname !== '/' ? `?callbackUrl=${encodeURIComponent(pathname)}` : ''}`}>Sign in</Link>
+              </Button>
+              {variant === 'marketing' ? (
+                <Button asChild size="sm">
+                  <Link href="/onboarding">Start free</Link>
+                </Button>
+              ) : (
+                <Button asChild size="sm" variant="outline" className="hidden sm:inline-flex">
+                  <Link href="/register">Create account</Link>
+                </Button>
+              )}
+            </>
+          )}
+          <Button variant="ghost" size="icon" className="md:hidden" onClick={() => setOpen(true)} aria-label="Open menu">
+            <Menu className="h-5 w-5" />
+          </Button>
+        </div>
+      </div>
 
-                {isUserMenuOpen && (
-                  <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-lg border border-gray-100 py-2 z-50">
-                    {isOwner && (
-                      <Link
-                        href="/owner"
-                        className="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg mx-2"
-                        onClick={() => setIsUserMenuOpen(false)}
-                      >
-                        <Building2 className="h-4 w-4 mr-3 text-gray-600" />
-                        My properties
-                      </Link>
-                    )}
-                    <Link
-                      href="/dashboard"
-                      className="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg mx-2"
-                      onClick={() => setIsUserMenuOpen(false)}
-                    >
-                      <User className="h-4 w-4 mr-3 text-gray-600" />
-                      My bookings
-                    </Link>
-                    <Link
-                      href="/profile"
-                      className="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg mx-2"
-                      onClick={() => setIsUserMenuOpen(false)}
-                    >
-                      <User className="h-4 w-4 mr-3 text-gray-600" />
-                      My profile
-                    </Link>
-                    {session.user.role === 'ADMIN' && (
-                      <Link
-                        href="/admin/dashboard"
-                        className="flex items-center px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg mx-2"
-                        onClick={() => setIsUserMenuOpen(false)}
-                      >
-                        <Building2 className="h-4 w-4 mr-3 text-gray-600" />
-                        Admin panel
-                      </Link>
-                    )}
-                    <hr className="my-2 border-gray-100" />
-                    <button
-                      onClick={() => { handleSignOut(); setIsUserMenuOpen(false); }}
-                      className="flex w-full items-center px-4 py-3 text-sm text-red-600 hover:bg-red-50 rounded-lg mx-2"
-                    >
-                      <LogOut className="h-4 w-4 mr-3 text-red-500" />
-                      Sign out
-                    </button>
-                  </div>
+      <Sheet open={open} onOpenChange={setOpen}>
+        <SheetContent side="right" className="w-[300px] p-0">
+          <SheetTitle className="sr-only">Menu</SheetTitle>
+          <div className="flex h-16 items-center border-b px-5">
+            <Logo />
+          </div>
+          <nav className="flex flex-col p-3" aria-label="Mobile">
+            {[...links, ...(variant === 'marketing' ? [{ href: '/properties', label: 'Guest demo', icon: undefined, auth: false }] : [])].map((l) => (
+              <Link key={l.href} href={l.href} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-[15px] font-medium hover:bg-accent">
+                {l.label}
+              </Link>
+            ))}
+            <div className="my-2 h-px bg-border" />
+            {user ? (
+              <>
+                {staff && (
+                  <Link href="/admin" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-[15px] font-medium hover:bg-accent">
+                    Hotel console
+                  </Link>
                 )}
-              </div>
+                <Link href="/profile" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-[15px] font-medium hover:bg-accent">
+                  Profile
+                </Link>
+                <button onClick={() => signOut({ callbackUrl: '/' })} className="rounded-lg px-3 py-2.5 text-left text-[15px] font-medium hover:bg-accent">
+                  Sign out
+                </button>
+              </>
             ) : (
               <>
-                <Link href="/login">
-                  <Button variant="ghost" className="flex items-center space-x-2 text-gray-700">
-                    <LogIn className="h-4 w-4" />
-                    <span>Log in</span>
-                  </Button>
+                <Link href="/login" onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-[15px] font-medium hover:bg-accent">
+                  Sign in
                 </Link>
-                <Link href="/onboarding">
-                  <Button className="flex items-center space-x-2 bg-cyan-700 hover:bg-cyan-800 text-white rounded-lg">
-                    <Rocket className="h-4 w-4" />
-                    <span>Onboard your hotel</span>
-                  </Button>
+                <Link href={variant === 'marketing' ? '/onboarding' : '/register'} onClick={() => setOpen(false)} className="rounded-lg px-3 py-2.5 text-[15px] font-medium text-primary hover:bg-accent">
+                  {variant === 'marketing' ? 'Set up your hotel' : 'Create account'}
                 </Link>
               </>
             )}
-          </div>
-
-          {/* Mobile menu button */}
-          <div className="lg:hidden flex items-center">
-            <button
-              onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
-              className="p-2 rounded-lg text-gray-600 hover:text-gray-900 hover:bg-gray-50"
-              aria-label="Toggle menu"
-            >
-              {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
-            </button>
-          </div>
-        </div>
-
-        {/* Mobile menu */}
-        {isMobileMenuOpen && (
-          <div className="lg:hidden bg-white border-t border-gray-100 pt-2 pb-4">
-            <div className="flex flex-col space-y-1 px-4">
-              <a href="/#features" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-gray-700 hover:bg-gray-50 rounded-lg">Features</a>
-              <a href="/#how-it-works" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-gray-700 hover:bg-gray-50 rounded-lg">How it works</a>
-              <a href="/#pricing" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-gray-700 hover:bg-gray-50 rounded-lg">Pricing</a>
-              <a href="/#faq" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-gray-700 hover:bg-gray-50 rounded-lg">FAQ</a>
-              <Link href="/properties" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-gray-700 hover:bg-gray-50 rounded-lg">Live demo</Link>
-              <hr className="my-3 border-gray-100" />
-              {session ? (
-                <>
-                  {isOwner && (
-                    <Link href="/owner" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-gray-700 hover:bg-gray-50 rounded-lg">My properties</Link>
-                  )}
-                  <Link href="/dashboard" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-gray-700 hover:bg-gray-50 rounded-lg">My bookings</Link>
-                  {session.user.role === 'ADMIN' && (
-                    <Link href="/admin/dashboard" onClick={() => setIsMobileMenuOpen(false)} className="py-3 px-4 text-gray-700 hover:bg-gray-50 rounded-lg">Admin panel</Link>
-                  )}
-                  <button onClick={() => { handleSignOut(); setIsMobileMenuOpen(false); }} className="py-3 px-4 text-left text-red-600 hover:bg-red-50 rounded-lg">Sign out</button>
-                </>
-              ) : (
-                <div className="grid grid-cols-2 gap-3 px-1 pt-2">
-                  <Link href="/login" onClick={() => setIsMobileMenuOpen(false)}>
-                    <Button variant="outline" className="w-full">Log in</Button>
-                  </Link>
-                  <Link href="/onboarding" onClick={() => setIsMobileMenuOpen(false)}>
-                    <Button className="w-full bg-cyan-700 hover:bg-cyan-800 text-white">Onboard your hotel</Button>
-                  </Link>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-    </nav>
+          </nav>
+        </SheetContent>
+      </Sheet>
+    </header>
   );
 }

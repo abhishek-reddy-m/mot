@@ -1,451 +1,488 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import * as React from 'react';
+import Link from 'next/link';
+import useSWR from 'swr';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useSession } from 'next-auth/react';
+import { motion } from 'framer-motion';
+import { toast } from 'sonner';
+import {
+  ArrowLeft,
+  BedDouble,
+  CalendarPlus,
+  Check,
+  Copy,
+  CreditCard,
+  Mail,
+  MapPin,
+  Navigation as NavIcon,
+  Phone,
+  ShieldCheck,
+  TriangleAlert,
+  Users,
+  XCircle,
+} from 'lucide-react';
+import type { BookingStatus, StayQuote } from '@/lib/dto';
+import { api, fetcher } from '@/lib/fetcher';
+import { addDays, fmtDay, localToday, nightsBetween } from '@/lib/format';
+import { BOOKING_STATUS, money, paymentLabel } from '@/lib/status';
+import { cn } from '@/lib/utils';
 import Navigation from '@/components/Navigation';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Field } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
-import { Calendar, MapPin, Users, DollarSign, AlertCircle, Loader2, X, Plus, Clock } from 'lucide-react';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { EmptyState, Skeleton } from '@/components/ui/primitives';
+import { SmartImage } from '@/components/ui/smart-image';
+import { brandStyle } from '@/components/guest/brand';
 
-type Booking = {
+interface GuestBooking {
   id: string;
-  property: {
-    name: string;
-    address: string;
-    city: string;
-    photos?: Array<{ url: string }>;
-  };
-  roomType: {
-    name: string;
-    basePrice: number;
-    photos?: Array<{ url: string }>;
-  };
+  code: string;
+  status: BookingStatus;
+  paymentStatus: string;
   checkIn: string;
   checkOut: string;
-  rooms: number;
+  nights: number;
   guests: number;
+  rooms: number;
   totalPrice: number;
-  status: string;
+  notes: string | null;
+  roomTypeId: string;
+  property: { id: string; name: string; address: string; city: string; state: string; zipCode: string; phone: string; email: string | null; primaryColor: string | null; photos: { url: string }[] };
+  roomType: { id: string; name: string; capacity: number; amenities: string[]; photos: { url: string }[] };
+  room: { roomNumber: string } | null;
+  user: { firstName: string; lastName: string; email: string };
+  statusHistory: { status: string; notes: string | null; createdAt: string }[];
+  policy: { deadlineDay: string; deadlineLabel: string; passed: boolean };
   canCancel: boolean;
-  canModify: boolean;
   canModifyCheckIn: boolean;
   canModifyCheckOut: boolean;
-  cancellationDeadline: string;
-};
+}
 
-export default function BookingDetailsPage() {
-  const params = useParams();
-  const router = useRouter();
-  const { data: session, status } = useSession();
-  const [booking, setBooking] = useState<Booking | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isModifying, setIsModifying] = useState(false);
-  const [isCancelling, setIsCancelling] = useState(false);
-  const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
-  
-  const [newCheckOutDate, setNewCheckOutDate] = useState('');
-  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
-  const [newCheckInDate, setNewCheckInDate] = useState('');
-  const [isChangingDates, setIsChangingDates] = useState(false);
+function icsFor(b: GuestBooking) {
+  const d = (day: string) => day.replace(/-/g, '');
+  const esc = (s: string) => s.replace(/[,;\\]/g, (m) => `\\${m}`).replace(/\n/g, '\\n');
+  return [
+    'BEGIN:VCALENDAR',
+    'VERSION:2.0',
+    'PRODID:-//StayOS//Booking//EN',
+    'BEGIN:VEVENT',
+    `UID:${b.id}@stayos`,
+    `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}`,
+    `DTSTART;VALUE=DATE:${d(b.checkIn)}`,
+    `DTEND;VALUE=DATE:${d(b.checkOut)}`,
+    `SUMMARY:${esc(`Stay at ${b.property.name}`)}`,
+    `LOCATION:${esc(`${b.property.address}, ${b.property.city}, ${b.property.state} ${b.property.zipCode}`)}`,
+    `DESCRIPTION:${esc(`Confirmation ${b.code} · ${b.roomType.name} · ${b.guests} guest(s). Check-in from 3 PM.`)}`,
+    'END:VEVENT',
+    'END:VCALENDAR',
+  ].join('\r\n');
+}
 
-  useEffect(() => {
-    if (status === 'unauthenticated') {
-      router.push('/login');
-      return;
+function ChangeDatesDialog({ booking, open, onOpenChange, onDone }: { booking: GuestBooking; open: boolean; onOpenChange: (o: boolean) => void; onDone: () => void }) {
+  const [checkIn, setCheckIn] = React.useState(booking.checkIn);
+  const [checkOut, setCheckOut] = React.useState(booking.checkOut);
+  const [busy, setBusy] = React.useState(false);
+  React.useEffect(() => {
+    if (open) {
+      setCheckIn(booking.checkIn);
+      setCheckOut(booking.checkOut);
     }
+  }, [open, booking.checkIn, booking.checkOut]);
+  const changed = checkIn !== booking.checkIn || checkOut !== booking.checkOut;
+  const valid = checkOut > checkIn;
+  const { data: quote } = useSWR<StayQuote>(
+    open && changed && valid ? `/api/quote?roomTypeId=${booking.roomTypeId}&checkIn=${checkIn}&checkOut=${checkOut}&guests=${booking.guests}&rooms=${booking.rooms}` : null,
+    fetcher
+  );
+  const diff = quote ? quote.total - booking.totalPrice : 0;
+  const today = localToday();
 
-    if (status === 'authenticated') {
-      fetchBooking();
-    }
-  }, [status, params.bookingId]);
-
-  const fetchBooking = async () => {
+  async function save() {
+    setBusy(true);
     try {
-      setIsLoading(true);
-      const response = await fetch(`/api/bookings/${params.bookingId}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch booking');
-      }
-      
-      const data = await response.json();
-      console.log('Booking data:', data);
-      console.log('canModify:', data.canModify, 'canCancel:', data.canCancel, 'canModifyCheckIn:', data.canModifyCheckIn, 'canModifyCheckOut:', data.canModifyCheckOut);
-      setBooking(data);
-    } catch (err) {
-      setError('Failed to load booking details');
+      const body: Record<string, string> = {};
+      if (checkIn !== booking.checkIn) body.newCheckIn = checkIn;
+      if (checkOut !== booking.checkOut) body.newCheckOut = checkOut;
+      await api(`/api/bookings/${booking.id}/modify-dates`, { method: 'POST', json: body });
+      toast.success('Your dates are updated');
+      onDone();
+      onOpenChange(false);
+    } catch (e) {
+      toast.error((e as Error).message);
     } finally {
-      setIsLoading(false);
+      setBusy(false);
     }
-  };
-
-  const handleModifyDates = async () => {
-    if (!booking) return;
-    
-    const currentCheckInStr = booking.checkIn.split('T')[0];
-    const currentCheckOutStr = booking.checkOut.split('T')[0];
-    
-    const checkInChanged = newCheckInDate && newCheckInDate !== currentCheckInStr;
-    const checkOutChanged = newCheckOutDate && newCheckOutDate !== currentCheckOutStr;
-    
-    if (!checkInChanged && !checkOutChanged) {
-      setError('Please modify at least one date to update');
-      return;
-    }
-
-    const checkInToUse = checkInChanged ? new Date(newCheckInDate) : new Date(booking.checkIn);
-    const checkOutToUse = checkOutChanged ? new Date(newCheckOutDate) : new Date(booking.checkOut);
-
-    if (checkInToUse >= checkOutToUse) {
-      setError('Check-in date must be before check-out date');
-      return;
-    }
-
-    setIsModifying(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      const response = await fetch(`/api/bookings/${params.bookingId}/modify-dates`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          newCheckIn: checkInChanged ? newCheckInDate : undefined,
-          newCheckOut: checkOutChanged ? newCheckOutDate : undefined
-        }),
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to modify dates');
-      }
-
-      const updatedBooking = await response.json();
-      setBooking(updatedBooking);
-      setSuccess('Booking dates updated successfully!');
-      setNewCheckInDate('');
-      setNewCheckOutDate('');
-      setTimeout(() => setSuccess(''), 5000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to modify dates');
-    } finally {
-      setIsModifying(false);
-    }
-  };
-
-  const handleCancelBooking = async () => {
-    setIsCancelling(true);
-    setError('');
-    setSuccess('');
-
-    try {
-      const response = await fetch(`/api/bookings/${params.bookingId}/cancel`, {
-        method: 'POST',
-      });
-
-      if (!response.ok) {
-        const data = await response.json();
-        throw new Error(data.error || 'Failed to cancel booking');
-      }
-
-      setSuccess('Booking cancelled successfully');
-      setTimeout(() => router.push('/dashboard'), 2000);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to cancel booking');
-    } finally {
-      setIsCancelling(false);
-      setShowCancelConfirm(false);
-    }
-  };
-
-  if (status === 'loading' || isLoading) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Navigation />
-        <div className="flex justify-center items-center h-screen">
-          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-        </div>
-      </div>
-    );
-  }
-
-  if (!booking) {
-    return (
-      <div className="min-h-screen bg-gray-50">
-        <Navigation />
-        <div className="container mx-auto px-4 py-8">
-          <div className="text-center">
-            <h1 className="text-2xl font-bold text-gray-900">Booking not found</h1>
-            <Button onClick={() => router.push('/dashboard')} className="mt-4">
-              Back to Dashboard
-            </Button>
-          </div>
-        </div>
-      </div>
-    );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navigation />
-      
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
-        <div className="mb-6">
-          <Button variant="outline" onClick={() => router.push('/dashboard')}>
-            ← Back to Dashboard
-          </Button>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Change your dates</DialogTitle>
+          <DialogDescription>
+            {booking.canModifyCheckIn ? 'Pick new dates — we’ll check availability and show the new price.' : 'Your check-in can no longer change online, but you can still change check-out.'}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Check in" htmlFor="cd-in">
+            <Input
+              id="cd-in"
+              type="date"
+              value={checkIn}
+              min={today}
+              disabled={!booking.canModifyCheckIn}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (!v) return;
+                setCheckIn(v);
+                if (checkOut <= v) setCheckOut(addDays(v, Math.max(1, nightsBetween(booking.checkIn, booking.checkOut))));
+              }}
+            />
+          </Field>
+          <Field label="Check out" htmlFor="cd-out">
+            <Input id="cd-out" type="date" value={checkOut} min={addDays(checkIn > today ? checkIn : today, 1)} max={addDays(checkIn, 30)} onChange={(e) => e.target.value && setCheckOut(e.target.value)} />
+          </Field>
         </div>
-
-        {error && (
-          <div className="mb-6 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg flex items-start gap-2">
-            <AlertCircle className="h-5 w-5 mt-0.5 flex-shrink-0" />
-            <span>{error}</span>
+        {changed && valid && (
+          <div className="rounded-xl bg-muted/60 px-4 py-3 text-sm">
+            {quote ? (
+              <div className="flex items-center justify-between">
+                <span>
+                  {nightsBetween(checkIn, checkOut)} night{nightsBetween(checkIn, checkOut) > 1 ? 's' : ''} · new total
+                </span>
+                <span className="text-right">
+                  <span className="font-semibold tabular">{money(quote.total)}</span>
+                  <span className={cn('block text-xs tabular', diff > 0 ? 'text-warning' : diff < 0 ? 'text-success' : 'text-muted-foreground')}>
+                    {diff === 0 ? 'Same price' : `${diff > 0 ? '+' : '−'}${money(Math.abs(diff))}`}
+                  </span>
+                </span>
+              </div>
+            ) : (
+              <Skeleton className="h-8" />
+            )}
           </div>
         )}
+        <DialogFooter>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            Keep my dates
+          </Button>
+          <Button variant="brand" onClick={save} loading={busy} disabled={!changed || !valid}>
+            Change dates
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
-        {success && (
-          <div className="mb-6 bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded-lg">
-            {success}
+function BookingPage() {
+  const { bookingId } = useParams<{ bookingId: string }>();
+  const params = useSearchParams();
+  const router = useRouter();
+  const { status } = useSession();
+  const { data: b, error, mutate } = useSWR<GuestBooking>(status === 'authenticated' ? `/api/bookings/${bookingId}` : null, fetcher);
+  const { data: config } = useSWR<{ emailEnabled: boolean }>('/api/config', fetcher);
+  const [changeOpen, setChangeOpen] = React.useState(false);
+  const [cancelOpen, setCancelOpen] = React.useState(params.get('action') === 'cancel');
+  const [reason, setReason] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
+  const isNew = params.get('new') === '1';
+  const payment = params.get('payment');
+
+  React.useEffect(() => {
+    if (status === 'unauthenticated') router.replace(`/login?callbackUrl=${encodeURIComponent(`/bookings/${bookingId}`)}`);
+  }, [status, router, bookingId]);
+
+  async function cancel() {
+    if (!b) return;
+    setBusy(true);
+    try {
+      await api(`/api/bookings/${b.id}/cancel`, { method: 'PUT', json: { reason: reason.trim() || undefined } });
+      toast.success('Your booking is cancelled');
+      setCancelOpen(false);
+      await mutate();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-dvh bg-background">
+        <Navigation variant="guest" />
+        <div className="mx-auto max-w-xl p-10">
+          <EmptyState icon={TriangleAlert} title="We couldn’t open this booking" description={(error as Error).message} action={<Button asChild variant="outline"><Link href="/dashboard">My trips</Link></Button>} />
+        </div>
+      </div>
+    );
+  }
+
+  if (!b) {
+    return (
+      <div className="min-h-dvh bg-background">
+        <Navigation variant="guest" />
+        <div className="mx-auto max-w-4xl space-y-4 p-6">
+          <Skeleton className="h-40 rounded-3xl" />
+          <Skeleton className="h-80 rounded-3xl" />
+        </div>
+      </div>
+    );
+  }
+
+  const upcoming = b.status === 'CONFIRMED' || b.status === 'PENDING';
+  const cancelled = b.status === 'CANCELLED' || b.status === 'NO_SHOW';
+  const today = localToday();
+  const daysToGo = nightsBetween(today, b.checkIn);
+  const pay = paymentLabel(b.paymentStatus);
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${b.property.name}, ${b.property.address}, ${b.property.city}, ${b.property.state}`)}`;
+
+  return (
+    <div style={brandStyle(b.property.primaryColor)} className="min-h-dvh bg-background">
+      <Navigation variant="guest" />
+      <main className="mx-auto max-w-4xl px-4 pb-16 sm:px-6">
+        <Link href="/dashboard" className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" /> My trips
+        </Link>
+
+        {/* Hero */}
+        <motion.div initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} className="mt-4 overflow-hidden rounded-3xl border bg-card">
+          <div className="relative">
+            <SmartImage src={b.property.photos[0]?.url} className="h-44 w-full sm:h-56" loading="eager" />
+            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />
+            <div className="absolute inset-x-5 bottom-4 text-white sm:inset-x-6">
+              <p className="text-sm text-white/80">
+                {b.property.city}, {b.property.state}
+              </p>
+              <h1 className="font-display text-3xl tracking-tight sm:text-4xl">{b.property.name}</h1>
+            </div>
           </div>
-        )}
-
-        {/* Booking Details */}
-        <Card className="mb-6 overflow-hidden">
-          {/* Room/Property Photo */}
-          {(booking.roomType.photos?.[0]?.url || booking.property.photos?.[0]?.url) && (
-            <div className="relative h-48 w-full">
-              <img
-                src={booking.roomType.photos?.[0]?.url || booking.property.photos?.[0]?.url}
-                alt={booking.roomType.name}
-                className="w-full h-full object-cover"
-              />
-            </div>
-          )}
-          <CardHeader>
-            <div className="flex justify-between items-start">
-              <div>
-                <CardTitle className="text-2xl">{booking.property.name}</CardTitle>
-                <CardDescription className="flex items-center gap-1 mt-2">
-                  <MapPin className="h-4 w-4" />
-                  {booking.property.address}, {booking.property.city}
-                </CardDescription>
-              </div>
-              <span className={`px-3 py-1 rounded-full text-sm font-medium ${
-                booking.status === 'CONFIRMED' ? 'bg-green-100 text-green-700' :
-                booking.status === 'CANCELLED' ? 'bg-red-100 text-red-700' :
-                'bg-yellow-100 text-yellow-700'
-              }`}>
-                {booking.status}
-              </span>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <div className="flex items-center gap-3">
-                <Calendar className="h-5 w-5 text-gray-500" />
-                <div>
-                  <p className="text-sm text-gray-600">Check-in</p>
-                  <p className="font-medium">{new Date(booking.checkIn).toLocaleDateString()}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Calendar className="h-5 w-5 text-gray-500" />
-                <div>
-                  <p className="text-sm text-gray-600">Check-out</p>
-                  <p className="font-medium">{new Date(booking.checkOut).toLocaleDateString()}</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Users className="h-5 w-5 text-gray-500" />
-                <div>
-                  <p className="text-sm text-gray-600">Guests & Rooms</p>
-                  <p className="font-medium">{booking.guests} guests, {booking.rooms} room(s)</p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <DollarSign className="h-5 w-5 text-gray-500" />
-                <div>
-                  <p className="text-sm text-gray-600">Total Price</p>
-                  <p className="font-medium text-lg">${booking.totalPrice.toFixed(2)}</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="border-t pt-4">
-              <p className="text-sm font-medium text-gray-700 mb-2">Room Type</p>
-              <p className="text-gray-900">{booking.roomType.name}</p>
-              <p className="text-sm text-gray-500">Base rate: ${booking.roomType.basePrice}/night</p>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Cancellation Policy Notice */}
-        <Card className="mb-6 border-blue-200 bg-blue-50">
-          <CardContent className="pt-6">
-            <div className="flex items-start gap-3">
-              <Clock className="h-5 w-5 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <h3 className="font-semibold text-blue-900 mb-1">24-Hour Cancellation Policy</h3>
-                <p className="text-sm text-blue-800">
-                  You can cancel or modify your booking up to 24 hours before 3 PM on your check-in date.
-                  {booking.canCancel && (
-                    <span className="block mt-1 font-medium">
-                      Cancellation deadline: {new Date(booking.cancellationDeadline).toLocaleString()}
-                    </span>
-                  )}
+          <div className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:justify-between sm:p-6">
+            <div>
+              {cancelled ? (
+                <p className="flex items-center gap-2 font-semibold text-destructive">
+                  <XCircle className="h-5 w-5" /> {b.status === 'NO_SHOW' ? 'Marked as no-show' : 'Cancelled'}
                 </p>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Modify Booking Dates */}
-        {booking.canModify && (booking.status === 'CONFIRMED' || booking.status === 'PENDING') && (
-          <Card className="mb-6">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Calendar className="h-5 w-5" />
-                Modify Booking Dates
-              </CardTitle>
-              <CardDescription>
-                {booking.canModifyCheckIn 
-                  ? 'Change your check-in and/or check-out dates'
-                  : 'Check-in date cannot be modified (within 24-hour window). You can still modify the check-out date.'}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-                <div>
-                  <label htmlFor="newCheckIn" className="block text-sm font-medium text-gray-700 mb-2">
-                    Check-in Date
-                  </label>
-                  <Input
-                    id="newCheckIn"
-                    type="date"
-                    value={newCheckInDate || booking.checkIn.split('T')[0]}
-                    onChange={(e) => setNewCheckInDate(e.target.value)}
-                    min={new Date().toISOString().split('T')[0]}
-                    disabled={!booking.canModifyCheckIn}
-                    className={!booking.canModifyCheckIn ? 'bg-gray-100 cursor-not-allowed' : ''}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Current: {new Date(booking.checkIn).toLocaleDateString()}
-                    {!booking.canModifyCheckIn && <span className="text-orange-600 ml-1">(locked)</span>}
-                  </p>
-                </div>
-                <div>
-                  <label htmlFor="newCheckOut" className="block text-sm font-medium text-gray-700 mb-2">
-                    Check-out Date
-                  </label>
-                  <Input
-                    id="newCheckOut"
-                    type="date"
-                    value={newCheckOutDate || booking.checkOut.split('T')[0]}
-                    onChange={(e) => setNewCheckOutDate(e.target.value)}
-                    min={new Date(new Date(newCheckInDate || booking.checkIn).getTime() + 24 * 60 * 60 * 1000).toISOString().split('T')[0]}
-                  />
-                  <p className="text-xs text-gray-500 mt-1">
-                    Current: {new Date(booking.checkOut).toLocaleDateString()}
-                  </p>
-                </div>
-              </div>
-              <Button
-                onClick={handleModifyDates}
-                disabled={isModifying}
-                className="w-full flex items-center justify-center gap-2"
-              >
-                {isModifying ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    Updating Dates...
-                  </>
-                ) : (
-                  <>
-                    <Calendar className="h-4 w-4" />
-                    Update Booking Dates
-                  </>
-                )}
-              </Button>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Cancel Booking */}
-        {booking.canCancel && (booking.status === 'CONFIRMED' || booking.status === 'PENDING') && (
-          <Card className="border-red-200">
-            <CardHeader>
-              <CardTitle className="text-red-700 flex items-center gap-2">
-                <X className="h-5 w-5" />
-                Cancel Booking
-              </CardTitle>
-              <CardDescription>
-                Cancel your booking before the deadline
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {!showCancelConfirm ? (
-                <Button
-                  variant="outline"
-                  className="border-red-300 text-red-700 hover:bg-red-50"
-                  onClick={() => setShowCancelConfirm(true)}
-                >
-                  Cancel This Booking
-                </Button>
+              ) : isNew || payment === 'success' ? (
+                <p className="flex items-center gap-2 text-lg font-semibold">
+                  <motion.span initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: 'spring', delay: 0.2 }} className="flex h-7 w-7 items-center justify-center rounded-full bg-success text-white">
+                    <Check className="h-4 w-4" />
+                  </motion.span>
+                  {payment === 'success' ? 'Payment received — you’re booked!' : 'You’re booked!'}
+                </p>
               ) : (
-                <div className="bg-red-50 p-4 rounded-lg border border-red-200">
-                  <p className="text-red-800 font-medium mb-4">
-                    Are you sure you want to cancel this booking? This action cannot be undone.
-                  </p>
-                  <div className="flex gap-3">
-                    <Button
-                      variant="outline"
-                      onClick={() => setShowCancelConfirm(false)}
-                      disabled={isCancelling}
-                    >
-                      Keep Booking
-                    </Button>
-                    <Button
-                      className="bg-red-600 hover:bg-red-700"
-                      onClick={handleCancelBooking}
-                      disabled={isCancelling}
-                    >
-                      {isCancelling ? (
-                        <>
-                          <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                          Cancelling...
-                        </>
-                      ) : (
-                        'Yes, Cancel Booking'
-                      )}
-                    </Button>
-                  </div>
+                <p className="font-semibold">
+                  {b.status === 'CHECKED_IN' ? 'Enjoy your stay' : b.status === 'CHECKED_OUT' ? 'Thanks for staying' : daysToGo === 0 ? 'Check-in is today' : daysToGo === 1 ? 'See you tomorrow' : `${daysToGo} days to go`}
+                </p>
+              )}
+              <p className="mt-1 text-sm text-muted-foreground">
+                {isNew && !cancelled ? (config?.emailEnabled ? `Confirmation sent to ${b.user.email}. ` : 'Keep your confirmation code handy. ') : ''}
+                {BOOKING_STATUS[b.status].label}
+              </p>
+            </div>
+            <button
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(b.code);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                } catch {
+                  /* clipboard unavailable — the code is visible anyway */
+                }
+              }}
+              className="group flex items-center gap-3 rounded-2xl border border-dashed px-4 py-2.5 text-left transition-colors hover:bg-accent"
+              aria-label={`Copy confirmation code ${b.code}`}
+            >
+              <span>
+                <span className="block text-[11px] text-muted-foreground">Confirmation</span>
+                <span className="font-mono text-lg font-semibold tracking-[0.2em]">{b.code}</span>
+              </span>
+              {copied ? <Check className="h-4 w-4 text-success" /> : <Copy className="h-4 w-4 text-muted-foreground group-hover:text-foreground" />}
+            </button>
+          </div>
+          {payment === 'cancelled' && b.paymentStatus === 'AWAITING_PAYMENT' && (
+            <p className="mx-5 mb-5 flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-sm sm:mx-6">
+              <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
+              Payment wasn’t completed, so this booking isn’t confirmed yet. Book again and choose “Pay at the hotel”, or contact {b.property.name}.
+            </p>
+          )}
+        </motion.div>
+
+        <div className="mt-6 grid gap-6 md:grid-cols-[1.4fr_1fr]">
+          <div className="space-y-6">
+            {/* Stay */}
+            <section className="rounded-3xl border bg-card p-5 sm:p-6">
+              <div className="grid grid-cols-2 divide-x rounded-2xl border">
+                <div className="p-4">
+                  <p className="text-xs text-muted-foreground">Check in</p>
+                  <p className="mt-0.5 text-lg font-semibold">{fmtDay(b.checkIn, 'weekday')}</p>
+                  <p className="text-xs text-muted-foreground">from 3:00 PM</p>
+                </div>
+                <div className="p-4">
+                  <p className="text-xs text-muted-foreground">Check out</p>
+                  <p className="mt-0.5 text-lg font-semibold">{fmtDay(b.checkOut, 'weekday')}</p>
+                  <p className="text-xs text-muted-foreground">by 11:00 AM</p>
+                </div>
+              </div>
+              <ul className="mt-5 space-y-3 text-sm">
+                <li className="flex items-center gap-3">
+                  <BedDouble className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    {b.roomType.name}
+                    {b.rooms > 1 ? ` × ${b.rooms}` : ''}
+                    {b.room && <span className="text-muted-foreground"> · Room {b.room.roomNumber}</span>}
+                  </span>
+                </li>
+                <li className="flex items-center gap-3">
+                  <Users className="h-4 w-4 text-muted-foreground" />
+                  {b.guests} guest{b.guests > 1 ? 's' : ''} · {b.nights} night{b.nights > 1 ? 's' : ''}
+                </li>
+                <li className="flex items-center gap-3">
+                  <CreditCard className="h-4 w-4 text-muted-foreground" />
+                  <span>
+                    <span className="font-semibold tabular">{money(b.totalPrice)}</span>
+                    <span className="text-muted-foreground"> · {pay.label}</span>
+                  </span>
+                </li>
+              </ul>
+              {b.notes && (
+                <div className="mt-5 rounded-xl bg-muted/60 px-4 py-3 text-sm">
+                  <p className="text-xs text-muted-foreground">Your requests</p>
+                  <p className="mt-0.5 whitespace-pre-line">{b.notes.split('\n').filter((l) => !l.startsWith('[')).join('\n') || b.notes}</p>
                 </div>
               )}
-            </CardContent>
-          </Card>
-        )}
+            </section>
 
-        {!booking.canCancel && (booking.status === 'CONFIRMED' || booking.status === 'PENDING') && (
-          <Card className="border-yellow-200 bg-yellow-50">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-3">
-                <AlertCircle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
-                <div>
-                  <h3 className="font-semibold text-yellow-900 mb-1">Cancellation No Longer Available</h3>
-                  <p className="text-sm text-yellow-800">
-                    The 24-hour cancellation window has passed. Please contact the property directly if you need to make changes.
-                  </p>
+            {/* Manage */}
+            {(upcoming || b.status === 'CHECKED_IN') && (
+              <section className="rounded-3xl border bg-card p-5 sm:p-6">
+                <h2 className="text-base font-semibold">Manage your booking</h2>
+                <p className={cn('mt-1 flex items-start gap-2 text-sm', b.policy.passed ? 'text-muted-foreground' : 'text-success')}>
+                  <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
+                  {b.policy.passed ? 'The free change window has closed — contact the hotel for help.' : `Free changes and cancellation until ${b.policy.deadlineLabel}.`}
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(b.canModifyCheckIn || b.canModifyCheckOut) && (
+                    <Button variant="outline" onClick={() => setChangeOpen(true)}>
+                      Change dates
+                    </Button>
+                  )}
+                  {b.canCancel && (
+                    <Button variant="ghost" className="text-destructive hover:bg-destructive-soft" onClick={() => setCancelOpen(true)}>
+                      Cancel booking
+                    </Button>
+                  )}
                 </div>
+              </section>
+            )}
+
+            {/* Timeline */}
+            <section className="rounded-3xl border bg-card p-5 sm:p-6">
+              <h2 className="text-base font-semibold">History</h2>
+              <ol className="relative mt-4 space-y-4 border-l pl-5">
+                {[...b.statusHistory].reverse().map((h, i) => (
+                  <li key={i} className="relative">
+                    <span className="absolute -left-[25px] top-1.5 h-2.5 w-2.5 rounded-full bg-brand ring-4 ring-card" />
+                    <p className="text-sm">{h.notes ?? BOOKING_STATUS[h.status as BookingStatus]?.label ?? h.status}</p>
+                    <p className="text-xs text-muted-foreground">{new Date(h.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}</p>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          </div>
+
+          <aside className="space-y-6">
+            <section className="rounded-3xl border bg-card p-5 sm:p-6">
+              <h2 className="text-base font-semibold">Getting there</h2>
+              <p className="mt-3 flex items-start gap-2 text-sm">
+                <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-brand" />
+                <span>
+                  {b.property.address}
+                  <br />
+                  {b.property.city}, {b.property.state} {b.property.zipCode}
+                </span>
+              </p>
+              <div className="mt-4 grid gap-2">
+                <Button asChild variant="outline" className="justify-start">
+                  <a href={mapsUrl} target="_blank" rel="noreferrer">
+                    <NavIcon className="h-4 w-4" /> Directions
+                  </a>
+                </Button>
+                <Button asChild variant="outline" className="justify-start">
+                  <a href={`tel:${b.property.phone}`}>
+                    <Phone className="h-4 w-4" /> {b.property.phone}
+                  </a>
+                </Button>
+                {b.property.email && (
+                  <Button asChild variant="outline" className="justify-start">
+                    <a href={`mailto:${b.property.email}?subject=${encodeURIComponent(`Booking ${b.code}`)}`}>
+                      <Mail className="h-4 w-4" /> Email the hotel
+                    </a>
+                  </Button>
+                )}
+                {!cancelled && b.status !== 'CHECKED_OUT' && (
+                  <Button
+                    variant="outline"
+                    className="justify-start"
+                    onClick={() => {
+                      const url = URL.createObjectURL(new Blob([icsFor(b)], { type: 'text/calendar' }));
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = `stay-${b.code}.ics`;
+                      a.click();
+                      URL.revokeObjectURL(url);
+                    }}
+                  >
+                    <CalendarPlus className="h-4 w-4" /> Add to calendar
+                  </Button>
+                )}
               </div>
-            </CardContent>
-          </Card>
-        )}
-      </div>
+            </section>
+            {b.status === 'CHECKED_OUT' && (
+              <Button asChild variant="brand" className="w-full">
+                <Link href={`/properties/${b.property.id}`}>Book {b.property.name} again</Link>
+              </Button>
+            )}
+          </aside>
+        </div>
+      </main>
+
+      <ChangeDatesDialog booking={b} open={changeOpen} onOpenChange={setChangeOpen} onDone={() => void mutate()} />
+      <Dialog open={cancelOpen && b.canCancel} onOpenChange={setCancelOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Cancel your stay at {b.property.name}?</DialogTitle>
+            <DialogDescription>
+              {fmtDay(b.checkIn, 'weekday')} – {fmtDay(b.checkOut, 'weekday')} · {b.roomType.name}. It’s free — {b.paymentStatus === 'PAID' ? 'you paid online, so the hotel will arrange your refund.' : 'nothing has been charged.'}
+            </DialogDescription>
+          </DialogHeader>
+          <Field label="Reason (optional)" htmlFor="cancel-reason">
+            <Textarea id="cancel-reason" rows={2} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={300} placeholder="Plans changed…" />
+          </Field>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setCancelOpen(false)}>
+              Keep booking
+            </Button>
+            <Button variant="destructive" onClick={cancel} loading={busy}>
+              Cancel booking
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+export default function Page() {
+  return (
+    <React.Suspense>
+      <BookingPage />
+    </React.Suspense>
   );
 }

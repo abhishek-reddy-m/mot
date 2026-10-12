@@ -1,802 +1,172 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import * as React from 'react';
 import Link from 'next/link';
+import useSWR from 'swr';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { motion } from 'framer-motion';
+import { Building2, MapPin, SearchX, Users } from 'lucide-react';
+import { fetcher } from '@/lib/fetcher';
+import { fmtRange, nightsBetween } from '@/lib/format';
+import { money } from '@/lib/status';
+import { cn } from '@/lib/utils';
 import Navigation from '@/components/Navigation';
-import { SearchBar } from '@/components/search-bar';
-import { ImageCarousel } from '@/components/ImageCarousel';
-import { formatDateForDisplay, storeBookingSearch } from '@/lib/date-utils';
-import { 
-  MapPin, 
-  Star, 
-  Wifi, 
-  Car, 
-  Coffee, 
-  Search, 
-  Filter as FilterIcon, 
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Waves as SwimmingPool,
-  AirVent,
-  AlertCircle,
-  Building,
-  Home,
-  Building2,
-  UtensilsCrossed as Utensils,
-  Clapperboard as Film,
-  Calendar,
-  Users
-} from 'lucide-react';
+import { Skeleton, EmptyState } from '@/components/ui/primitives';
+import { SmartImage } from '@/components/ui/smart-image';
+import { StaySearch, defaultStay, type StayQuery } from '@/components/guest/StaySearch';
+import { SiteFooter } from '@/components/guest/SiteFooter';
 
-type PropertyWithAvailability = {
+interface PropertyCard {
   id: string;
   name: string;
+  tagline: string | null;
+  type: string | null;
   description: string | null;
-  address: string;
   city: string;
   state: string;
-  zipCode: string;
+  primaryColor: string | null;
+  amenities: string[];
   mainPhoto: string | null;
-  photos: Array<{ id: string; url: string; isMain: boolean }>;
-  totalRooms: number;
-  availableRooms: number;
-  lowestPrice: number | null;
   roomTypeCount: number;
-  hasAvailability: boolean;
-  isDemo?: boolean;
+  maxCapacity: number;
+  fromPrice: number | null;
+  available: boolean | null;
+  isDemo: boolean;
 }
 
-// Helper function to extract available rooms count from API data
-function getAvailableRoomsCount(property: PropertyWithAvailability | null): number {
-  if (!property) return 0;
-  
-  // Always use the API-provided availability data directly for consistency
-  // This matches the property detail page's approach
-  return property.availableRooms || 0;
+function readQuery(params: URLSearchParams): StayQuery & { dated: boolean } {
+  const d = defaultStay();
+  const checkIn = params.get('checkIn');
+  const checkOut = params.get('checkOut');
+  const dated = !!checkIn && !!checkOut && checkOut > checkIn;
+  return {
+    q: params.get('q') ?? '',
+    checkIn: dated ? checkIn! : d.checkIn,
+    checkOut: dated ? checkOut! : d.checkOut,
+    guests: Number(params.get('guests')) || 2,
+    dated,
+  };
+}
+
+function Directory() {
+  const router = useRouter();
+  const params = useSearchParams();
+  const query = React.useMemo(() => readQuery(params), [params]);
+  const apiParams = new URLSearchParams();
+  if (query.q) apiParams.set('q', query.q);
+  apiParams.set('guests', String(query.guests));
+  if (query.dated) {
+    apiParams.set('checkIn', query.checkIn);
+    apiParams.set('checkOut', query.checkOut);
+  }
+  const { data, isLoading } = useSWR<PropertyCard[]>(`/api/properties?${apiParams}`, fetcher, { keepPreviousData: true });
+  const nights = nightsBetween(query.checkIn, query.checkOut);
+
+  const search = (v: StayQuery) => {
+    const p = new URLSearchParams({ checkIn: v.checkIn, checkOut: v.checkOut, guests: String(v.guests) });
+    if (v.q?.trim()) p.set('q', v.q.trim());
+    router.replace(`/properties?${p}`, { scroll: false });
+  };
+
+  const stayParams = new URLSearchParams({ checkIn: query.checkIn, checkOut: query.checkOut, guests: String(query.guests) });
+  const sorted = [...(data ?? [])].sort((a, b) => Number(b.available !== false) - Number(a.available !== false));
+
+  return (
+    <>
+      <section className="relative overflow-hidden border-b">
+        <div className="bg-aurora pointer-events-none absolute inset-0 opacity-[0.08]" />
+        <div className="relative mx-auto max-w-7xl px-4 pb-10 pt-10 sm:px-6 sm:pt-14">
+          <h1 className="max-w-2xl font-display text-4xl leading-tight tracking-tight sm:text-5xl">Find your next stay</h1>
+          <p className="mt-3 max-w-xl text-muted-foreground">Independent hotels, booked direct. Live prices, instant confirmation, free changes until the day before.</p>
+          <StaySearch className="mt-8" value={query} onSubmit={search} />
+        </div>
+      </section>
+
+      <section className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
+        <div className="mb-6 flex items-end justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold">{query.q ? `Stays matching “${query.q}”` : 'All stays'}</h2>
+            <p className="text-sm text-muted-foreground">
+              {query.dated ? `${fmtRange(query.checkIn, query.checkOut)} · ${nights} night${nights > 1 ? 's' : ''} · ` : ''}
+              {query.guests} guest{query.guests > 1 ? 's' : ''}
+              {data ? ` · ${data.length} propert${data.length === 1 ? 'y' : 'ies'}` : ''}
+            </p>
+          </div>
+        </div>
+
+        {isLoading && !data ? (
+          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="space-y-3">
+                <Skeleton className="aspect-[4/3] rounded-2xl" />
+                <Skeleton className="h-5 w-2/3" />
+                <Skeleton className="h-4 w-1/3" />
+              </div>
+            ))}
+          </div>
+        ) : !sorted.length ? (
+          <EmptyState icon={SearchX} title="No stays match that search" description="Try another city, or clear the search to see every property." />
+        ) : (
+          <div className="grid gap-x-6 gap-y-10 sm:grid-cols-2 lg:grid-cols-3">
+            {sorted.map((p, i) => {
+              const soldOut = p.available === false;
+              return (
+                <motion.div key={p.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: Math.min(i, 6) * 0.05 }}>
+                  <Link href={`/properties/${p.id}?${stayParams}`} className={cn('group block', soldOut && 'opacity-60')}>
+                    <div className="relative overflow-hidden rounded-2xl">
+                      <SmartImage src={p.mainPhoto} icon={Building2} className="aspect-[4/3] w-full transition-transform duration-700 group-hover:scale-[1.03]" loading={i < 3 ? 'eager' : 'lazy'} />
+                      {p.isDemo && <span className="absolute left-3 top-3 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-medium text-slate-900 shadow-xs backdrop-blur">Demo hotel</span>}
+                      {soldOut && <span className="absolute right-3 top-3 rounded-full bg-slate-900/80 px-2.5 py-1 text-[11px] font-medium text-white">Sold out for these dates</span>}
+                    </div>
+                    <div className="mt-3 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate font-semibold tracking-tight group-hover:underline">{p.name}</p>
+                        <p className="mt-0.5 flex items-center gap-1 text-sm text-muted-foreground">
+                          <MapPin className="h-3.5 w-3.5" /> {p.city}, {p.state}
+                        </p>
+                      </div>
+                      {p.fromPrice !== null && (
+                        <p className="shrink-0 text-right">
+                          <span className="block text-[11px] text-muted-foreground">{query.dated ? 'from' : 'from'}</span>
+                          <span className="font-semibold tabular">{money(p.fromPrice, { cents: false })}</span>
+                          <span className="text-xs text-muted-foreground"> / night</span>
+                        </p>
+                      )}
+                    </div>
+                    {p.tagline && <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{p.tagline}</p>}
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {p.amenities.slice(0, 3).map((a) => (
+                        <span key={a} className="rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                          {a}
+                        </span>
+                      ))}
+                      {p.maxCapacity > 0 && (
+                        <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
+                          <Users className="h-3 w-3" /> up to {p.maxCapacity}
+                        </span>
+                      )}
+                    </div>
+                  </Link>
+                </motion.div>
+              );
+            })}
+          </div>
+        )}
+      </section>
+    </>
+  );
 }
 
 export default function PropertiesPage() {
-  const router = useRouter();
-  const [properties, setProperties] = useState<PropertyWithAvailability[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  // Using window.location.search instead of useSearchParams to avoid the SSR issue
-  const [urlParams, setUrlParams] = useState<{
-    propertyId: string | null,
-    checkIn: string | null,
-    checkOut: string | null,
-    guests: string | null
-  }>({
-    propertyId: null,
-    checkIn: null,
-    checkOut: null,
-    guests: null
-  });
-  
-  // Only log that we're loading the properties page
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      console.log('Properties page loaded');
-    }
-  }, []);
-  
-  // Get search params from URL once the component mounts on client
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const params = new URLSearchParams(window.location.search);
-      setUrlParams({
-        propertyId: params.get('propertyId'),
-        checkIn: params.get('checkIn'),
-        checkOut: params.get('checkOut'),
-        guests: params.get('guests')
-      });
-    }
-  }, []);
-
-  // Function to fetch properties that can be called from multiple places
-  const fetchProperties = async (params: any) => {
-    try {
-      setLoading(true);
-      console.log('Fetching properties with parameters:', params);
-      
-      // Build the API query with the provided parameters
-      const apiParams = new URLSearchParams();
-      if (params.propertyId) apiParams.append('propertyId', params.propertyId);
-      if (params.checkIn) apiParams.append('checkIn', params.checkIn);
-      if (params.checkOut) apiParams.append('checkOut', params.checkOut);
-      if (params.guests) apiParams.append('guests', params.guests);
-      
-      // Add cache busting timestamp
-      apiParams.append('_t', new Date().getTime().toString());
-      
-      const queryString = apiParams.toString();
-      const apiUrl = `/api/properties${queryString ? `?${queryString}` : ''}`;
-      
-      console.log('API URL for properties:', apiUrl);
-      
-      const response = await fetch(apiUrl, {
-        headers: {
-          'Cache-Control': 'no-cache, no-store, must-revalidate',
-          'Pragma': 'no-cache',
-          'Expires': '0'
-        },
-        cache: 'no-store' // Disable caching completely
-      });
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch properties');
-      }
-      
-      const data = await response.json();
-      
-      console.log('Properties API response:', data);
-      data.forEach((property: any) => {
-        console.log(`Property ${property.name}: availableRooms=${property.availableRooms}, totalRooms=${property.totalRooms}, hasAvailability=${property.hasAvailability}`);
-      });
-      
-      setProperties(data);
-      
-      // If we have dates, make sure we store them in session storage for consistency
-      if (params.checkIn && params.checkOut) {
-        try {
-          const searchData = {
-            checkIn: params.checkIn,
-            checkOut: params.checkOut,
-            guests: params.guests || '1',
-            propertyId: ''
-          };
-          sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
-        } catch (e) {
-          console.error('Error storing search data after fetch:', e);
-        }
-      }
-    } catch (err) {
-      setError('Error loading properties. Please try again.');
-      console.error('Error fetching properties:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Listen for the custom event to refresh property cards
-  useEffect(() => {
-    const handleRefreshPropertyCards = (event: Event) => {
-      const customEvent = event as CustomEvent;
-      console.log('Received refreshPropertyCards event with data:', customEvent.detail);
-      
-      // Update URL params in state (but don't trigger a navigation)
-      setUrlParams({
-        propertyId: customEvent.detail.propertyId,
-        checkIn: customEvent.detail.checkIn,
-        checkOut: customEvent.detail.checkOut,
-        guests: customEvent.detail.guests
-      });
-      
-      // Fetch properties with the new parameters
-      fetchProperties(customEvent.detail);
-    };
-    
-    // Add event listener
-    window.addEventListener('refreshPropertyCards', handleRefreshPropertyCards);
-    
-    // Clean up
-    return () => {
-      window.removeEventListener('refreshPropertyCards', handleRefreshPropertyCards);
-    };
-  }, []);
-
-  // Initial fetch based on URL parameters
-  useEffect(() => {
-    // Only fetch when urlParams are available (client-side only)
-    if (typeof window !== 'undefined') {
-      // Check if we have URL parameters
-      if (urlParams.checkIn !== null) {
-        console.log('Fetching properties with URL parameters:', urlParams);
-        fetchProperties(urlParams);
-      } else {
-        // If no URL parameters, try to use stored search from session storage
-        try {
-          const storedSearch = sessionStorage.getItem('lastSearch');
-          if (storedSearch) {
-            const searchData = JSON.parse(storedSearch);
-            console.log('Using stored search parameters:', searchData);
-            fetchProperties({
-              propertyId: searchData.propertyId || null,
-              checkIn: searchData.checkIn || null,
-              checkOut: searchData.checkOut || null, 
-              guests: searchData.guests || null
-            });
-          } else {
-            // No stored search, use default parameters
-            const today = new Date();
-            const tomorrow = new Date();
-            tomorrow.setDate(tomorrow.getDate() + 1);
-            
-            const defaultParams = {
-              propertyId: null,
-              checkIn: today.toISOString().split('T')[0],
-              checkOut: tomorrow.toISOString().split('T')[0],
-              guests: '1'
-            };
-            
-            console.log('Using default search parameters:', defaultParams);
-            fetchProperties(defaultParams);
-          }
-        } catch (e) {
-          console.error('Error processing stored search:', e);
-          fetchProperties({}); // Fetch with no parameters as fallback
-        }
-      }
-    }
-  }, [urlParams.propertyId, urlParams.checkIn, urlParams.checkOut, urlParams.guests]);
-
-  // Function to check for and apply stored search parameters
-  const checkForStoredSearchParams = () => {
-    try {
-      const storedSearch = sessionStorage.getItem('lastSearch');
-      if (storedSearch) {
-        const searchData = JSON.parse(storedSearch);
-        return {
-          checkIn: searchData.checkIn || null,
-          checkOut: searchData.checkOut || null,
-          guests: searchData.guests || null,
-          propertyId: searchData.propertyId || null
-        };
-      }
-    } catch (e) {
-      console.error('Error checking for stored search parameters:', e);
-    }
-    return null;
-  };
-  
-  // Get search parameters for display
-  const [searchParams, setSearchParams] = useState<{
-    propertyName?: string;
-    checkIn?: string;
-    checkOut?: string;
-    guests?: string;
-  }>({});
-  
-  // Function to update search parameters and refresh availability
-  const updateAvailability = (newCheckIn: string, newCheckOut: string, newGuests: string) => {
-    // Add timestamp to force cache busting
-    const timestamp = new Date().getTime();
-    const params = new URLSearchParams();
-    
-    // Ensure we have valid dates
-    if (newCheckIn) params.append('checkIn', newCheckIn);
-    if (newCheckOut) params.append('checkOut', newCheckOut);
-    if (newGuests) params.append('guests', newGuests);
-    params.append('_t', timestamp.toString());
-    
-    try {
-      // Clear any existing search data first to prevent stale state
-      sessionStorage.removeItem('lastSearch');
-      
-      // Store search parameters in session storage for consistency
-      const searchData = {
-        checkIn: newCheckIn || '',
-        checkOut: newCheckOut || '',
-        guests: newGuests || '',
-        propertyId: ''
-      };
-      sessionStorage.setItem('lastSearch', JSON.stringify(searchData));
-      console.log('Stored search data for property listing:', searchData);
-    } catch (e) {
-      console.error('Error storing search data:', e);
-    }
-    
-    // Force reload with new parameters
-    window.location.href = `/properties?${params.toString()}`;
-  };
-  
-  useEffect(() => {
-    // If propertyId is provided, find the property name
-    const propertyName = urlParams.propertyId 
-      ? properties.find(p => p.id === urlParams.propertyId)?.name 
-      : undefined;
-    
-    setSearchParams({
-      propertyName,
-      checkIn: urlParams.checkIn || undefined,
-      checkOut: urlParams.checkOut || undefined,
-      guests: urlParams.guests || undefined,
-    });
-  }, [properties, urlParams]);
-  
-  const filteredProperties = properties.filter((property) =>
-    property.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    property.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    property.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    property.state.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-
-  // Property card component
-  function PropertyCard({ property }: { property: PropertyWithAvailability }) {
-    return (
-      <Card className="overflow-hidden hover:shadow-xl transition-all duration-300 group border-gray-100">
-        <div className="relative">
-          <ImageCarousel 
-            photos={property.photos || (property.mainPhoto ? [{ id: '1', url: property.mainPhoto, isMain: true }] : [])} 
-            alt={property.name}
-            height="h-48"
-            autoPlay={false}
-          />
-          
-          {/* Rating badge */}
-          <div className="absolute top-4 right-4 bg-white px-2 py-1 rounded-md shadow-md z-10">
-            <div className="flex items-center space-x-1">
-              <Star className="h-4 w-4 text-yellow-400 fill-current" />
-              <span className="text-sm font-medium">4.8</span>
-            </div>
-          </div>
-          
-          {/* Availability badge */}
-          {property.hasAvailability && (
-            <div className="absolute top-4 left-4 bg-green-100 text-green-800 text-xs px-2 py-1 rounded-md font-medium z-10">
-              Available Now
-            </div>
-          )}
-
-          {/* Demo badge — seeded example data is labeled honestly */}
-          {property.isDemo && (
-            <div className="absolute bottom-4 left-4 bg-slate-900/80 text-white text-xs px-2 py-1 rounded-md font-medium z-10">
-              Demo property
-            </div>
-          )}
-        </div>
-        
-        <CardHeader className="pb-2">
-          <CardTitle className="text-xl font-bold group-hover:text-blue-600 transition-colors">
-            {property.name}
-          </CardTitle>
-          <CardDescription className="flex items-center space-x-1 text-gray-500">
-            <MapPin className="h-4 w-4" />
-            <span>{property.city}, {property.state}</span>
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent>
-          <p className="text-gray-600 text-sm mb-6 line-clamp-2">
-            {property.description || 'Comfortable accommodation with modern amenities.'}
-          </p>
-
-          {/* Property amenities */}
-          <div className="mb-6">
-            {/* Location info */}
-            <div className="flex items-center mb-4">
-              <MapPin className="h-4 w-4 text-blue-600 mr-2" />
-              <span className="text-sm text-gray-700">
-                <span className="font-medium">{property.city}</span> • 
-                <span className="text-gray-500 ml-1">
-                  {property.zipCode}
-                </span>
-              </span>
-            </div>
-            
-            {/* Amenities grid */}
-            <div className="grid grid-cols-3 gap-2">
-              <div className="bg-blue-50 rounded-lg p-2 flex flex-col items-center justify-center text-center">
-                <Wifi className="h-4 w-4 text-blue-600 mb-1" />
-                <span className="text-xs text-gray-700">Free WiFi</span>
-              </div>
-              <div className="bg-blue-50 rounded-lg p-2 flex flex-col items-center justify-center text-center">
-                <Car className="h-4 w-4 text-blue-600 mb-1" />
-                <span className="text-xs text-gray-700">Parking</span>
-              </div>
-              <div className="bg-blue-50 rounded-lg p-2 flex flex-col items-center justify-center text-center">
-                {parseInt(property.id) % 2 === 0 ? (
-                  <>
-                    <SwimmingPool className="h-4 w-4 text-blue-600 mb-1" />
-                    <span className="text-xs text-gray-700">Pool</span>
-                  </>
-                ) : (
-                  <>
-                    <Coffee className="h-4 w-4 text-blue-600 mb-1" />
-                    <span className="text-xs text-gray-700">Breakfast</span>
-                  </>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="flex items-center justify-between border-t pt-4 mt-2">
-            <div>
-              {property.lowestPrice ? (
-                <div className="flex items-baseline">
-                  <span className="text-2xl font-bold text-blue-600">${property.lowestPrice}</span>
-                  <span className="text-gray-500 text-sm ml-1">/night</span>
-                </div>
-              ) : (
-                <span className="text-gray-500">Contact for pricing</span>
-              )}
-              {(() => {
-                const availableRoomsCount = getAvailableRoomsCount(property);
-                if (availableRoomsCount <= 0) return null;
-                const label = `${availableRoomsCount} ${availableRoomsCount === 1 ? 'room' : 'rooms'} left`;
-                return (
-                  <span className="block text-xs text-gray-500 mt-1">
-                    {label}
-                  </span>
-                );
-              })()}
-            </div>
-            <Button 
-              onClick={() => {
-                // Get the current search parameters directly from the URL
-                const currentParams = new URLSearchParams(window.location.search);
-                const params = new URLSearchParams();
-                
-                // Get the values directly from the URL instead of state
-                const checkIn = currentParams.get('checkIn');
-                const checkOut = currentParams.get('checkOut');
-                const guests = currentParams.get('guests');
-                
-                // Add timestamp for cache busting
-                const timestamp = new Date().getTime().toString();
-                
-                // Only add parameters if they exist to avoid empty values
-                if (checkIn) params.append('checkIn', checkIn);
-                if (checkOut) params.append('checkOut', checkOut);
-                if (guests) params.append('guests', guests);
-                params.append('_t', timestamp);
-                
-                // Store the search parameters in session storage for consistency using our utility function
-                const searchData = {
-                  checkIn: checkIn || '',
-                  checkOut: checkOut || '',
-                  guests: guests || '',
-                  propertyId: property.id
-                };
-                
-                try {
-                  // Use the utility function for consistent storage format
-                  storeBookingSearch(searchData);
-                  console.log('Stored search data for property detail view:', searchData);
-                } catch (e) {
-                  console.error('Error storing search data:', e);
-                }
-                
-                // Create the full URL with all search parameters
-                const url = `/properties/${property.id}?${params.toString()}`;
-                console.log('Navigating to property detail with URL:', url);
-                
-                // Use Next.js router for client-side navigation without a full page reload
-                router.push(url);
-              }}
-              className="bg-blue-600 hover:bg-blue-700 text-white"
-            >
-              View Details
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Loading state component with more realistic skeleton UI
-  function PropertiesLoading() {
-    return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Card key={i} className="overflow-hidden border border-gray-100">
-            <div className="aspect-[4/3] bg-gradient-to-r from-gray-200 to-gray-300 animate-pulse relative">
-              {/* Simulated rating badge */}
-              <div className="absolute top-4 right-4 w-12 h-6 bg-white rounded-md" />
-            </div>
-            <CardHeader className="pb-2">
-              <div className="h-7 bg-gray-200 rounded animate-pulse mb-2 w-3/4" />
-              <div className="h-5 bg-gray-200 rounded animate-pulse w-1/2 flex items-center">
-                <div className="w-4 h-4 rounded-full bg-gray-300 mr-2" />
-                <div className="flex-1 h-4 bg-gray-300 rounded" />
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-2 mb-6">
-                <div className="h-4 bg-gray-200 rounded animate-pulse" />
-                <div className="h-4 bg-gray-200 rounded animate-pulse w-5/6" />
-              </div>
-              
-              <div className="grid grid-cols-3 gap-2 mb-6">
-                {[0, 1, 2].map((n) => (
-                  <div key={n} className="bg-gray-100 rounded-lg p-2 flex flex-col items-center">
-                    <div className="w-4 h-4 rounded-full bg-gray-200 mb-1" />
-                    <div className="w-12 h-3 bg-gray-200 rounded" />
-                  </div>
-                ))}
-              </div>
-              
-              <div className="pt-4 mt-2 border-t flex justify-between items-center">
-                <div>
-                  <div className="h-6 w-16 bg-gray-200 rounded animate-pulse" />
-                  <div className="h-3 w-20 mt-1 bg-gray-200 rounded animate-pulse" />
-                </div>
-                <div className="h-9 w-24 bg-gray-200 rounded animate-pulse" />
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-    );
-  }
-  
-  // LA-specific No results component
-  function NoResults() {
-    return (
-      <div className="col-span-3 text-center py-16 bg-gray-50 rounded-xl border border-gray-100">
-        <div className="flex flex-col items-center max-w-md mx-auto px-4">
-          <div className="relative mb-6">
-            <MapPin className="h-16 w-16 text-gray-300" />
-            <Search className="h-8 w-8 text-gray-300 absolute bottom-0 right-0" />
-          </div>
-          <h3 className="text-xl font-medium text-gray-900 mb-2">No LA properties found</h3>
-          <p className="text-gray-500 mb-6">
-            We couldn&apos;t find any Los Angeles properties matching your criteria. 
-            Try different neighborhoods or amenities to discover the perfect LA stay.
-          </p>
-          <div className="space-y-4">
-            <Button 
-              onClick={() => {
-                setSearchTerm('');
-                // Reset other filters if you have them in state
-              }}
-              variant="outline"
-              className="w-full"
-            >
-              Clear All Filters
-            </Button>
-            
-            <p className="text-sm text-gray-500">Or try one of these popular LA areas:</p>
-            
-            <div className="flex flex-wrap gap-2 justify-center">
-              <Button variant="secondary" size="sm">Hollywood</Button>
-              <Button variant="secondary" size="sm">Downtown LA</Button>
-              <Button variant="secondary" size="sm">Santa Monica</Button>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
-  
-  // Error state component
-  function ErrorState({ message, onRetry }: { message: string, onRetry: () => void }) {
-    return (
-      <div className="col-span-3 text-center py-16 bg-red-50 rounded-xl border border-red-100">
-        <div className="flex flex-col items-center max-w-md mx-auto px-4">
-          <AlertCircle className="h-12 w-12 text-red-400 mb-4" />
-          <h3 className="text-xl font-medium text-gray-900 mb-2">Something went wrong</h3>
-          <p className="text-gray-600 mb-6">{message}</p>
-          <Button 
-            onClick={onRetry}
-            className="bg-red-600 hover:bg-red-700 text-white"
-          >
-            Try Again
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Navigation />
-      
-      {/* Hero section for properties */}
-      <div className="bg-gradient-to-r from-blue-700 to-indigo-800 text-white py-16 relative overflow-hidden">
-        <div className="container mx-auto px-4 relative z-10">
-          <div className="max-w-4xl">
-            {searchParams.propertyName || searchParams.checkIn || searchParams.checkOut || searchParams.guests ? (
-              <>
-                <div className="flex items-center mb-2">
-                  <Search className="h-5 w-5 text-yellow-400 mr-2" />
-                  <span className="text-yellow-300 font-medium">Search Results</span>
-                </div>
-                <h1 className="text-3xl md:text-4xl font-bold mb-4">
-                  {searchParams.propertyName ? 
-                    `${searchParams.propertyName}` : 
-                    "Available Properties"
-                  }
-                </h1>
-                <div className="flex flex-wrap gap-2 mb-6">
-                  {searchParams.checkIn && searchParams.checkOut && (
-                    <div className="bg-blue-600/50 backdrop-blur-sm rounded-full px-3 py-1 flex items-center">
-                      <Calendar className="h-4 w-4 mr-1" />
-                      <span className="text-sm">
-                        {formatDateForDisplay(searchParams.checkIn)} - {formatDateForDisplay(searchParams.checkOut)}
-                      </span>
-                    </div>
-                  )}
-                  
-                  {searchParams.guests && (
-                    <div className="bg-blue-600/50 backdrop-blur-sm rounded-full px-3 py-1 flex items-center">
-                      <Users className="h-4 w-4 mr-1" />
-                      <span className="text-sm">{searchParams.guests} {parseInt(searchParams.guests) === 1 ? 'Guest' : 'Guests'}</span>
-                    </div>
-                  )}
-                </div>
-              </>
-            ) : (
-              <>
-                <div className="flex items-center mb-2">
-                  <span className="text-yellow-400 mr-2 text-lg">•</span>
-                  <span className="text-yellow-300 font-medium">Find Your Perfect Stay</span>
-                </div>
-                <h1 className="text-4xl md:text-5xl font-bold mb-4">Discover Amazing Places to Stay</h1>
-                <p className="text-xl text-blue-100 mb-8 max-w-2xl">
-                  From luxury hotels to comfortable motels, find the perfect accommodation for your next trip
-                </p>
-              </>
-            )}
-            
-            {/* Search bar component with URL parameters */}
-            <SearchBar 
-              initialValues={{
-                propertyId: urlParams.propertyId || '',
-                checkIn: urlParams.checkIn || '',
-                checkOut: urlParams.checkOut || '',
-                guests: urlParams.guests || ''
-              }}
-            />
-            
-            {/* Popular features */}
-            <div className="mt-8 flex flex-wrap gap-2">
-              <span className="text-sm font-medium text-white mr-2">Popular features:</span>
-              <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Free WiFi
-              </Button>
-              <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Swimming Pool
-              </Button>
-              <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Free Parking
-              </Button>
-              <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Breakfast Included
-              </Button>
-              <Button variant="outline" size="sm" className="bg-white/10 hover:bg-white/20 text-white border-white/20 rounded-full">
-                Pet Friendly
-              </Button>
-            </div>
-          </div>
-        </div>
-      </div>
-      
-      <div className="container mx-auto px-4 py-12">
-        {/* Additional filter options can be added here if needed */}
-        
-        {/* Results info */}
-        <div className="flex flex-col md:flex-row justify-between items-center mb-8">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">
-              Available Properties
-              {!loading && <span className="text-gray-500 ml-2 text-lg">({filteredProperties.length})</span>}
-            </h2>
-            <p className="text-gray-600">
-              Find your perfect stay with our carefully selected accommodations
-            </p>
-          </div>
-          <div className="mt-4 md:mt-0">
-            <select className="p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
-              <option>Sort by: Recommended</option>
-              <option>Price: Low to High</option>
-              <option>Price: High to Low</option>
-              <option>Rating: High to Low</option>
-              <option>Most Available Rooms</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Properties Grid */}
-        {loading ? (
-          <PropertiesLoading />
-        ) : error ? (
-          <ErrorState message={error} onRetry={() => router.refresh()} />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-            {filteredProperties.length === 0 ? (
-              <NoResults />
-            ) : (
-              filteredProperties.map((property) => (
-                <PropertyCard key={property.id} property={property} />
-              ))
-            )}
-          </div>
-        )}
-        
-        {/* Pagination - static for now */}
-        {!loading && filteredProperties.length > 0 && (
-          <div className="mt-12 flex justify-center">
-            <nav className="flex items-center space-x-2">
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="w-9 h-9 p-0 flex items-center justify-center"
-                disabled
-              >
-                <ChevronLeft className="h-4 w-4" />
-                <span className="sr-only">Previous</span>
-              </Button>
-              
-              <Button variant="default" size="sm" className="w-9 h-9 p-0">1</Button>
-              <Button variant="outline" size="sm" className="w-9 h-9 p-0">2</Button>
-              <Button variant="outline" size="sm" className="w-9 h-9 p-0">3</Button>
-              <span className="text-gray-500">...</span>
-              <Button variant="outline" size="sm" className="w-9 h-9 p-0">8</Button>
-              
-              <Button 
-                variant="outline" 
-                size="sm" 
-                className="w-9 h-9 p-0 flex items-center justify-center"
-              >
-                <ChevronRight className="h-4 w-4" />
-                <span className="sr-only">Next</span>
-              </Button>
-            </nav>
-          </div>
-        )}
-      </div>
-      
-      {/* LA-Themed Newsletter Section */}
-      <section className="bg-gradient-to-r from-blue-700 to-indigo-800 py-16 text-white relative overflow-hidden">
-        {/* Hollywood hills silhouette */}
-        <div className="absolute top-0 left-0 right-0 h-48 opacity-10">
-          <div className="w-full h-full bg-black" style={{
-            maskImage: 'url("https://assets.codepen.io/756881/hollywood-hills.png")',
-            maskSize: 'cover',
-            maskPosition: 'center'
-          }}></div>
-        </div>
-        
-        {/* Hollywood sign suggestion in background */}
-        <div className="absolute top-4 right-12 opacity-10 transform -rotate-6">
-          <div className="text-4xl font-black tracking-widest">HOLLYWOOD</div>
-        </div>
-        
-        <div className="container mx-auto px-4 text-center relative z-10">
-          <div className="max-w-2xl mx-auto">
-            <h2 className="text-3xl font-bold mb-4">Get LA&apos;s Exclusive Hotel Deals</h2>
-            <p className="text-blue-100 mb-6">
-              Subscribe for insider access to special Los Angeles hotel offers, event tickets, and local experiences.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-2">
-              <input 
-                type="email" 
-                placeholder="Your email address" 
-                className="flex-1 px-4 py-3 rounded-lg focus:outline-none text-gray-900"
-              />
-              <Button className="bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-medium px-6">
-                Get LA Deals
-              </Button>
-            </div>
-            <p className="mt-4 text-xs text-blue-200">
-              We respect your privacy. Unsubscribe at any time.
-            </p>
-            
-            {/* LA Perks */}
-            <div className="mt-8 flex flex-wrap justify-center gap-x-8 gap-y-4">
-              <div className="flex items-center">
-                <Coffee className="h-5 w-5 text-yellow-400 mr-2" />
-                <span className="text-sm">Beach Access Deals</span>
-              </div>
-              <div className="flex items-center">
-                <Car className="h-5 w-5 text-yellow-400 mr-2" />
-                <span className="text-sm">Studio Tour Discounts</span>
-              </div>
-              <div className="flex items-center">
-                <Wifi className="h-5 w-5 text-yellow-400 mr-2" />
-                <span className="text-sm">Celebrity Hotspot Info</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
+    <div className="flex min-h-dvh flex-col bg-background">
+      <Navigation variant="guest" />
+      <main className="flex-1">
+        <React.Suspense>
+          <Directory />
+        </React.Suspense>
+      </main>
+      <SiteFooter />
     </div>
   );
 }

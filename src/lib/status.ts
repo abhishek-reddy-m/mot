@@ -42,6 +42,7 @@ export const PAYMENT_STATUS: Record<string, { label: string; tone: Tone }> = {
   UNPAID: { label: 'Pay at property', tone: 'neutral' },
   PAY_AT_PROPERTY: { label: 'Pay at property', tone: 'neutral' },
   AWAITING_PAYMENT: { label: 'Awaiting payment', tone: 'warning' },
+  EXPIRED: { label: 'Payment expired', tone: 'neutral' },
   REFUNDED: { label: 'Refunded', tone: 'neutral' },
   FAILED: { label: 'Payment failed', tone: 'danger' },
 };

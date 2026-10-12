@@ -39,7 +39,7 @@ export function SmartImage({
     <div className={cn('relative overflow-hidden bg-muted', className)}>
       {state !== 'ok' && (
         <div className={cn('absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary-soft via-muted to-agent-soft', state === 'loading' && 'animate-pulse')}>
-          {state === 'error' && <Icon className="h-1/4 max-h-12 w-1/4 max-w-12 text-primary/35" aria-hidden />}
+          {state === 'error' && <Icon className="h-1/4 max-h-12 w-1/4 max-w-12 text-primary/40" aria-hidden />}
         </div>
       )}
       {src && state !== 'error' && (
