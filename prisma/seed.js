@@ -299,6 +299,12 @@ async function main() {
   });
   
   console.log('Sample booking created:', booking1.id);
+
+  // Mark seeded example properties as demo data so the UI labels them honestly.
+  await prisma.property.updateMany({
+    where: { name: { in: ['Oceanview Resort', 'Mountain Lodge'] } },
+    data: { isDemo: true },
+  });
 }
 
 main()

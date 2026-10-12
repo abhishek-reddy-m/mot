@@ -29,6 +29,8 @@ model User {
   assignedProperties UserPropertyAssignment[]
   // Housekeeping tasks assigned to this user
   housekeepingTasks  RoomHousekeeping[]
+  // Agentic-mode audit trail entries created by this user
+  agentAuditLogs     AgentAuditLog[]
 
   @@map("users")
 }
@@ -45,6 +47,14 @@ model Property {
   email       String?
   amenities   String[]
   isActive    Boolean         @default(true)
+  // SaaS branding / onboarding fields
+  tagline      String?
+  primaryColor String?
+  logoUrl      String?
+  type         String? // Hotel | Motel | Inn | B&B | Boutique | Other
+  isDemo       Boolean         @default(false)
+  // Classic (traditional UI) vs Agentic (natural-language beta interface)
+  interfaceMode InterfaceMode  @default(CLASSIC)
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   bookings    Booking[]
@@ -53,6 +63,8 @@ model Property {
   rooms       Room[]
   // Users assigned to this property
   assignedUsers UserPropertyAssignment[]
+  // Agentic-mode audit trail
+  agentAuditLogs AgentAuditLog[]
 
   @@map("properties")
 }
@@ -181,6 +193,29 @@ enum UserRole {
   FRONT_DESK
   HOUSEKEEPER
   CUSTOMER
+}
+
+// Per-property UI mode: CLASSIC (traditional dashboards/tables/forms, default)
+// vs AGENTIC (natural-language beta command interface).
+enum InterfaceMode {
+  CLASSIC
+  AGENTIC
+}
+
+// Audit trail for agentic-mode usage: every agent command and every
+// interface-mode switch is logged here (who, which property, what, when).
+model AgentAuditLog {
+  id         String   @id @default(cuid())
+  propertyId String
+  userId     String
+  action     String // MODE_SWITCH | COMMAND
+  detail     String?
+  createdAt  DateTime @default(now())
+  property   Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([propertyId, createdAt])
+  @@map("agent_audit_logs")
 }
 
 enum BookingStatus {

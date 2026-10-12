@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, Dancing_Script, Montserrat } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_DESCRIPTION } from "@/config/product";
 
 const inter = Inter({ 
   subsets: ["latin"],
@@ -20,10 +21,12 @@ const montserrat = Montserrat({
   weight: ["300", "400", "500", "600", "700", "800"]
 });
 
-export const metadata: Metadata = {
-  title: "Casa Blanca Hotels - Premium LA Experience",
-  description: "Experience luxury and elegance at Casa Blanca Hotels, Los Angeles' premier boutique hotel collection",
-};
+export async function generateMetadata(): Promise<Metadata> {
+  return {
+    title: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
+    description: PRODUCT_DESCRIPTION,
+  };
+}
 
 export default function RootLayout({
   children,
