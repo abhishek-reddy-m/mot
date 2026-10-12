@@ -3,7 +3,7 @@ import type { StaffContext } from '@/lib/dto';
 import { PERMISSIONS, can, requireStaff, scopeProperties, type Permission } from '@/server/authz';
 import { hotelToday } from '@/server/dates';
 import { handleRoute, json } from '@/server/http';
-import { LLM_AGENT_AVAILABLE } from '@/lib/agent/router';
+import { LLM_AGENT_AVAILABLE } from '@/server/agent/llm';
 
 /** GET /api/admin/context — who am I, which properties, what can I do. */
 export const GET = handleRoute(async () => {

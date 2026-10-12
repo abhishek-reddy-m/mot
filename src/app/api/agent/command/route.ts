@@ -1,44 +1,56 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { routeCommand } from '@/lib/agent/router';
-import { requirePropertyAccess, logAgentAction, AgentUnauthorized, AgentForbidden } from '@/lib/agent/rbac';
+import { NextRequest } from 'next/server';
+import { z } from 'zod';
+import type { AgentEvent } from '@/lib/agent/blocks';
+import { requireStaff } from '@/server/authz';
+import { runAgent } from '@/server/agent/engine';
+import { DomainError } from '@/server/errors';
+import { handleRoute, parseJson } from '@/server/http';
+
+const schema = z.object({
+  propertyId: z.string().min(1),
+  message: z.string().trim().min(1).max(600),
+  context: z
+    .object({
+      lastBookingId: z.string().optional(),
+      lastBookingCode: z.string().optional(),
+      lastGuestName: z.string().optional(),
+      lastRoomNumber: z.string().optional(),
+    })
+    .default({}),
+});
 
 /**
- * POST /api/agent/command — agentic (beta) natural-language command endpoint.
- * Staff only (ADMIN/OWNER/MANAGER/FRONT_DESK), scoped to one property.
- * Every command is audit-logged. No LLM key needed: deterministic intents
- * over real DB data (see src/lib/agent/router.ts).
+ * POST /api/agent/command — run a natural-language command.
+ * Streams NDJSON AgentEvents (status → blocks → context → done) so the
+ * console can render cards as each tool finishes. Writes are never executed
+ * here; they come back as a signed plan for POST /api/agent/confirm.
  */
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-    const { propertyId, message } = body ?? {};
+export const POST = handleRoute(async (request: NextRequest) => {
+  const actor = await requireStaff('agent.use');
+  const body = await parseJson(request, schema);
+  const encoder = new TextEncoder();
 
-    if (!propertyId || typeof propertyId !== 'string') {
-      return NextResponse.json({ message: 'propertyId is required' }, { status: 400 });
-    }
-    if (!message || typeof message !== 'string' || message.trim().length === 0) {
-      return NextResponse.json({ message: 'message is required' }, { status: 400 });
-    }
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (e: AgentEvent) => controller.enqueue(encoder.encode(JSON.stringify(e) + '\n'));
+      try {
+        for await (const event of runAgent({ actor, propertyId: body.propertyId, message: body.message, memory: body.context })) {
+          send(event);
+        }
+      } catch (e) {
+        if (!(e instanceof DomainError)) console.error('Agent command failed:', e);
+        send({ type: 'error', message: e instanceof DomainError ? e.message : 'Something went wrong. Please try again.' });
+      } finally {
+        controller.close();
+      }
+    },
+  });
 
-    const identity = await requirePropertyAccess(propertyId, 'command');
-    const reply = await routeCommand({ propertyId, userId: identity.userId }, message);
-
-    await logAgentAction(
-      propertyId,
-      identity.userId,
-      'COMMAND',
-      JSON.stringify({ intent: reply.intent, engine: reply.engine, message: message.trim().slice(0, 200) })
-    );
-
-    return NextResponse.json(reply);
-  } catch (e) {
-    if (e instanceof AgentUnauthorized) {
-      return NextResponse.json({ message: e.message }, { status: 401 });
-    }
-    if (e instanceof AgentForbidden) {
-      return NextResponse.json({ message: e.message }, { status: 403 });
-    }
-    console.error('Agent command error:', e);
-    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
-  }
-}
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/x-ndjson; charset=utf-8',
+      'Cache-Control': 'no-store',
+      'X-Accel-Buffering': 'no',
+    },
+  });
+});

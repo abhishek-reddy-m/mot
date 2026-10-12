@@ -1,62 +1,35 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextRequest } from 'next/server';
+import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { requirePropertyAccess, logAgentAction, AgentUnauthorized, AgentForbidden } from '@/lib/agent/rbac';
+import { assertPropertyAccess, requireStaff } from '@/server/authz';
+import { notFound } from '@/server/errors';
+import { handleRoute, json, parseJson } from '@/server/http';
+import { recordAudit } from '@/server/services/audit';
 
-const MODES = ['CLASSIC', 'AGENTIC'] as const;
+type Params = { params: Promise<{ propertyId: string }> };
 
 /**
- * PATCH /api/properties/[propertyId]/interface-mode
- * Flips a property between CLASSIC and AGENTIC interface modes.
- * OWNER/MANAGER/ADMIN only. The switch is audit-logged.
+ * PATCH { interfaceMode } — set the property's default console mode for
+ * staff (CLASSIC dashboards vs AGENTIC command workspace). Each person can
+ * still switch their own view; this sets where new sessions start.
  */
-export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ propertyId: string }> }
-) {
-  try {
-    const { propertyId } = await params;
-    const body = await request.json();
-    const { interfaceMode } = body ?? {};
-
-    if (!MODES.includes(interfaceMode)) {
-      return NextResponse.json(
-        { message: 'interfaceMode must be CLASSIC or AGENTIC' },
-        { status: 400 }
-      );
-    }
-
-    const identity = await requirePropertyAccess(propertyId, 'mode-switch');
-
-    const before = await prisma.property.findUnique({
-      where: { id: propertyId },
-      select: { interfaceMode: true, name: true },
+export const PATCH = handleRoute(async (request: NextRequest, { params }: Params) => {
+  const { propertyId } = await params;
+  const actor = await requireStaff('mode.setDefault');
+  assertPropertyAccess(actor, propertyId);
+  const { interfaceMode } = await parseJson(request, z.object({ interfaceMode: z.enum(['CLASSIC', 'AGENTIC']) }));
+  const before = await prisma.property.findUnique({ where: { id: propertyId }, select: { interfaceMode: true } });
+  if (!before) throw notFound('Property');
+  const property = await prisma.property.update({
+    where: { id: propertyId },
+    data: { interfaceMode },
+    select: { id: true, name: true, interfaceMode: true },
+  });
+  if (before.interfaceMode !== interfaceMode) {
+    await recordAudit({ actor, source: 'classic' }, propertyId, 'MODE_SWITCH', `Default interface set to ${interfaceMode === 'AGENTIC' ? 'Agentic' : 'Classic'}`, {
+      from: before.interfaceMode,
+      to: interfaceMode,
     });
-    if (!before) {
-      return NextResponse.json({ message: 'Property not found' }, { status: 404 });
-    }
-
-    const property = await prisma.property.update({
-      where: { id: propertyId },
-      data: { interfaceMode },
-      select: { id: true, name: true, interfaceMode: true },
-    });
-
-    await logAgentAction(
-      propertyId,
-      identity.userId,
-      'MODE_SWITCH',
-      JSON.stringify({ from: before.interfaceMode, to: interfaceMode })
-    );
-
-    return NextResponse.json({ property });
-  } catch (e) {
-    if (e instanceof AgentUnauthorized) {
-      return NextResponse.json({ message: e.message }, { status: 401 });
-    }
-    if (e instanceof AgentForbidden) {
-      return NextResponse.json({ message: e.message }, { status: 403 });
-    }
-    console.error('Interface mode switch error:', e);
-    return NextResponse.json({ message: 'Internal server error' }, { status: 500 });
   }
-}
+  return json({ property });
+});

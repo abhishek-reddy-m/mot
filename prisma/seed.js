@@ -277,6 +277,18 @@ async function main() {
   for (const [rt, inOff, nights] of futurePlan) {
     await book({ rt, inOff, nights, status: 'CONFIRMED', payment: inOff % 3 === 0 ? 'PAID' : 'PAY_AT_PROPERTY' });
   }
+  // Next weekend is nearly sold out; the one after is on pace (gives the forecast contrast).
+  const fridayOffset = (() => {
+    const dow = new Date(`${today}T12:00:00Z`).getUTCDay();
+    const d = (5 - dow + 7) % 7;
+    return d === 0 ? 7 : d;
+  })();
+  for (const [rt, count] of [[rtOcean, 6], [rtGarden, 8], [rtSuite, 3]]) {
+    for (let i = 0; i < count; i++) await book({ rt, inOff: fridayOffset, nights: 2, status: 'CONFIRMED', payment: i % 2 ? 'PAID' : 'PAY_AT_PROPERTY' });
+  }
+  for (const [rt, count] of [[rtOcean, 4], [rtGarden, 5], [rtSuite, 2]]) {
+    for (let i = 0; i < count; i++) await book({ rt, inOff: fridayOffset + 7, nights: 2, status: 'CONFIRMED' });
+  }
   // Booked by the demo guest (for the guest dashboard).
   await book({ guest: guestUser, rt: rtOcean, inOff: 8, nights: 3, status: 'CONFIRMED', notes: 'Late arrival ~10pm' });
   await book({ guest: guestUser, rt: rtGarden, inOff: -30, nights: 2, status: 'CHECKED_OUT' });
