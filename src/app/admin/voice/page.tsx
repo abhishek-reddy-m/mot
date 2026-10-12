@@ -33,6 +33,7 @@ interface VoiceConfig {
 }
 interface VoiceOverview {
   connected: boolean;
+  provider: 'openai' | 'elevenlabs';
   model: string;
   voices: string[];
   config: VoiceConfig;
@@ -181,20 +182,28 @@ function Settings({ data, onSaved }: { data: VoiceOverview; onSaved: () => void 
       <Card className="space-y-5 p-5 sm:p-6">
         <p className="text-sm font-semibold">How it sounds</p>
         <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Voice" htmlFor="v-voice">
-            <Select value={cfg.voice} onValueChange={(v) => set('voice', v)}>
-              <SelectTrigger id="v-voice">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {data.voices.map((v) => (
-                  <SelectItem key={v} value={v}>
-                    {v[0].toUpperCase() + v.slice(1)}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+          {data.provider === 'elevenlabs' ? (
+            <Field label="Voice" htmlFor="v-voice" hint="Set ELEVENLABS_VOICE_ID to any voice from your ElevenLabs library.">
+              <p id="v-voice" className="rounded-xl border bg-surface-sunken/60 px-3 py-2 text-sm text-muted-foreground">
+                An ElevenLabs voice
+              </p>
+            </Field>
+          ) : (
+            <Field label="Voice" htmlFor="v-voice">
+              <Select value={cfg.voice} onValueChange={(v) => set('voice', v)}>
+                <SelectTrigger id="v-voice">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {data.voices.map((v) => (
+                    <SelectItem key={v} value={v}>
+                      {v[0].toUpperCase() + v.slice(1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </Field>
+          )}
           <Field label="Hand-off phone" htmlFor="v-phone" hint="Given out when a caller wants a person.">
             <Input id="v-phone" type="tel" value={cfg.handoffPhone ?? ''} onChange={(e) => set('handoffPhone', e.target.value)} placeholder="+1 831 555 0100" />
           </Field>
@@ -337,7 +346,7 @@ export default function VoicePage() {
               <div className="flex-1 text-sm">
                 <p className="font-medium">Connect the voice model to go live</p>
                 <p className="text-muted-foreground">
-                  Add <code className="rounded bg-muted px-1 font-mono text-xs">OPENAI_API_KEY</code> to the server environment. Calls use {data.model}; everything else on this page works now.
+                  Add <code className="rounded bg-muted px-1 font-mono text-xs">ELEVENLABS_API_KEY</code> (or <code className="rounded bg-muted px-1 font-mono text-xs">OPENAI_API_KEY</code>) to the server environment; everything else on this page works now.
                 </p>
               </div>
             </Card>

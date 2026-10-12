@@ -4,7 +4,8 @@ import { prisma } from '@/lib/prisma';
 import { requireStaff, requirePermission, resolvePropertyId } from '@/server/authz';
 import { handleRoute, json, parseJson, parseQuery } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
-import { LIVE_MODEL, VOICES, voiceConfigured } from '@/server/voice/live';
+import { LIVE_MODEL, VOICES } from '@/server/voice/live';
+import { voiceAvailable, voiceProvider } from '@/server/voice/provider';
 import { assertDemoHotelUnchanged } from '@/server/demo';
 
 const DEFAULTS = { enabled: true, voice: 'marin', greeting: null, instructions: null, faqs: [], handoffPhone: null, guestWidget: true };
@@ -23,8 +24,9 @@ export const GET = handleRoute(async (request: NextRequest) => {
   ]);
   const minutes = recentSessions.reduce((s, r) => s + (r.endedAt ? (r.endedAt.getTime() - r.startedAt.getTime()) / 60000 : 0), 0);
   return json({
-    connected: voiceConfigured(),
-    model: LIVE_MODEL,
+    connected: voiceAvailable(),
+    provider: voiceProvider(),
+    model: voiceProvider() === 'elevenlabs' ? 'ElevenLabs Agents' : LIVE_MODEL,
     voices: VOICES,
     config: config ?? { ...DEFAULTS, propertyId },
     stats: {

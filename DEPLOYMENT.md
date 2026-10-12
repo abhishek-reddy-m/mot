@@ -21,7 +21,8 @@ The repo deploys as-is: `vercel.json` runs `scripts/vercel-build.mjs`, which
    | `NEXT_PUBLIC_DEMO_MODE` | `true` for a public demo (one-click logins on `/login`) |
    | `SEED_DEMO` | `true` to create the demo hotels on the first build with a database |
    | `HOTEL_TIMEZONE` | e.g. `America/Los_Angeles` |
-   | `OPENAI_API_KEY` | enables the voice front desk and the PMS bridge operator |
+   | `ELEVENLABS_API_KEY` | voice front desk on ElevenLabs (preferred when set); then Console → Voice → *Check connection* creates the agents |
+   | `OPENAI_API_KEY` | voice on GPT-Live (when ElevenLabs isn't set) and the PMS bridge operator |
    | `STRIPE_*`, `RESEND_API_KEY`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_CLIENT_*` | optional |
 
    Leave `NEXTAUTH_URL` unset: auth trusts the request host, which keeps preview URLs working. Set `NEXT_PUBLIC_SITE_URL` only to pin Stripe return URLs to a custom domain.

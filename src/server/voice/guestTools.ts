@@ -95,7 +95,7 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
 
     case 'leave_message': {
       const a = z
-        .object({ name: z.string().trim().min(1).max(120), phone: z.string().trim().max(40).nullable(), email: z.string().trim().max(200).nullable(), message: z.string().trim().min(1).max(1000) })
+        .object({ name: z.string().trim().min(1).max(120), phone: z.string().trim().max(40).nullable().optional(), email: z.string().trim().max(200).nullable().optional(), message: z.string().trim().min(1).max(1000) })
         .parse(rawArgs);
       if (!a.phone && !a.email) return { error: 'Ask for a phone number or email so the team can reply.' };
       const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: a.phone || null, email: a.email || null, message: a.message } });

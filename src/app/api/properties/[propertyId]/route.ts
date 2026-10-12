@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { notFound } from '@/server/errors';
 import { handleRoute, json } from '@/server/http';
-import { voiceConfigured } from '@/server/voice/live';
+import { voiceAvailable } from '@/server/voice/provider';
 
 type Params = { params: Promise<{ propertyId: string }> };
 
@@ -42,7 +42,7 @@ export const GET = handleRoute(async (_req: NextRequest, { params }: Params) => 
       primaryColor: p.primaryColor,
       logoUrl: p.logoUrl,
       isDemo: p.isDemo,
-      voice: { available: voiceConfigured() && (p.voiceAgent?.enabled ?? true) && (p.voiceAgent?.guestWidget ?? true) },
+      voice: { available: voiceAvailable() && (p.voiceAgent?.enabled ?? true) && (p.voiceAgent?.guestWidget ?? true) },
       photos: p.photos,
       roomTypes: p.roomTypes.map((rt) => ({
         id: rt.id,

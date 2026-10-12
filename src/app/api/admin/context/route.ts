@@ -4,7 +4,7 @@ import { PERMISSIONS, can, requireStaff, scopeProperties, type Permission } from
 import { hotelToday } from '@/server/dates';
 import { handleRoute, json } from '@/server/http';
 import { LLM_AGENT_AVAILABLE } from '@/server/agent/llm';
-import { voiceConfigured } from '@/server/voice/live';
+import { voiceAvailable } from '@/server/voice/provider';
 
 /** GET /api/admin/context — who am I, which properties, what can I do. */
 export const GET = handleRoute(async () => {
@@ -19,7 +19,7 @@ export const GET = handleRoute(async () => {
     properties,
     permissions: (Object.keys(PERMISSIONS) as Permission[]).filter((p) => can(actor, p)),
     today: hotelToday(),
-    agent: { llmEnabled: LLM_AGENT_AVAILABLE, voiceEnabled: voiceConfigured() },
+    agent: { llmEnabled: LLM_AGENT_AVAILABLE, voiceEnabled: voiceAvailable() },
   };
   return json(body);
 });

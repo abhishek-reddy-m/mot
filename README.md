@@ -16,7 +16,7 @@ Hotels move between paths without starting over (Console → *Your PMS* → *Mov
 - **Staff console** (`/admin`) — two ways to work the same data:
   - **Classic**: dashboard with setup checklist and forecast, front desk (arrivals, departures, in-house, room board), housekeeping (supervisor board + phone-first *My rooms*), reservations, rate calendar (drag-select, set/adjust/reset), analytics, rooms, properties, team, activity log, settings.
   - **Agentic**: a natural-language workspace whose answers render as live UI blocks (booking lists, room options, rate grids, plans). Every change is a **signed plan** (HMAC, 10-minute expiry, single use) that a person confirms; every action is permission-checked and audited. ⌘K opens the agent from any Classic screen, and alerts hand off to it ("Fix").
-- **Voice front desk** — GPT-Live (`gpt-live-1`) over WebRTC with Responses delegation. Guests talk from the hotel page; staff go hands-free in the agent workspace. Tool calls are executed by StayOS code, never by the model directly.
+- **Voice front desk** — ElevenLabs Agents (WebSocket, StayOS provisions and syncs the agents) or OpenAI GPT-Live (`gpt-live-1`, WebRTC with Responses delegation). Guests talk from the hotel page; staff go hands-free in the agent workspace. Either way, tool calls are executed by StayOS code, never by the model directly.
 - **PMS bridge** — a computer-use operator that works the hotel's existing PMS in a browser, through the StayOS Connector on a hotel computer or our isolated cloud browser.
 
 ## Architecture
@@ -79,7 +79,11 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 | `AGENT_PLAN_SECRET` | | Separate secret for signed agent plans |
 | `NEXT_PUBLIC_DEMO_MODE` | | `true` = public demo: one-click demo logins on `/login`; the shared demo logins and the demo hotels' public details (name, listing, voice script) can't be changed |
 | `NEXT_PUBLIC_SITE_URL` | | Pins Stripe return URLs to one host (default: the host the guest booked on) |
-| `OPENAI_API_KEY` | voice / bridge | Enables the voice front desk and the bridge operator |
+| `ELEVENLABS_API_KEY` | voice | Voice front desk on ElevenLabs Agents (used when set). Needs Agents write access; StayOS creates and updates its two agents itself |
+| `ELEVENLABS_VOICE_ID`, `ELEVENLABS_LLM` | | ElevenLabs voice (default: the platform default) and LLM (default `gemini-2.5-flash`) |
+| `ELEVENLABS_GUEST_AGENT_ID`, `ELEVENLABS_STAFF_AGENT_ID` | | Use your own ElevenLabs agents instead (they need the same client tools and prompt/first-message overrides enabled) |
+| `VOICE_PROVIDER` | | `elevenlabs` or `openai` to force a provider |
+| `OPENAI_API_KEY` | voice / bridge | Voice front desk on GPT-Live (when ElevenLabs isn't set), and the bridge operator |
 | `OPENAI_LIVE_MODEL` | | Voice model (default `gpt-live-1`) |
 | `OPENAI_VOICE_BACKEND_MODEL` | | Model the voice delegates reasoning/tools to (default `gpt-6-luna`) |
 | `BRIDGE_OPERATOR_MODEL` | | Computer-use model (default `computer-use-preview`) |

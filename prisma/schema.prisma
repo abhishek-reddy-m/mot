@@ -220,6 +220,17 @@ enum InterfaceMode {
 
 // Audit trail for agentic-mode usage: every agent command and every
 // interface-mode switch is logged here (who, which property, what, when).
+/// Agents StayOS created at a voice provider (e.g. ElevenLabs), one per audience.
+/// configHash lets the server update the agent when its tools or settings change.
+model VoiceProviderAgent {
+  key        String   @id // "elevenlabs:GUEST" | "elevenlabs:STAFF"
+  externalId String
+  configHash String
+  updatedAt  DateTime @updatedAt
+
+  @@map("voice_provider_agents")
+}
+
 /// Single-use signed agent plans: claimed (by nonce) before any step runs.
 model ExecutedPlan {
   nonce      String   @id
