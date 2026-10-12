@@ -51,6 +51,13 @@ interface GuestRequest {
 
 type Tab = 'overview' | 'settings' | 'requests';
 
+interface ModelCheck {
+  model: string;
+  role: string;
+  ok: boolean;
+  reason: string | null;
+}
+
 /** Try the guest line from the console: same voice, prompts and tools guests get. */
 function TestCall({ propertyId, connected }: { propertyId: string; connected: boolean }) {
   const voice = useLiveVoice({
@@ -64,6 +71,19 @@ function TestCall({ propertyId, connected }: { propertyId: string; connected: bo
   });
   const live = voice.state === 'live' || voice.state === 'connecting';
   const agentLine = [...voice.captions].reverse().find((c) => c.role === 'agent')?.text;
+  const [check, setCheck] = React.useState<ModelCheck[] | null>(null);
+  const [checking, setChecking] = React.useState(false);
+  async function runCheck() {
+    setChecking(true);
+    try {
+      const res = await api<{ key: boolean; models: ModelCheck[] }>('/api/admin/voice/check');
+      setCheck(res.models);
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setChecking(false);
+    }
+  }
   return (
     <Card className="relative overflow-hidden p-6">
       <div className="bg-aurora pointer-events-none absolute inset-0 opacity-[0.06]" />
@@ -86,12 +106,32 @@ function TestCall({ propertyId, connected }: { propertyId: string; connected: bo
               </Button>
             </>
           ) : (
-            <Button variant="agent" onClick={() => void voice.start()} disabled={!connected}>
-              <PhoneCall className="h-4 w-4" /> Test call
-            </Button>
+            <>
+              <Button variant="outline" onClick={() => void runCheck()} disabled={!connected || checking}>
+                <ShieldCheck className="h-4 w-4" /> {checking ? 'Checking…' : 'Check connection'}
+              </Button>
+              <Button variant="agent" onClick={() => void voice.start()} disabled={!connected}>
+                <PhoneCall className="h-4 w-4" /> Test call
+              </Button>
+            </>
           )}
         </div>
       </div>
+      {check && (
+        <ul className="relative mt-5 space-y-2 border-t pt-4 text-sm">
+          {check.map((m) => (
+            <li key={m.model} className="flex items-start gap-2.5">
+              <span className={cn('mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full', m.ok ? 'bg-success-soft text-success' : 'bg-destructive/10 text-destructive')}>
+                {m.ok ? <Check className="h-3 w-3" /> : <span className="text-xs font-bold">!</span>}
+              </span>
+              <span className="min-w-0">
+                <span className="font-medium">{m.role}</span> <code className="rounded bg-muted px-1 font-mono text-xs">{m.model}</code>
+                <span className="block text-muted-foreground">{m.ok ? 'Available to your OpenAI key.' : m.reason}</span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }

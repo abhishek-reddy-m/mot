@@ -70,9 +70,58 @@ export async function createLiveSession(input: {
     return { sessionId: live.session.id, sdp: live.transport.sdp };
   } catch (e) {
     if (e instanceof DomainError) throw e;
-    console.error('GPT-Live session creation failed:', (e as Error).message);
-    throw new DomainError(502, 'VOICE_UPSTREAM', 'Couldn’t start the voice line just now. Please try again.');
+    const { status, reason } = describeOpenAIError(e, `${LIVE_MODEL} (voice) or ${VOICE_BACKEND_MODEL} (reasoning)`);
+    console.error('GPT-Live session creation failed:', status, e instanceof Error ? e.message : e);
+    // Staff-facing reason; the session route shows guests a gentler line.
+    throw new DomainError(502, 'VOICE_UPSTREAM', reason, { status });
   }
+}
+
+/**
+ * Turns an OpenAI failure into something a hotel owner can act on. OpenAI's
+ * own message is included where it explains model access; never for auth
+ * errors, whose message echoes part of the key.
+ */
+export function describeOpenAIError(e: unknown, model: string): { status: number | null; reason: string } {
+  const clip = (s: string) => (s.length > 280 ? `${s.slice(0, 277)}…` : s);
+  if (e instanceof OpenAI.APIConnectionError) return { status: null, reason: 'Couldn’t reach OpenAI just now — try again in a moment.' };
+  if (!(e instanceof OpenAI.APIError)) return { status: null, reason: 'Couldn’t start the voice line just now. Please try again.' };
+  const status = e.status ?? null;
+  const detail = clip(String(e.message ?? '').replace(/sk-[A-Za-z0-9_*.-]+/g, 'sk-…'));
+  switch (status) {
+    case 401:
+      return { status, reason: 'OpenAI didn’t accept the API key. Re-check OPENAI_API_KEY in Vercel (Settings → Environment Variables), then redeploy.' };
+    case 403:
+      return { status, reason: `OpenAI won’t let this key use ${model} yet — new models often need a verified organization or a higher usage tier. OpenAI says: ${detail}` };
+    case 404:
+      return { status, reason: `This OpenAI key doesn’t have access to ${model}. OpenAI says: ${detail}` };
+    case 429:
+      return e.code === 'insufficient_quota'
+        ? { status, reason: 'The OpenAI account is out of credit — add billing at platform.openai.com, then try again.' }
+        : { status, reason: 'OpenAI is rate-limiting this key right now — try again in a minute.' };
+    case 400:
+      return { status, reason: `OpenAI rejected the voice session setup. OpenAI says: ${detail}` };
+    default:
+      return { status, reason: `OpenAI returned an error${status ? ` (${status})` : ''}. ${detail}` };
+  }
+}
+
+/** Setup check for the console: can this key use the voice and reasoning models? */
+export async function checkVoiceModels(): Promise<{ model: string; role: string; ok: boolean; reason: string | null }[]> {
+  const client = openai();
+  return Promise.all(
+    [
+      { model: LIVE_MODEL, role: 'Voice' },
+      { model: VOICE_BACKEND_MODEL, role: 'Reasoning & tools' },
+    ].map(async ({ model, role }) => {
+      try {
+        await client.models.retrieve(model);
+        return { model, role, ok: true, reason: null };
+      } catch (e) {
+        return { model, role, ok: false, reason: describeOpenAIError(e, model).reason };
+      }
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

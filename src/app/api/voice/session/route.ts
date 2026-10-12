@@ -3,7 +3,7 @@ import { createHash } from 'crypto';
 import { z } from 'zod';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
-import { assertPropertyAccess, requireStaff } from '@/server/authz';
+import { assertPropertyAccess, getActor, hasPropertyAccess, requireStaff } from '@/server/authz';
 import { badRequest, DomainError, notFound } from '@/server/errors';
 import { handleRoute, json, parseQuery } from '@/server/http';
 import { roleLabel } from '@/lib/status';
@@ -90,6 +90,12 @@ export const POST = handleRoute(async (request: NextRequest) => {
       { where: { propertyId: property.id, audience: 'GUEST', startedAt: since(60 * MINUTE) }, max: 120, message: 'Our voice line is very busy — please try again shortly or call the hotel.' },
     ],
     () => createLiveSession({ sdp, voice, ...prompts, tools: GUEST_TOOLS }),
-  );
+  ).catch(async (e) => {
+    // OpenAI's reason is for the hotel's team (e.g. a test call from the console), not for guests.
+    if (!(e instanceof DomainError) || e.code !== 'VOICE_UPSTREAM') throw e;
+    const viewer = await getActor().catch(() => null);
+    if (viewer && viewer.role !== 'CUSTOMER' && hasPropertyAccess(viewer, property.id)) throw e;
+    throw new DomainError(502, 'VOICE_UPSTREAM', `${property.name}’s voice line isn’t available right now — please try again later${cfg?.handoffPhone ? ` or call ${cfg.handoffPhone}` : ''}.`);
+  });
   return json({ sdp: session.sdp, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null }) });
 });
