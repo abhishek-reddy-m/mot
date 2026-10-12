@@ -81,7 +81,7 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 | `NEXT_PUBLIC_SITE_URL` | | Pins Stripe return URLs to one host (default: the host the guest booked on) |
 | `OPENAI_API_KEY` | voice / bridge | Enables the voice front desk and the bridge operator |
 | `OPENAI_LIVE_MODEL` | | Voice model (default `gpt-live-1`) |
-| `OPENAI_VOICE_BACKEND_MODEL` | | Model the voice delegates reasoning/tools to (default `gpt-5.6-terra`) |
+| `OPENAI_VOICE_BACKEND_MODEL` | | Model the voice delegates reasoning/tools to (default `gpt-6-luna`) |
 | `BRIDGE_OPERATOR_MODEL` | | Computer-use model (default `computer-use-preview`) |
 | `BRIDGE_OPERATOR_TOOL` | | `computer` to use the GA computer tool instead of `computer_use_preview` |
 | `STAYOS_VAULT_KEY` | prod bridge | 32-byte base64 key for sealing PMS logins (`openssl rand -base64 32`); dev derives one from `NEXTAUTH_SECRET` |

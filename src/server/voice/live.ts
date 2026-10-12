@@ -14,8 +14,10 @@ import { createHmac, timingSafeEqual } from 'crypto';
 import { forbidden, DomainError } from '../errors';
 
 export const LIVE_MODEL = process.env.OPENAI_LIVE_MODEL || 'gpt-live-1';
-export const VOICE_BACKEND_MODEL = process.env.OPENAI_VOICE_BACKEND_MODEL || 'gpt-5.6-terra';
-export const VOICES = ['marin', 'cedar', 'willow', 'coral', 'sage', 'verse', 'ash', 'shimmer'] as const;
+// Same default the OpenAI playground uses for Live delegation.
+export const VOICE_BACKEND_MODEL = process.env.OPENAI_VOICE_BACKEND_MODEL || 'gpt-6-luna';
+// Built-in Live voices (marin first: the API default).
+export const VOICES = ['marin', 'cedar', 'gleam', 'willow', 'coral', 'sage', 'verse', 'ash', 'shimmer', 'alloy', 'ballad', 'beacon', 'bossa', 'cinder', 'delta', 'echo', 'meridian', 'quartz', 'ripple', 'stone', 'tempo', 'vesper'] as const;
 
 export function voiceConfigured(): boolean {
   return !!process.env.OPENAI_API_KEY;

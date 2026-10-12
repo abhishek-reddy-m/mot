@@ -29,7 +29,7 @@ const PATHS: { id: Path; icon: React.ElementType; title: string; text: string }[
   { id: 'VOICE', icon: AudioLines, title: 'Just the voice agent', text: 'Answer guest questions by voice with your real rooms and prices.' },
 ];
 const SYSTEMS = ['Cloudbeds', 'Mews', 'Oracle OPERA Cloud', 'Little Hotelier', 'RoomRaccoon', 'eZee Absolute', 'innRoad', 'WebRezPro', 'SkyTouch', 'Hotelogix', 'Other'];
-const VOICES = ['marin', 'cedar', 'willow', 'coral', 'sage', 'verse'];
+const VOICES = ['marin', 'cedar', 'gleam', 'willow', 'coral', 'sage', 'verse'];
 
 function Steps({ steps, current }: { steps: string[]; current: number }) {
   return (
