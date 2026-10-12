@@ -3,7 +3,8 @@
  * Build used on Vercel (see vercel.json).
  *
  * 1. Maps the connection-string names Vercel's Postgres integrations inject
- *    (Neon, Supabase, Prisma Postgres) onto the two names Prisma reads,
+ *    (Neon, Supabase, Prisma Postgres; the Prisma-tuned POSTGRES_PRISMA_URL
+ *    first) onto the two names Prisma reads,
  *    DATABASE_URL and DIRECT_URL — same order as src/lib/db-url.ts.
  * 2. With a database: applies pending migrations and, when SEED_DEMO=true,
  *    creates the demo once (the seed never wipes on Vercel).
@@ -20,7 +21,7 @@ env.PATH = `${path.resolve('node_modules/.bin')}${path.delimiter}${env.PATH}`;
 const isPostgres = (v) => !!v && /^postgres(ql)?:\/\//.test(v);
 const first = (...keys) => keys.map((k) => env[k]).find(isPostgres);
 
-const pooled = first('DATABASE_URL', 'POSTGRES_PRISMA_URL', 'POSTGRES_URL');
+const pooled = first('POSTGRES_PRISMA_URL', 'DATABASE_URL', 'POSTGRES_URL');
 const direct = first('DIRECT_URL', 'DATABASE_URL_UNPOOLED', 'POSTGRES_URL_NON_POOLING') ?? pooled;
 if (pooled) {
   env.DATABASE_URL = pooled;
