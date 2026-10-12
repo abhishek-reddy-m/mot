@@ -1,229 +1,138 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import * as React from 'react';
+import Link from 'next/link';
+import useSWR from 'swr';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ArrowUpRight, BedDouble, Building2, CalendarCheck2, Check, MapPin, Plus } from 'lucide-react';
+import { fetcher } from '@/lib/fetcher';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Building2, MapPin, Star, Edit, Trash2, Plus, Search } from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { EmptyState, PageHeader, Skeleton } from '@/components/ui/primitives';
+import { SmartImage } from '@/components/ui/smart-image';
+import { useConsole } from '@/components/console/ConsoleProvider';
 
-export default function AdminPropertiesPage() {
-  const [searchTerm, setSearchTerm] = useState('');
+interface PropertyRow {
+  id: string;
+  name: string;
+  city: string;
+  state: string;
+  type: string | null;
+  tagline: string | null;
+  isActive: boolean;
+  isDemo: boolean;
+  primaryColor: string | null;
+  photos: { url: string }[];
+  roomTypes: { id: string; totalRooms: number; isActive: boolean }[];
+  _count: { bookings: number; rooms: number };
+}
+
+export default function PropertiesPage() {
   const router = useRouter();
-  type Property = {
-    id: string;
-    name: string;
-    description?: string;
-    address: string;
-    city: string;
-    state: string;
-    zipCode: string;
-    phone: string;
-    email?: string;
-    isActive: boolean;
-    roomTypes: Array<{
-      id: string;
-      name: string;
-      capacity: number;
-    }>;
-    _count: {
-      bookings: number;
-    };
-  };
-
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [deleteError, setDeleteError] = useState('');
-
-  useEffect(() => {
-    const fetchProperties = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/admin/properties');
-        if (!response.ok) {
-          throw new Error('Failed to fetch properties');
-        }
-        const data = await response.json();
-        setProperties(data);
-      } catch (err) {
-        setError('Error loading properties. Please try again.');
-        console.error('Error fetching properties:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProperties();
-  }, []);
-
-  const filteredProperties = properties.filter((property) =>
-    property.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    property.address.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    property.city.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    property.state.toLowerCase().includes(searchTerm.toLowerCase())
-  );
-  
-  const [isDeleting, setIsDeleting] = useState('');
-  
-  const handleDeleteProperty = async (propertyId: string) => {
-    if (!confirm('Are you sure you want to delete this property? This action cannot be undone.')) {
-      return;
-    }
-    
-    try {
-      setIsDeleting(propertyId);
-      setDeleteError('');
-      
-      const response = await fetch(`/api/admin/properties/${propertyId}`, {
-        method: 'DELETE',
-      });
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        
-        if (response.status === 400 && errorData.error === 'Cannot delete property with active bookings') {
-          throw new Error('Cannot delete property with active bookings. Please cancel or complete all bookings first.');
-        } else {
-          throw new Error(`Failed to delete property: ${errorData.error || response.statusText}`);
-        }
-      }
-      
-      // Remove the deleted property from the state
-      setProperties(properties.filter(property => property.id !== propertyId));
-      
-    } catch (err: any) {
-      console.error('Error deleting property:', err);
-      setDeleteError(err.message || 'Failed to delete property. Please try again.');
-    } finally {
-      setIsDeleting('');
-    }
-  };
+  const { can, propertyId, setPropertyId } = useConsole();
+  const { data, isLoading } = useSWR<PropertyRow[]>('/api/admin/properties', fetcher);
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Properties</h1>
-          <p className="text-gray-600">Manage your motel properties</p>
-        </div>
-        <Button className="flex items-center space-x-2" onClick={() => router.push('/admin/properties/add')}>
-          <Plus className="h-4 w-4" />
-          <span>Add Property</span>
-        </Button>
-      </div>
+    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <PageHeader
+        title="Properties"
+        description={data ? `${data.length} propert${data.length === 1 ? 'y' : 'ies'} you manage` : 'Loading…'}
+        actions={
+          can('property.create') ? (
+            <Button asChild>
+              <Link href="/admin/properties/add">
+                <Plus className="h-4 w-4" /> Add property
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
 
-      {/* Error Message */}
-      {deleteError && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded relative" role="alert">
-          <span className="block sm:inline">{deleteError}</span>
-          <span className="absolute top-0 bottom-0 right-0 px-4 py-3">
-            <button onClick={() => setDeleteError('')} className="text-red-500">
-              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
-              </svg>
-            </button>
-          </span>
+      {isLoading ? (
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-72 rounded-2xl" />
+          ))}
         </div>
-      )}
-      
-      {/* Search */}
-      <div className="flex items-center space-x-4">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search properties..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10"
+      ) : !data?.length ? (
+        <Card>
+          <EmptyState
+            icon={Building2}
+            title="No properties yet"
+            description="Add your first property to start taking bookings."
+            action={
+              can('property.create') ? (
+                <Button asChild>
+                  <Link href="/admin/properties/add">Add property</Link>
+                </Button>
+              ) : undefined
+            }
           />
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="flex justify-center items-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      ) : error ? (
-        <div className="text-center py-12">
-          <p className="text-red-500">{error}</p>
-        </div>
+        </Card>
       ) : (
-        <>
-          {/* Properties Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-            {filteredProperties.map((property) => (
-              <Card key={property.id} className="hover:shadow-lg transition-shadow">
-                <CardHeader>
-                  <div className="flex items-start justify-between">
-                    <div className="flex items-center space-x-2">
-                      <Building2 className="h-5 w-5 text-blue-600" />
-                      <CardTitle className="text-lg">{property.name}</CardTitle>
-                    </div>
-                    <Badge variant={property.isActive ? 'default' : 'secondary'}>
-                      {property.isActive ? 'Active' : 'Inactive'}
-                    </Badge>
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {data.map((p) => {
+            const rooms = p.roomTypes.filter((t) => t.isActive).reduce((s, t) => s + t.totalRooms, 0);
+            const current = p.id === propertyId;
+            return (
+              <Card key={p.id} className={cn('group flex flex-col overflow-hidden p-0 transition-shadow hover:shadow-lifted', current && 'ring-2 ring-primary/25')}>
+                <div className="relative">
+                  <SmartImage src={p.photos[0]?.url} icon={Building2} className="aspect-[16/9] w-full" />
+                  <span className="absolute inset-x-0 bottom-0 h-1" style={{ backgroundColor: p.primaryColor ?? 'hsl(var(--primary))' }} />
+                  <div className="absolute left-3 top-3 flex gap-1.5">
+                    {p.isDemo && <span className="rounded-full bg-card/90 px-2 py-0.5 text-[11px] font-medium shadow-xs">Demo</span>}
+                    {!p.isActive && <span className="rounded-full bg-foreground/80 px-2 py-0.5 text-[11px] font-medium text-background">Inactive</span>}
+                    {current && (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground">
+                        <Check className="h-3 w-3" /> Current
+                      </span>
+                    )}
                   </div>
-                  <div className="flex items-center space-x-2 text-sm text-gray-600">
-                    <MapPin className="h-4 w-4" />
-                    <span>{property.address}, {property.city}, {property.state}</span>
+                </div>
+                <div className="flex flex-1 flex-col p-4">
+                  <p className="font-semibold tracking-tight">{p.name}</p>
+                  <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                    <MapPin className="h-3 w-3" /> {p.city}, {p.state}
+                    {p.type && <span>· {p.type}</span>}
+                  </p>
+                  <div className="mt-3 flex gap-4 text-xs text-muted-foreground">
+                    <span className="flex items-center gap-1.5">
+                      <BedDouble className="h-3.5 w-3.5" /> {rooms} rooms
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <CalendarCheck2 className="h-3.5 w-3.5" /> {p._count.bookings} bookings
+                    </span>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {property.description && (
-                    <p className="text-sm text-gray-600 line-clamp-2">{property.description}</p>
-                  )}
-                  
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-gray-600">Room Types:</span>
-                      <div className="font-semibold">{property.roomTypes.length}</div>
-                    </div>
-                    <div>
-                      <span className="text-gray-600">Bookings:</span>
-                      <div className="font-semibold text-green-600">{property._count.bookings}</div>
-                    </div>
-                  </div>
-
-                  <div className="flex space-x-2 pt-4">
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="flex-1"
-                      onClick={() => router.push(`/admin/properties/${property.id}`)}
-                    >
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit
-                    </Button>
-                    <Button 
-                      variant="outline" 
-                      size="sm" 
-                      className="text-red-600 hover:text-red-700"
-                      onClick={() => handleDeleteProperty(property.id)}
-                      disabled={isDeleting === property.id}
-                    >
-                      {isDeleting === property.id ? (
-                        <div className="animate-spin h-4 w-4 border-2 border-red-600 rounded-full border-t-transparent" />
-                      ) : (
-                        <Trash2 className="h-4 w-4" />
-                      )}
+                  <div className="mt-4 flex gap-2 pt-1">
+                    {!current && (
+                      <Button
+                        size="sm"
+                        className="flex-1"
+                        onClick={() => {
+                          setPropertyId(p.id);
+                          router.push('/admin');
+                        }}
+                      >
+                        Switch to
+                      </Button>
+                    )}
+                    {can('property.write') && (
+                      <Button asChild size="sm" variant="outline" className="flex-1">
+                        <Link href={`/admin/properties/${p.id}`}>Edit</Link>
+                      </Button>
+                    )}
+                    <Button asChild size="icon-sm" variant="ghost" aria-label="Open booking page">
+                      <Link href={`/properties/${p.id}`} target="_blank">
+                        <ArrowUpRight className="h-4 w-4" />
+                      </Link>
                     </Button>
                   </div>
-                </CardContent>
+                </div>
               </Card>
-            ))}
-          </div>
-          
-          {filteredProperties.length === 0 && (
-            <div className="text-center py-12">
-              <Building2 className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-              <h3 className="text-lg font-medium text-gray-900 mb-2">No properties found</h3>
-              <p className="text-gray-600">Try adjusting your search terms</p>
-            </div>
-          )}
-        </>
+            );
+          })}
+        </div>
       )}
     </div>
   );

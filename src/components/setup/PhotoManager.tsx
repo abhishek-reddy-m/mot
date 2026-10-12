@@ -3,7 +3,7 @@
 import * as React from 'react';
 import useSWR from 'swr';
 import { toast } from 'sonner';
-import { ImagePlus, Star, Trash2 } from 'lucide-react';
+import { ImageIcon, ImagePlus, Star, Trash2 } from 'lucide-react';
 import { api, fetcher } from '@/lib/fetcher';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
@@ -88,7 +88,7 @@ export function PhotoManager({ endpoint, editable = true }: { endpoint: string; 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {(photos ?? []).map((p) => (
           <div key={p.id} className={cn('group relative aspect-[4/3] overflow-hidden rounded-xl border bg-muted', busy === p.id && 'opacity-60')}>
-            <SmartImage src={p.url} className="h-full w-full" />
+            <SmartImage src={p.url} icon={ImageIcon} className="h-full w-full" />
             {p.isMain && <span className="absolute left-2 top-2 rounded-full bg-foreground/80 px-2 py-0.5 text-[10px] font-medium text-background">Cover</span>}
             {editable && (
               <div className="absolute inset-x-2 bottom-2 flex justify-end gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
