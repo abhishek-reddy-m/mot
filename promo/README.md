@@ -62,3 +62,60 @@ Pass extra frame numbers to check mid-animation frames:
   room card uses a flat drawing in their place.
 - `scripts/browser.ts` points Remotion at a preinstalled Chrome headless shell
   when one exists; otherwise Remotion downloads its own.
+
+---
+
+# Ad 2 — "Let me check" (for hotel and motel owners)
+
+An 80-second vertical story ad aimed at independent hotel and motel owners
+(the people who'd run this system), not guests. Output:
+`out/casa-blanca-let-me-check.mp4`; review sheets: `out/call-sheet-*.jpg`.
+
+**Story.** 11:47 PM, the front desk phone rings. A guest wants a room for
+Friday; the owner says "let me check" and puts them on hold while the ledger
+shows Room 12 booked twice, housekeeping texts "is 104 clean??", and the rates
+note says $299 every night. The guest hangs up to book somewhere else. Then the
+tape rewinds to 11:47: same guest, but the hotel has its own booking site.
+The guest books in seconds, and each problem from the hold is crossed out and
+fixed on screen (per-night availability, the rate calendar's weekend button,
+housekeeping on the phone), followed by the front desk dashboard, self-serve
+date changes and per-role logins. It ends at 11:47 PM again, with no call,
+and the booking waiting in the Bookings list at 7:02 AM.
+
+**Sound.** Dialogue and narration are synthesized offline with Kokoro-82M
+(Apache-2.0); the caller is band-limited like a phone line. The score and
+every effect (ringtone, hold music through the phone, busy tone, tape rewind,
+UI taps, the warm 100 BPM groove, the final chord) are synthesized in
+`scripts/make-call-audio.ts`. Burned-in captions follow each spoken word,
+for muted autoplay.
+
+Every claim maps to app code in `src/call/claims.md`.
+
+## Build
+
+```bash
+npm run call:build   # fonts -> mix -> review stills -> render
+```
+
+| Command               | Does                                                                    |
+| --------------------- | ----------------------------------------------------------------------- |
+| `npm run call:voice`  | Re-records the voice lines (needs the Kokoro setup below); usually not needed |
+| `npm run call:audio`  | Mixes voice + score + effects into `public/call/mix.wav`; `MIX_REPORT=1` prints per-scene levels |
+| `npm run call:stills` | Two stills per scene + contact sheets in `out/`                          |
+| `npm run call:render` | Renders `out/call-master.mp4`, then remuxes the delivery file           |
+
+The voice lines in `public/call/vo/` and their word timings in
+`src/call/vo.ts` are committed, so only `call:voice` needs the TTS model.
+Edit lines in `src/call/script.json`; the timeline (`src/call/timeline.ts`)
+re-times every scene from the new line lengths.
+
+Kokoro setup for `call:voice`:
+
+```bash
+python3 -m venv .venv && .venv/bin/pip install kokoro-onnx==0.6.1 soundfile
+# model: onnx-community/Kokoro-82M-v1.0-ONNX, onnx/model_quantized.onnx
+#   (sha256 fbae9257e1e05ffc727e951ef9b9c98418e6d79f1c9b6b13bd59f5c9028a1478)
+# voices: the voices/*.bin files of the kokoro-js npm package, packed into
+#   voices.npz as arrays of shape (510, 1, 256), keyed by voice name
+.venv/bin/python -I scripts/make-voice.py --model model_quantized.onnx --voices voices.npz
+```

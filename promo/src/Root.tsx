@@ -1,5 +1,7 @@
 import React from 'react';
 import {Composition} from 'remotion';
+import {CallAd} from './call/CallAd.tsx';
+import * as Call from './call/timeline.ts';
 import {Promo} from './Promo.tsx';
 import {FPS, HEIGHT, TOTAL_FRAMES, WIDTH} from './timeline.ts';
 
@@ -12,6 +14,15 @@ export const Root: React.FC = () => (
       fps={FPS}
       width={WIDTH}
       height={HEIGHT}
+      defaultProps={{withAudio: true}}
+    />
+    <Composition
+      id="CallAd"
+      component={CallAd}
+      durationInFrames={Call.TOTAL_FRAMES}
+      fps={Call.FPS}
+      width={Call.WIDTH}
+      height={Call.HEIGHT}
       defaultProps={{withAudio: true}}
     />
   </>

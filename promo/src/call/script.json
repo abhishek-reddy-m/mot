@@ -1,0 +1,25 @@
+{
+  "_comment": "Voice lines for the 'Let me check' ad. Read by scripts/make-voice.py (TTS) and src/call/*. Every product claim maps to app code: see src/call/claims.md.",
+  "voices": {
+    "owner": {"voice": "af_nicole", "speed": 0.96},
+    "caller": {"voice": "am_michael", "speed": 1.04},
+    "narrator": {"voice": "af_heart", "speed": 1.0}
+  },
+  "lines": [
+    {"id": "owner_hello", "speaker": "owner", "text": "Front desk, hello?"},
+    {"id": "caller_ask", "speaker": "caller", "text": "Hi! Do you have a room this Friday? Two nights, two adults."},
+    {"id": "owner_check", "speaker": "owner", "text": "Umm... let me check. Can you hold for a sec?"},
+    {"id": "caller_bail", "speaker": "caller", "text": "Hello? You know what, I'll just book somewhere online. Thanks."},
+    {"id": "n_turn", "speaker": "narrator", "text": "Every \"let me check\" is a guest booking somewhere else."},
+    {"id": "n_rewind", "speaker": "narrator", "text": "Same night. Same guest. But this time, your hotel has its own booking site."},
+    {"id": "n_book", "speaker": "narrator", "text": "They see what's free, pick their dates, and book. No phone call."},
+    {"id": "n_avail", "speaker": "narrator", "text": "Every night is counted, so no room gets sold twice."},
+    {"id": "n_rates", "speaker": "narrator", "text": "Price every night on its own. Set all your Fridays and Saturdays at once."},
+    {"id": "n_house", "speaker": "narrator", "text": "Housekeeping marks rooms clean from their phone. The front desk sees what's ready."},
+    {"id": "n_desk", "speaker": "narrator", "text": "Arrivals, departures and occupancy, on one screen."},
+    {"id": "n_changes", "speaker": "narrator", "text": "Guests move or cancel their own booking, up to a day before check-in."},
+    {"id": "n_roles", "speaker": "narrator", "text": "And your whole team gets their own login, with only what they need."},
+    {"id": "n_close", "speaker": "narrator", "text": "No more \"let me check.\""},
+    {"id": "n_cta", "speaker": "narrator", "text": "Your own booking site and front desk, for independent hotels and motels. See it live."}
+  ]
+}

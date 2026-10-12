@@ -25,6 +25,12 @@ const files = [
   ['dancing-script', 'dancing-script-latin-700-normal.woff2'],
   ['montserrat', 'montserrat-latin-500-normal.woff2'],
   ['montserrat', 'montserrat-latin-600-normal.woff2'],
+  // "Let me check" ad
+  ['bricolage-grotesque', 'bricolage-grotesque-latin-500-normal.woff2'],
+  ['bricolage-grotesque', 'bricolage-grotesque-latin-700-normal.woff2'],
+  ['bricolage-grotesque', 'bricolage-grotesque-latin-800-normal.woff2'],
+  ['caveat', 'caveat-latin-600-normal.woff2'],
+  ['caveat', 'caveat-latin-700-normal.woff2'],
 ];
 
 for (const [pkg, file] of files) {

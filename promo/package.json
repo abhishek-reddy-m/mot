@@ -11,6 +11,11 @@
     "stills": "node scripts/render-stills.ts",
     "render": "remotion render Promo out/master.mp4 && node scripts/deliver.ts",
     "build": "npm run fonts && npm run audio && npm run stills && npm run render",
+    "call:voice": "python3 -I scripts/make-voice.py",
+    "call:audio": "node scripts/make-call-audio.ts",
+    "call:stills": "node scripts/render-call-stills.ts",
+    "call:render": "remotion render CallAd out/call-master.mp4 && node scripts/deliver.ts out/call-master.mp4 out/casa-blanca-let-me-check.mp4 copy",
+    "call:build": "npm run fonts && npm run call:audio && npm run call:stills && npm run call:render",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -23,6 +28,8 @@
     "remotion": "4.0.534"
   },
   "devDependencies": {
+    "@fontsource/bricolage-grotesque": "5.2.8",
+    "@fontsource/caveat": "5.2.8",
     "@fontsource/dancing-script": "5.2.7",
     "@fontsource/instrument-serif": "5.2.7",
     "@fontsource/inter": "5.2.7",

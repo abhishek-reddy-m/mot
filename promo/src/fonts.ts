@@ -15,6 +15,11 @@ const FONTS: Array<{family: string; file: string; weight: string; style?: string
   {family: 'Dancing Script', file: 'dancing-script-latin-700-normal.woff2', weight: '700'},
   {family: 'Montserrat', file: 'montserrat-latin-500-normal.woff2', weight: '500'},
   {family: 'Montserrat', file: 'montserrat-latin-600-normal.woff2', weight: '600'},
+  {family: 'Bricolage Grotesque', file: 'bricolage-grotesque-latin-500-normal.woff2', weight: '500'},
+  {family: 'Bricolage Grotesque', file: 'bricolage-grotesque-latin-700-normal.woff2', weight: '700'},
+  {family: 'Bricolage Grotesque', file: 'bricolage-grotesque-latin-800-normal.woff2', weight: '800'},
+  {family: 'Caveat', file: 'caveat-latin-600-normal.woff2', weight: '600'},
+  {family: 'Caveat', file: 'caveat-latin-700-normal.woff2', weight: '700'},
 ];
 
 let loaded = false;
