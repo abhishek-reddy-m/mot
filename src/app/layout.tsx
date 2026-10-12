@@ -1,32 +1,37 @@
-import type { Metadata } from "next";
-import { Inter, Dancing_Script, Montserrat } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Inter, Fraunces } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
 import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_DESCRIPTION } from "@/config/product";
 
-const inter = Inter({ 
+const sans = Inter({
   subsets: ["latin"],
-  variable: "--font-inter"
+  variable: "--font-sans",
+  display: "swap",
 });
 
-const dancingScript = Dancing_Script({
+// Display serif for guest-facing headlines (booking sites, confirmations).
+const display = Fraunces({
   subsets: ["latin"],
-  variable: "--font-dancing-script",
-  weight: ["400", "700"]
+  variable: "--font-display",
+  display: "swap",
+  axes: ["opsz", "SOFT"],
 });
 
-const montserrat = Montserrat({
-  subsets: ["latin"],
-  variable: "--font-montserrat",
-  weight: ["300", "400", "500", "600", "700", "800"]
-});
+export const metadata: Metadata = {
+  title: {
+    default: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
+    template: `%s · ${PRODUCT_NAME}`,
+  },
+  description: PRODUCT_DESCRIPTION,
+};
 
-export async function generateMetadata(): Promise<Metadata> {
-  return {
-    title: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
-    description: PRODUCT_DESCRIPTION,
-  };
-}
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0f17" },
+  ],
+};
 
 export default function RootLayout({
   children,
@@ -35,10 +40,8 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${inter.variable} ${dancingScript.variable} ${montserrat.variable} font-sans antialiased`}>
-        <Providers>
-          {children}
-        </Providers>
+      <body className={`${sans.variable} ${display.variable} font-sans antialiased`}>
+        <Providers>{children}</Providers>
       </body>
     </html>
   );

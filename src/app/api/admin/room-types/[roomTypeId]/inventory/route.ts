@@ -1,24 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { staffGuard } from '@/server/guard';
 
 // Get room inventory for a specific room type
 export async function GET(
   request: NextRequest,
-  { params }: { params: { roomTypeId: string } }
+  { params }: { params: Promise<{ roomTypeId: string }> }
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const guard = await staffGuard('inventory.write', { roomTypeId: (await params).roomTypeId });
+    if ('error' in guard) return guard.error;
 
-    const roomTypeId = params.roomTypeId;
+    const roomTypeId = (await params).roomTypeId;
     
     // Check if the room type exists
     const roomType = await prisma.roomType.findUnique({
@@ -53,20 +48,14 @@ export async function GET(
 // Add new room to inventory
 export async function POST(
   request: NextRequest,
-  { params }: { params: { roomTypeId: string } }
+  { params }: { params: Promise<{ roomTypeId: string }> }
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const guard = await staffGuard('inventory.write', { roomTypeId: (await params).roomTypeId });
+    if ('error' in guard) return guard.error;
 
-    const roomTypeId = params.roomTypeId;
+    const roomTypeId = (await params).roomTypeId;
     const body = await request.json();
     const { roomNumber } = body;
     

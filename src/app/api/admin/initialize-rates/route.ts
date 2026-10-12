@@ -1,67 +1,23 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
+import { NextRequest } from 'next/server';
+import { z } from 'zod';
+import { requireStaff } from '@/server/authz';
+import { forbidden } from '@/server/errors';
+import { staffGuard } from '@/server/guard';
+import { handleRoute, json, parseJson } from '@/server/http';
 import { setupFutureRates, setupFutureRatesForRoomType } from '@/lib/setup-future-rates';
 
-// POST /api/admin/initialize-rates
-export async function POST(request: NextRequest) {
-  try {
-    console.log('Initialize rates API called');
-    const session = await auth();
-    
-    console.log('Auth session:', session ? {
-      id: session.user?.id,
-      email: session.user?.email,
-      role: session.user?.role
-    } : 'No session');
-    
-    // Check authentication
-    if (!session?.user) {
-      console.log('Authentication failed: No user in session');
-      return NextResponse.json(
-        { error: 'Unauthorized - You must be logged in' },
-        { status: 401 }
-      );
-    }
-    
-    if (session.user.role !== 'ADMIN') {
-      console.log(`Authentication failed: User role ${session.user.role} is not ADMIN`);
-      return NextResponse.json(
-        { error: 'Unauthorized - Admin access required' },
-        { status: 401 }
-      );
-    }
-    
-    let body;
-    try {
-      body = await request.json();
-    } catch (error) {
-      console.log('No request body or invalid JSON');
-      body = {};
-    }
-    
-    const { roomTypeId } = body;
-    console.log(`Initialize rates for ${roomTypeId ? `room type: ${roomTypeId}` : 'all room types'}`);
-    
-    let result;
-    
-    // If roomTypeId is provided, initialize rates for that specific room type
-    if (roomTypeId) {
-      result = await setupFutureRatesForRoomType(roomTypeId);
-    } else {
-      // Otherwise, initialize rates for all room types
-      result = await setupFutureRates();
-    }
-    
-    console.log('Initialize rates result:', result);
-    return NextResponse.json(result);
-  } catch (error) {
-    console.error('Error initializing rates:', error);
-    return NextResponse.json(
-      { 
-        error: 'Failed to initialize rates',
-        details: error instanceof Error ? error.message : String(error)
-      },
-      { status: 500 }
-    );
+/**
+ * POST /api/admin/initialize-rates — materialise base-price rows in the rate
+ * calendar. Optional: quotes already fall back to the base price.
+ */
+export const POST = handleRoute(async (request: NextRequest) => {
+  const { roomTypeId } = await parseJson(request, z.object({ roomTypeId: z.string().optional() }).catch({}));
+  if (roomTypeId) {
+    const guard = await staffGuard('rates.write', { roomTypeId });
+    if ('error' in guard) return guard.error;
+    return json(await setupFutureRatesForRoomType(roomTypeId));
   }
-}
+  const actor = await requireStaff('rates.write');
+  if (actor.role !== 'ADMIN') throw forbidden('Initialising every property at once is a platform-admin action.');
+  return json(await setupFutureRates());
+});

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { staffGuard } from '@/server/guard';
 
 // GET a single room type
 export async function GET(
@@ -9,14 +10,8 @@ export async function GET(
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const guard = await staffGuard(null, { roomTypeId: (await params).roomTypeId });
+    if ('error' in guard) return guard.error;
 
     // Await params before accessing properties
     const { roomTypeId } = await params;
@@ -61,14 +56,8 @@ export async function PUT(
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const guard = await staffGuard('inventory.write', { roomTypeId: (await params).roomTypeId });
+    if ('error' in guard) return guard.error;
 
     // Await params before accessing properties
     const { roomTypeId } = await params;
@@ -151,14 +140,8 @@ export async function DELETE(
 ) {
   try {
     // Check authentication
-    const session = await auth();
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const guard = await staffGuard('inventory.write', { roomTypeId: (await params).roomTypeId });
+    if ('error' in guard) return guard.error;
 
     // Await params before accessing properties
     const { roomTypeId } = await params;

@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { staffGuard } from '@/server/guard';
 
 // GET room inventory for a property
 export async function GET(
   request: NextRequest,
-  { params }: { params: { propertyId: string } }
+  { params }: { params: Promise<{ propertyId: string }> }
 ) {
   try {
-    const propertyId = params.propertyId;
+    const guard = await staffGuard('inventory.write', { propertyId: (await params).propertyId });
+    if ('error' in guard) return guard.error;
+    const propertyId = (await params).propertyId;
     
     if (!propertyId) {
       return NextResponse.json(
@@ -82,19 +85,13 @@ export async function GET(
 // POST update room inventory for a property
 export async function POST(
   request: NextRequest,
-  { params }: { params: { propertyId: string } }
+  { params }: { params: Promise<{ propertyId: string }> }
 ) {
   try {
-    const session = await auth();
-    
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
-    }
+    const guard = await staffGuard('inventory.write', { propertyId: (await params).propertyId });
+    if ('error' in guard) return guard.error;
 
-    const propertyId = params.propertyId;
+    const propertyId = (await params).propertyId;
     const body = await request.json();
     const { roomTypeId, count } = body;
 

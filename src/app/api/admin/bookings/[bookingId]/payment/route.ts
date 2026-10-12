@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { assertPropertyAccess, requireStaff } from '@/server/authz';
+import { errorResponse } from '@/server/http';
 
 // GET payment metadata for a booking (admin only).
 // Raw card data is never stored (PCI compliance), so only safe metadata
@@ -12,20 +13,13 @@ export async function GET(
   try {
     const { bookingId } = await params;
 
-    // Check authentication - must be admin
-    const session = await auth();
-
-    if (!session?.user || session.user.role !== 'ADMIN') {
-      return NextResponse.json(
-        { error: 'Unauthorized - Admin access required' },
-        { status: 401 }
-      );
-    }
+    const actor = await requireStaff('booking.payment.view');
 
     const booking = await prisma.booking.findUnique({
       where: { id: bookingId },
       select: {
         id: true,
+        propertyId: true,
         paymentStatus: true,
         cardLast4: true,
         cardBrand: true,
@@ -44,12 +38,10 @@ export async function GET(
       );
     }
 
-    return NextResponse.json(booking);
+    assertPropertyAccess(actor, booking.propertyId);
+    const { propertyId: _propertyId, ...payment } = booking;
+    return NextResponse.json(payment);
   } catch (error) {
-    console.error('Error fetching payment details:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return errorResponse(error);
   }
 }

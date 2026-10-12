@@ -141,7 +141,11 @@ model Booking {
   rooms         Int                    @default(1)
   totalPrice    Decimal                @db.Decimal(10, 2)
   status        BookingStatus          @default(PENDING)
+  // Short human-friendly confirmation code staff and guests can say out loud.
+  code          String?                @unique
   notes         String?
+  // Physical room assigned at (or before) check-in.
+  roomId        String?
   // Payment metadata (no raw card data is ever stored — PCI compliance).
   // Card payments go through Stripe Checkout; otherwise pay at property.
   paymentStatus          String?               @default("UNPAID")
@@ -157,7 +161,12 @@ model Booking {
   property      Property               @relation(fields: [propertyId], references: [id])
   roomType      RoomType               @relation(fields: [roomTypeId], references: [id])
   user          User                   @relation(fields: [userId], references: [id])
+  room          Room?                  @relation(fields: [roomId], references: [id], onDelete: SetNull)
 
+  @@index([propertyId, checkIn])
+  @@index([propertyId, checkOut])
+  @@index([roomTypeId, checkIn, checkOut])
+  @@index([roomId])
   @@map("bookings")
 }
 
@@ -238,11 +247,14 @@ model Room {
   isOutOfOrder Boolean            @default(false)
   outOfOrderReason String?
   notes        String?
+  // Free-form features used for guest preferences: quiet, accessible, corner, view...
+  tags         String[]           @default([])
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   property     Property           @relation(fields: [propertyId], references: [id], onDelete: Cascade)
   roomType     RoomType           @relation(fields: [roomTypeId], references: [id], onDelete: Cascade)
   housekeeping RoomHousekeeping[]
+  bookings     Booking[]
 
   @@unique([propertyId, roomNumber])
   @@map("rooms")
