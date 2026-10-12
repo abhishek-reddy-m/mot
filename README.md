@@ -71,7 +71,8 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | ✓ | PostgreSQL connection string |
+| `DATABASE_URL` | ✓ | PostgreSQL connection string (on Vercel, `POSTGRES_PRISMA_URL` / `POSTGRES_URL` also work) |
+| `DIRECT_URL` | ✓ local | Unpooled connection for migrations (locally the same as `DATABASE_URL`; the Vercel build fills it from `DATABASE_URL_UNPOOLED` / `POSTGRES_URL_NON_POOLING` / `DATABASE_URL`) |
 | `NEXTAUTH_SECRET` | ✓ | Session signing; also signs agent plans and voice sessions unless `AGENT_PLAN_SECRET` is set |
 | `NEXTAUTH_URL` | prod | Public URL (Stripe return URLs) |
 | `HOTEL_TIMEZONE` | | Hotel "today" (default `America/Los_Angeles`) |
@@ -88,7 +89,8 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 | `RESEND_API_KEY` | | Confirmation emails |
 | `BLOB_READ_WRITE_TOKEN` | | Photo uploads (Vercel Blob) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | Google sign-in for guests |
-| `ADMIN_SEED_PASSWORD`, `DEMO_PASSWORD`, `SEED_DEMO`, `ALLOW_SEED_WIPE` | | Seeding controls (production never wipes unless `ALLOW_SEED_WIPE=true`) |
+| `ADMIN_SEED_PASSWORD`, `DEMO_PASSWORD`, `SEED_DEMO`, `ALLOW_SEED_WIPE` | | Seeding controls (production and Vercel builds never wipe unless `ALLOW_SEED_WIPE=true`; the demo is created once) |
+| `SKIP_MIGRATIONS` | | `true` stops the Vercel build from running `prisma migrate deploy` |
 
 ## The PMS bridge in one minute
 
@@ -97,6 +99,10 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 3. Staff ask the agent ("who's arriving?", "check in Moreno into 14"). Look-ups queue straight away; changes need a confirmed plan. Results stream back into the conversation as live task cards.
 
 See [`connector/README.md`](connector/README.md) for details and guardrails.
+
+## Deploying
+
+Vercel: connect the repo, add a Postgres database from *Storage*, set the secrets, redeploy — migrations and the optional demo seed run during the build. Step by step in [`DEPLOYMENT.md`](DEPLOYMENT.md); `/api/health` confirms the database is connected.
 
 ## Scripts
 

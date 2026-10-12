@@ -53,7 +53,8 @@ export const POST = handleRoute(async (request: NextRequest) => {
 
   if (isStripe) {
     const stripe = getStripe();
-    const siteUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+    // Return to the host the guest booked on (also right for preview deployments).
+    const siteUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin;
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],

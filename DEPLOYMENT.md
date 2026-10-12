@@ -1,99 +1,35 @@
-# Motel Booking System
+# Deploying StayOS on Vercel
 
-A full-stack motel booking website built with Next.js, TypeScript, and PostgreSQL.
+The repo deploys as-is: `vercel.json` runs `scripts/vercel-build.mjs`, which
 
-## Features
+1. maps whatever connection-string names the Postgres integration injected (Neon: `DATABASE_URL` + `DATABASE_URL_UNPOOLED`; Supabase: `POSTGRES_PRISMA_URL` / `POSTGRES_URL_NON_POOLING`; Prisma Postgres: `DATABASE_URL` / `POSTGRES_URL`) onto the `DATABASE_URL` / `DIRECT_URL` Prisma reads;
+2. with a database: runs `prisma migrate deploy`, then — when `SEED_DEMO=true` — creates the demo hotels once (the seed never wipes on Vercel and skips itself when the demo already exists);
+3. without one: still builds, so the first deploy never blocks; `/api/health` reports `not_configured` until a database is connected;
+4. `prisma generate` + `next build`.
 
-- **Admin Panel**: Property management, room type management, booking management, user management
-- **Customer Interface**: Property browsing, room booking, user account management
-- **Authentication**: Multi-level authentication with role-based access control
-- **Database**: PostgreSQL with Prisma ORM for data management
+## One-time setup
 
-## Production Deployment Instructions
+1. **Project** → create it from the GitHub repo (Settings → Git → Connect Git Repository). Framework, build and install commands come from `vercel.json`.
+2. **Database** → project → *Storage* → *Create Database* → **Neon** (free tier is enough) → connect it to Production and Preview. That adds `DATABASE_URL` / `DATABASE_URL_UNPOOLED`.
+3. **Environment variables** (Settings → Environment Variables):
 
-### Prerequisites
+   | Variable | Value |
+   | --- | --- |
+   | `NEXTAUTH_SECRET` | `openssl rand -base64 32` (sensitive) |
+   | `AGENT_PLAN_SECRET` | `openssl rand -base64 32` (sensitive) |
+   | `STAYOS_VAULT_KEY` | `openssl rand -base64 32` (sensitive) — seals stored PMS logins; never rotate without re-entering them |
+   | `NEXT_PUBLIC_DEMO_MODE` | `true` for a public demo (one-click logins on `/login`) |
+   | `SEED_DEMO` | `true` to create the demo hotels on the first build with a database |
+   | `HOTEL_TIMEZONE` | e.g. `America/Los_Angeles` |
+   | `OPENAI_API_KEY` | enables the voice front desk and the PMS bridge operator |
+   | `STRIPE_*`, `RESEND_API_KEY`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_CLIENT_*` | optional |
 
-- A PostgreSQL database (Render Postgres service recommended)
-- Node.js 18+ and npm
+   Leave `NEXTAUTH_URL` unset: auth trusts the request host, which keeps preview URLs working. Set it (or `NEXT_PUBLIC_SITE_URL`) only to pin Stripe return URLs to a custom domain.
+4. **Deploy** → *Deployments* → *Redeploy* (env and database changes only apply to new builds).
+5. **Check** → `https://<your-domain>/api/health` should return `{"ok":true,"database":"up","seeded":true}`.
 
-### Steps for Deployment
+## Notes
 
-1. **Clone the repository**
-   ```
-   git clone <repository-url>
-   cd motel-booking
-   ```
-
-2. **Configure Environment Variables**
-   
-   Create a `.env` file with the following variables:
-   ```
-   DATABASE_URL="postgresql://username:password@host:port/database"
-   NEXTAUTH_URL="https://your-app-domain.com"
-   NEXTAUTH_SECRET="a-long-secret-value"
-   ```
-
-3. **Deployment to Render**
-
-   - Connect your GitHub repository to Render
-   - Use the following settings for your Web Service:
-     - Build Command: `bash enhanced-cleanup.sh && npm install --production=false && npm run build`
-     - Start Command: `npm start`
-   - Add the required environment variables in the Render dashboard
-
-4. **Database Setup**
-
-   - Create a PostgreSQL database
-   - Apply migrations using Prisma:
-     ```
-     npx prisma migrate deploy
-     ```
-   - Seed the database:
-     ```
-     npm run db:seed
-     ```
-
-5. **Verify Deployment**
-
-   - After deployment, check the `/api/debug/schema` endpoint to verify database connectivity
-   - Log in with the default admin credentials (email: admin@motelbooking.com, password: see seed.js)
-
-## Development Setup
-
-1. **Install dependencies**
-   ```
-   npm install
-   ```
-
-2. **Set up the database**
-   ```
-   npm run db:setup
-   ```
-
-3. **Run the development server**
-   ```
-   npm run dev
-   ```
-
-## Troubleshooting Deployment
-
-If you encounter schema-related errors on Render:
-
-1. **Check database connectivity** using the `/api/debug/schema` endpoint
-2. **Verify schema migration** by checking if all expected tables exist
-3. **Force a clean rebuild** by manually triggering a deployment with "Clear build cache" option
-
-## Architecture
-
-- **Frontend**: Next.js App Router with server and client components
-- **Backend**: API routes in Next.js with proper middleware
-- **Database**: Prisma ORM with PostgreSQL
-- **Authentication**: NextAuth.js with JWT-based authentication
-
-## Adding New Features
-
-When adding new features:
-1. Create migrations for any schema changes
-2. Update API routes with proper error handling
-3. Avoid direct column references that might not exist in production
-4. Test thoroughly in a production-like environment before deploying
+- Migrations run on every build that has a database (`prisma migrate deploy` only applies pending ones). Set `SKIP_MIGRATIONS=true` to opt out, e.g. for preview branches sharing the production database.
+- Deployment Protection (Vercel Authentication) protects preview and per-deployment URLs by default; the production domain stays public.
+- The cloud PMS bridge worker (`node stayos-connector.mjs worker`) is a long-running process: run it on a small VM or container with `BRIDGE_WORKER_SECRET` set on both sides — not on Vercel Functions.

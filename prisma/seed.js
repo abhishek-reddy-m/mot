@@ -55,7 +55,8 @@ async function wipe() {
 }
 
 async function main() {
-  const isProduction = process.env.NODE_ENV === 'production';
+  // Builds on Vercel count as production even if NODE_ENV isn't set yet: never wipe there.
+  const isProduction = process.env.NODE_ENV === 'production' || !!process.env.VERCEL;
   const allowWipe = process.env.ALLOW_SEED_WIPE === 'true' || !isProduction;
   if (allowWipe) await wipe();
   else console.log('Skipping data wipe (production without ALLOW_SEED_WIPE=true).');
@@ -81,6 +82,12 @@ async function main() {
 
   if (isProduction && process.env.SEED_DEMO !== 'true') {
     console.log('Production: demo property/staff not seeded (set SEED_DEMO=true to include them).');
+    return;
+  }
+
+  // Safe to re-run (e.g. on every deploy): the demo is created once.
+  if (!allowWipe && (await prisma.property.findFirst({ where: { name: 'The Saltwater Inn', isDemo: true }, select: { id: true } }))) {
+    console.log('Demo data already present — nothing to seed.');
     return;
   }
 
