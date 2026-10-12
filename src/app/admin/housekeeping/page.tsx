@@ -1,425 +1,396 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import * as React from 'react';
+import useSWR from 'swr';
+import { toast } from 'sonner';
+import { motion, AnimatePresence } from 'framer-motion';
+import { ArrowDownToLine, CheckCircle2, Hand, Play, RefreshCw, Sparkles, SprayCan, UserRound, Wand2 } from 'lucide-react';
+import type { HousekeepingTaskDTO, RoomSummary, TeamMember } from '@/lib/dto';
+import { api, fetcher } from '@/lib/fetcher';
+import { fmtDay } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Input } from '@/components/ui/input';
-import { 
-  BedDouble,
-  Loader2,
-  RefreshCw,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
-  Search,
-  Sparkles,
-  Wrench,
-  User
-} from 'lucide-react';
+import { Card } from '@/components/ui/card';
+import { Avatar, EmptyState, PageHeader, Skeleton } from '@/components/ui/primitives';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { TaskStatusBadge } from '@/components/hotel/badges';
+import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider';
 
-type Room = {
-  id: string;
-  roomNumber: string;
-  floor?: string;
-  status: string;
-  isOutOfOrder: boolean;
-  outOfOrderReason?: string;
-  notes?: string;
-  roomType: {
-    id: string;
-    name: string;
-  };
-  property: {
-    id: string;
-    name: string;
-  };
-  housekeeping?: {
-    id: string;
-    status: string;
-    assignee?: {
-      id: string;
-      firstName: string;
-      lastName: string;
-    };
-  }[];
-};
+function useHousekeepingData() {
+  const tasksUrl = usePropertyUrl('/api/admin/housekeeping', { includeDone: '1' });
+  const tasks = useSWR<HousekeepingTaskDTO[]>(tasksUrl, fetcher, { refreshInterval: 30_000 });
+  return tasks;
+}
 
-type Property = {
-  id: string;
-  name: string;
-};
+async function updateTask(id: string, body: object) {
+  return api(`/api/admin/housekeeping/${id}`, { method: 'PATCH', json: body });
+}
 
-export default function HousekeepingPage() {
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [selectedPropertyId, setSelectedPropertyId] = useState<string>('');
-  const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'dirty' | 'clean' | 'inspected'>('dirty');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [updatingRoom, setUpdatingRoom] = useState<string | null>(null);
+/* ------------------------------------------------------------------ */
+/* Housekeeper: my rooms (phone-first)                                 */
+/* ------------------------------------------------------------------ */
 
-  // Fetch properties on mount
-  useEffect(() => {
-    const fetchProperties = async () => {
-      try {
-        const response = await fetch('/api/admin/properties');
-        if (response.ok) {
-          const data = await response.json();
-          setProperties(data);
-          if (data.length > 0) {
-            setSelectedPropertyId(data[0].id);
-          }
-        }
-      } catch (err) {
-        console.error('Error fetching properties:', err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchProperties();
-  }, []);
+function ProgressRing({ done, total }: { done: number; total: number }) {
+  const pct = total ? done / total : 0;
+  const r = 26;
+  const c = 2 * Math.PI * r;
+  return (
+    <div className="relative h-16 w-16">
+      <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90">
+        <circle cx="32" cy="32" r={r} className="fill-none stroke-muted" strokeWidth="6" />
+        <circle
+          cx="32"
+          cy="32"
+          r={r}
+          className="fill-none stroke-success transition-[stroke-dashoffset] duration-700"
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={c}
+          strokeDashoffset={c * (1 - pct)}
+        />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular">
+        {done}/{total}
+      </span>
+    </div>
+  );
+}
 
-  // Fetch rooms when property changes
-  useEffect(() => {
-    if (selectedPropertyId) {
-      fetchRooms();
-    }
-  }, [selectedPropertyId]);
+function MyRooms() {
+  const { ctx, refresh } = useConsole();
+  const { data, isLoading, mutate } = useHousekeepingData();
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const me = ctx?.user.id;
+  const mine = (data ?? []).filter((t) => t.assignee?.id === me);
+  const open = mine.filter((t) => t.status === 'PENDING' || t.status === 'IN_PROGRESS');
+  const done = mine.filter((t) => t.status === 'COMPLETED' || t.status === 'INSPECTED');
+  const available = (data ?? []).filter((t) => !t.assignee && (t.status === 'PENDING' || t.status === 'IN_PROGRESS'));
 
-  const fetchRooms = async () => {
-    if (!selectedPropertyId) return;
-    
+  async function act(t: HousekeepingTaskDTO, status: HousekeepingTaskDTO['status'], msg: string) {
+    setBusy(t.id);
     try {
-      const response = await fetch(`/api/admin/rooms?propertyId=${selectedPropertyId}&includeHousekeeping=true`);
-      if (response.ok) {
-        const data = await response.json();
-        setRooms(data);
-      }
-    } catch (err) {
-      console.error('Error fetching rooms:', err);
-    }
-  };
-
-  const updateRoomStatus = async (roomId: string, status: string) => {
-    try {
-      setUpdatingRoom(roomId);
-      
-      await fetch(`/api/admin/rooms/${roomId}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      });
-      
-      await fetchRooms();
-    } catch (err) {
-      console.error('Error updating room status:', err);
+      await updateTask(t.id, { status });
+      toast.success(msg);
+      await mutate();
+      refresh();
+    } catch (e) {
+      toast.error((e as Error).message);
     } finally {
-      setUpdatingRoom(null);
+      setBusy(null);
     }
-  };
-
-  const getRoomStatusBadge = (status: string, isOutOfOrder: boolean) => {
-    if (isOutOfOrder) return 'bg-red-100 text-red-800';
-    const styles: Record<string, string> = {
-      'CLEAN': 'bg-green-100 text-green-800',
-      'DIRTY': 'bg-yellow-100 text-yellow-800',
-      'INSPECTED': 'bg-blue-100 text-blue-800',
-      'OUT_OF_ORDER': 'bg-red-100 text-red-800',
-    };
-    return styles[status] || 'bg-gray-100 text-gray-800';
-  };
-
-  // Filter rooms
-  const filteredRooms = rooms.filter(room => {
-    // Don't show out of order rooms in housekeeping
-    if (room.isOutOfOrder) return false;
-    
-    // Search filter
-    if (searchQuery && !room.roomNumber.toLowerCase().includes(searchQuery.toLowerCase())) {
-      return false;
-    }
-    
-    // Status filter
-    if (filter === 'all') return true;
-    if (filter === 'dirty') return room.status === 'DIRTY';
-    if (filter === 'clean') return room.status === 'CLEAN';
-    if (filter === 'inspected') return room.status === 'INSPECTED';
-    
-    return true;
-  });
-
-  // Stats
-  const dirtyCount = rooms.filter(r => r.status === 'DIRTY' && !r.isOutOfOrder).length;
-  const cleanCount = rooms.filter(r => r.status === 'CLEAN' && !r.isOutOfOrder).length;
-  const inspectedCount = rooms.filter(r => r.status === 'INSPECTED' && !r.isOutOfOrder).length;
-  const outOfOrderCount = rooms.filter(r => r.isOutOfOrder).length;
-
-  if (loading) {
-    return (
-      <div className="p-6 flex justify-center items-center min-h-[60vh]">
-        <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
-      </div>
-    );
-  }
-
-  if (properties.length === 0) {
-    return (
-      <div className="p-6">
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-gray-500">No properties found.</p>
-          </CardContent>
-        </Card>
-      </div>
-    );
   }
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6">
+    <div className="mx-auto max-w-lg space-y-6 p-4 sm:p-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Housekeeping</h1>
-          <p className="text-gray-500">Manage room cleanliness status</p>
+          <p className="text-xs text-muted-foreground">{ctx ? fmtDay(ctx.today, 'long') : ''}</p>
+          <h1 className="text-2xl font-semibold tracking-tight">My rooms</h1>
+          <p className="text-sm text-muted-foreground">{open.length ? `${open.length} to go — rooms needed for arrivals first.` : 'All caught up. Nice work! ✨'}</p>
         </div>
-        <div className="flex items-center gap-3 mt-4 md:mt-0">
-          <select
-            value={selectedPropertyId}
-            onChange={(e) => setSelectedPropertyId(e.target.value)}
-            className="border rounded-md px-4 py-2 text-sm font-medium bg-white"
-          >
-            {properties.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
-          <Button variant="outline" size="sm" onClick={fetchRooms}>
-            <RefreshCw className="h-4 w-4 mr-1" />
-            Refresh
-          </Button>
-        </div>
+        <ProgressRing done={done.length} total={mine.length} />
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-        <Card 
-          className={`cursor-pointer transition-shadow ${filter === 'dirty' ? 'ring-2 ring-yellow-500' : 'hover:shadow-md'}`}
-          onClick={() => setFilter('dirty')}
-        >
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500">Dirty Rooms</p>
-                <p className="text-2xl font-bold text-yellow-600">{dirtyCount}</p>
-              </div>
-              <AlertCircle className="h-5 w-5 text-yellow-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card 
-          className={`cursor-pointer transition-shadow ${filter === 'clean' ? 'ring-2 ring-green-500' : 'hover:shadow-md'}`}
-          onClick={() => setFilter('clean')}
-        >
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500">Clean Rooms</p>
-                <p className="text-2xl font-bold text-green-600">{cleanCount}</p>
-              </div>
-              <Sparkles className="h-5 w-5 text-green-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card 
-          className={`cursor-pointer transition-shadow ${filter === 'inspected' ? 'ring-2 ring-blue-500' : 'hover:shadow-md'}`}
-          onClick={() => setFilter('inspected')}
-        >
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500">Inspected</p>
-                <p className="text-2xl font-bold text-blue-600">{inspectedCount}</p>
-              </div>
-              <CheckCircle2 className="h-5 w-5 text-blue-600" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card className="cursor-pointer hover:shadow-md">
-          <CardContent className="pt-4 pb-3">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-xs text-gray-500">Out of Order</p>
-                <p className="text-2xl font-bold text-red-600">{outOfOrderCount}</p>
-              </div>
-              <Wrench className="h-5 w-5 text-red-600" />
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Filter and Search */}
-      <div className="flex flex-col md:flex-row gap-4 mb-6">
-        <div className="relative flex-1 max-w-md">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search room number..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-10"
-          />
+      {isLoading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-28 rounded-2xl" />
+          <Skeleton className="h-28 rounded-2xl" />
         </div>
-        <div className="flex gap-2">
-          <Button
-            variant={filter === 'all' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('all')}
-          >
-            All
-          </Button>
-          <Button
-            variant={filter === 'dirty' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('dirty')}
-            className={filter === 'dirty' ? 'bg-yellow-600 hover:bg-yellow-700' : ''}
-          >
-            Dirty
-          </Button>
-          <Button
-            variant={filter === 'clean' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('clean')}
-            className={filter === 'clean' ? 'bg-green-600 hover:bg-green-700' : ''}
-          >
-            Clean
-          </Button>
-          <Button
-            variant={filter === 'inspected' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setFilter('inspected')}
-            className={filter === 'inspected' ? 'bg-blue-600 hover:bg-blue-700' : ''}
-          >
-            Inspected
-          </Button>
-        </div>
-      </div>
-
-      {/* Rooms Grid */}
-      {filteredRooms.length === 0 ? (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <p className="text-gray-500">
-              {rooms.length === 0 
-                ? 'No rooms have been added yet'
-                : `No ${filter === 'all' ? '' : filter} rooms found`
-              }
-            </p>
-          </CardContent>
-        </Card>
       ) : (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {filteredRooms.map(room => (
-            <Card key={room.id} className="hover:shadow-md transition-shadow">
-              <CardContent className="p-4">
-                <div className="flex items-start justify-between mb-3">
-                  <div>
-                    <h3 className="text-lg font-bold">Room {room.roomNumber}</h3>
-                    <p className="text-sm text-gray-500">{room.roomType.name}</p>
-                    {room.floor && (
-                      <p className="text-xs text-gray-400">Floor {room.floor}</p>
-                    )}
-                  </div>
-                  <Badge className={getRoomStatusBadge(room.status, room.isOutOfOrder)}>
-                    {room.status}
-                  </Badge>
-                </div>
-
-                {/* Show assigned housekeeper */}
-                {room.housekeeping && room.housekeeping.length > 0 && room.housekeeping[0].assignee && (
-                  <div className="mb-3 p-2 bg-blue-50 rounded-md border border-blue-200">
-                    <div className="flex items-center gap-2 text-sm text-blue-800">
-                      <User className="h-4 w-4" />
-                      <span className="font-medium">
-                        {room.housekeeping[0].assignee.firstName} {room.housekeeping[0].assignee.lastName}
-                      </span>
-                    </div>
-                    <p className="text-xs text-blue-600 mt-1">
-                      Status: {room.housekeeping[0].status}
-                    </p>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  {room.status === 'DIRTY' && (
-                    <Button
-                      size="sm"
-                      className="w-full bg-green-600 hover:bg-green-700"
-                      onClick={() => updateRoomStatus(room.id, 'CLEAN')}
-                      disabled={updatingRoom === room.id}
-                    >
-                      {updatingRoom === room.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : (
-                        <>
-                          <Sparkles className="h-4 w-4 mr-1" />
-                          Mark Clean
-                        </>
-                      )}
-                    </Button>
-                  )}
-                  
-                  {room.status === 'CLEAN' && (
-                    <>
-                      <Button
-                        size="sm"
-                        className="w-full bg-blue-600 hover:bg-blue-700"
-                        onClick={() => updateRoomStatus(room.id, 'INSPECTED')}
-                        disabled={updatingRoom === room.id}
-                      >
-                        {updatingRoom === room.id ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <>
-                            <CheckCircle2 className="h-4 w-4 mr-1" />
-                            Mark Inspected
-                          </>
+        <>
+          <ul className="space-y-3">
+            <AnimatePresence initial={false}>
+              {open.map((t) => (
+                <motion.li key={t.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 40 }}>
+                  <Card className={cn('p-4', t.status === 'IN_PROGRESS' && 'border-info/40 ring-2 ring-info/15')}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-3xl font-semibold tabular">{t.room.number}</p>
+                        <p className="text-sm text-muted-foreground">
+                          {t.room.roomTypeName} · Floor {t.room.floor ?? '—'}
+                        </p>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5">
+                        <TaskStatusBadge status={t.status} />
+                        {t.priority >= 3 && (
+                          <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-medium text-warning">
+                            <ArrowDownToLine className="h-3 w-3" /> Guest arriving
+                          </span>
                         )}
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="w-full text-yellow-600"
-                        onClick={() => updateRoomStatus(room.id, 'DIRTY')}
-                        disabled={updatingRoom === room.id}
-                      >
-                        Mark Dirty
-                      </Button>
-                    </>
-                  )}
-                  
-                  {room.status === 'INSPECTED' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="w-full text-yellow-600"
-                      onClick={() => updateRoomStatus(room.id, 'DIRTY')}
-                      disabled={updatingRoom === room.id}
-                    >
-                      {updatingRoom === room.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
+                        {t.room.occupancy === 'OCCUPIED' && <span className="text-[11px] text-muted-foreground">Guest staying — knock first</span>}
+                      </div>
+                    </div>
+                    {t.notes && <p className="mt-2 rounded-lg bg-muted px-2.5 py-1.5 text-xs">{t.notes}</p>}
+                    <div className="mt-4">
+                      {t.status === 'PENDING' ? (
+                        <Button size="lg" className="w-full" variant="outline" loading={busy === t.id} onClick={() => act(t, 'IN_PROGRESS', `Started room ${t.room.number}`)}>
+                          <Play className="h-4 w-4" /> Start cleaning
+                        </Button>
                       ) : (
-                        'Mark Dirty'
+                        <Button size="lg" className="w-full bg-success text-success-foreground hover:bg-success/90" loading={busy === t.id} onClick={() => act(t, 'COMPLETED', `Room ${t.room.number} is clean`)}>
+                          <CheckCircle2 className="h-4 w-4" /> Mark clean
+                        </Button>
                       )}
+                    </div>
+                  </Card>
+                </motion.li>
+              ))}
+            </AnimatePresence>
+          </ul>
+
+          {available.length > 0 && (
+            <div>
+              <p className="mb-2 text-sm font-medium">Available to pick up</p>
+              <ul className="space-y-2">
+                {available.map((t) => (
+                  <li key={t.id} className="flex items-center justify-between rounded-xl border bg-card px-4 py-3">
+                    <div>
+                      <span className="text-lg font-semibold tabular">{t.room.number}</span>
+                      <span className="ml-2 text-sm text-muted-foreground">{t.room.roomTypeName}</span>
+                    </div>
+                    <Button size="sm" variant="soft" loading={busy === t.id} onClick={() => act(t, 'IN_PROGRESS', `Room ${t.room.number} is yours`)}>
+                      <Hand className="h-4 w-4" /> Take it
                     </Button>
-                  )}
-                </div>
-              </CardContent>
-            </Card>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {done.length > 0 && (
+            <div>
+              <p className="mb-2 text-sm font-medium text-muted-foreground">Done today · {done.length}</p>
+              <div className="flex flex-wrap gap-2">
+                {done.map((t) => (
+                  <span key={t.id} className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2.5 py-1 text-xs font-medium text-success">
+                    <CheckCircle2 className="h-3 w-3" /> {t.room.number}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+          {mine.length === 0 && available.length === 0 && <EmptyState icon={SprayCan} title="Nothing assigned yet" description="Your supervisor will assign rooms here. Pull down to refresh." />}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Supervisor board                                                    */
+/* ------------------------------------------------------------------ */
+
+function TaskCard({ task, team, onChange }: { task: HousekeepingTaskDTO; team: TeamMember[]; onChange: () => void }) {
+  const { can } = useConsole();
+  const [busy, setBusy] = React.useState(false);
+  async function run(body: object, msg: string) {
+    setBusy(true);
+    try {
+      await updateTask(task.id, body);
+      toast.success(msg);
+      onChange();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  const done = task.status === 'COMPLETED' || task.status === 'INSPECTED';
+  return (
+    <motion.div layout className={cn('rounded-xl border bg-card p-3 shadow-xs', task.priority >= 3 && !done && 'border-warning/40')}>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-lg font-semibold leading-none tabular">{task.room.number}</p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            {task.room.roomTypeName} · Fl {task.room.floor ?? '—'}
+          </p>
+        </div>
+        {task.priority >= 3 && !done && <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning">ARRIVAL</span>}
+      </div>
+      {!done && can('housekeeping.assign') ? (
+        <Select value={task.assignee?.id ?? ''} onValueChange={(v) => run({ assignedTo: v }, `Room ${task.room.number} assigned`)}>
+          <SelectTrigger className="mt-3 h-8 text-xs">
+            <SelectValue placeholder="Unassigned" />
+          </SelectTrigger>
+          <SelectContent>
+            {team.map((m) => (
+              <SelectItem key={m.id} value={m.id}>
+                {m.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
+          <UserRound className="h-3 w-3" /> {task.assignee?.name ?? 'Unassigned'}
+        </p>
+      )}
+      <div className="mt-2 flex gap-1.5">
+        {task.status === 'PENDING' && (
+          <Button size="sm" variant="outline" className="h-7 flex-1 text-xs" loading={busy} onClick={() => run({ status: 'IN_PROGRESS' }, `Room ${task.room.number} started`)}>
+            Start
+          </Button>
+        )}
+        {task.status === 'IN_PROGRESS' && (
+          <Button size="sm" className="h-7 flex-1 text-xs" loading={busy} onClick={() => run({ status: 'COMPLETED' }, `Room ${task.room.number} is clean`)}>
+            Mark clean
+          </Button>
+        )}
+        {task.status === 'COMPLETED' && (
+          <Button size="sm" variant="soft" className="h-7 flex-1 text-xs" loading={busy} onClick={() => run({ status: 'INSPECTED' }, `Room ${task.room.number} inspected`)}>
+            <Sparkles className="h-3 w-3" /> Inspect
+          </Button>
+        )}
+        {task.status === 'INSPECTED' && <span className="text-xs font-medium text-success">Ready to sell</span>}
+      </div>
+    </motion.div>
+  );
+}
+
+function SupervisorBoard() {
+  const { refresh, askAgent, can } = useConsole();
+  const { data: tasks, isLoading, mutate, isValidating } = useHousekeepingData();
+  const teamUrl = usePropertyUrl('/api/admin/team', { role: 'HOUSEKEEPER' });
+  const boardUrl = usePropertyUrl('/api/admin/room-board');
+  const { data: team } = useSWR<TeamMember[]>(teamUrl, fetcher);
+  const { data: rooms, mutate: mutateRooms } = useSWR<RoomSummary[]>(boardUrl, fetcher, { refreshInterval: 30_000 });
+  const [autoBusy, setAutoBusy] = React.useState(false);
+  const { propertyId } = useConsole();
+
+  const onChange = () => {
+    void mutate();
+    void mutateRooms();
+    refresh();
+  };
+
+  const unqueued = (rooms ?? []).filter((r) => r.status === 'DIRTY' && !r.task && !r.isOutOfOrder);
+  const todo = (tasks ?? []).filter((t) => t.status === 'PENDING');
+  const doing = (tasks ?? []).filter((t) => t.status === 'IN_PROGRESS');
+  const done = (tasks ?? []).filter((t) => t.status === 'COMPLETED' || t.status === 'INSPECTED');
+  const unassigned = todo.filter((t) => !t.assignee).length + unqueued.length;
+
+  async function queueRoom(roomId: string, assignedTo: string) {
+    try {
+      await api('/api/admin/housekeeping', { method: 'POST', json: { roomId, assignedTo } });
+      toast.success('Room queued');
+      onChange();
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  }
+
+  async function autoAssign() {
+    setAutoBusy(true);
+    try {
+      const r = await api<{ assigned: number }>('/api/admin/housekeeping/auto-assign', { method: 'POST', json: { propertyId } });
+      toast.success(r.assigned ? `Assigned ${r.assigned} room${r.assigned > 1 ? 's' : ''}` : 'Everything already has someone on it');
+      onChange();
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setAutoBusy(false);
+    }
+  }
+
+  const columns = [
+    { key: 'todo', title: 'To clean', items: todo, tone: 'bg-warning' },
+    { key: 'doing', title: 'Cleaning', items: doing, tone: 'bg-info' },
+    { key: 'done', title: 'Done today', items: done, tone: 'bg-success' },
+  ];
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <PageHeader
+        title="Housekeeping"
+        description={tasks ? `${todo.length + doing.length + unqueued.length} rooms to turn · ${done.length} done today` : 'Loading…'}
+        actions={
+          <>
+            {can('agent.use') && (
+              <Button variant="ghost" size="sm" className="text-agent hover:bg-agent-soft" onClick={() => askAgent('show the housekeeping board')}>
+                <Sparkles className="h-4 w-4" /> Ask
+              </Button>
+            )}
+            <Button variant="outline" size="sm" onClick={onChange} aria-label="Refresh">
+              <RefreshCw className={cn('h-4 w-4', isValidating && 'animate-spin')} />
+            </Button>
+            {can('housekeeping.assign') && (
+              <Button size="sm" onClick={autoAssign} loading={autoBusy} disabled={!unassigned}>
+                <Wand2 className="h-4 w-4" /> Auto-assign {unassigned ? `(${unassigned})` : ''}
+              </Button>
+            )}
+          </>
+        }
+      />
+
+      {team && team.length > 0 && (
+        <div className="flex flex-wrap gap-2">
+          {team.map((m) => (
+            <div key={m.id} className="flex items-center gap-2.5 rounded-xl border bg-card px-3 py-2 shadow-xs">
+              <Avatar name={m.name} size="sm" />
+              <div>
+                <p className="text-sm font-medium leading-tight">{m.name}</p>
+                <p className="text-[11px] text-muted-foreground">{m.openTasks ?? 0} open</p>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {unqueued.length > 0 && (
+        <Card className="p-4">
+          <p className="text-sm font-medium">Dirty, not yet queued · {unqueued.length}</p>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+            {unqueued.map((r) => (
+              <div key={r.id} className="flex items-center gap-2 rounded-xl border border-dashed p-2.5">
+                <span className="w-12 text-lg font-semibold tabular">{r.number}</span>
+                <Select onValueChange={(v) => queueRoom(r.id, v)}>
+                  <SelectTrigger className="h-8 text-xs">
+                    <SelectValue placeholder="Assign…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(team ?? []).map((m) => (
+                      <SelectItem key={m.id} value={m.id}>
+                        {m.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+
+      {isLoading ? (
+        <div className="grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-72 rounded-2xl" />
+          ))}
+        </div>
+      ) : (
+        <div className="grid gap-4 md:grid-cols-3">
+          {columns.map((col) => (
+            <div key={col.key} className="rounded-2xl border bg-surface-sunken/50 p-3">
+              <div className="mb-3 flex items-center gap-2 px-1">
+                <span className={cn('h-2 w-2 rounded-full', col.tone)} />
+                <p className="text-sm font-medium">{col.title}</p>
+                <span className="ml-auto text-xs text-muted-foreground tabular">{col.items.length}</span>
+              </div>
+              <div className="space-y-2">
+                {col.items.map((t) => (
+                  <TaskCard key={t.id} task={t} team={team ?? []} onChange={onChange} />
+                ))}
+                {col.items.length === 0 && <p className="py-8 text-center text-xs text-muted-foreground">Nothing here</p>}
+              </div>
+            </div>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+export default function HousekeepingPage() {
+  const { role } = useConsole();
+  return role === 'HOUSEKEEPER' ? <MyRooms /> : <SupervisorBoard />;
 }

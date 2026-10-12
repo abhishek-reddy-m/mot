@@ -17,6 +17,10 @@ export default {
       screens: { "2xl": "1280px" },
     },
     extend: {
+      // Dynamic viewport units (core utilities only arrive in Tailwind 3.4).
+      height: { dvh: "100dvh" },
+      minHeight: { dvh: "100dvh" },
+      maxHeight: { dvh: "100dvh" },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["var(--font-display)", "ui-serif", "Georgia", "serif"],

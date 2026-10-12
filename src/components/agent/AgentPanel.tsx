@@ -23,8 +23,15 @@ export function AgentPanel({
   rail?: (agent: AgentController) => React.ReactNode;
   controllerRef?: React.MutableRefObject<AgentController | null>;
 }) {
-  const { propertyId, ctx, refresh, property } = useConsole();
+  const { propertyId, ctx, refresh, property, pendingCommand, takePendingCommand } = useConsole();
   const agent = useAgent(propertyId, { onChange: refresh });
+
+  // A command handed over from elsewhere in the console ("Fix" on an alert).
+  React.useEffect(() => {
+    if (!pendingCommand || !propertyId || agent.busy) return;
+    const cmd = takePendingCommand();
+    if (cmd) void agent.send(cmd);
+  }, [pendingCommand, propertyId, agent, takePendingCommand]);
   const composer = React.useRef<ComposerHandle>(null);
   const lastBlockCount = agent.turns.reduce((n, t) => n + t.blocks.length, 0) + agent.turns.length;
   const scrollRef = useStickToBottom<HTMLDivElement>(lastBlockCount + (agent.busy ? 1 : 0));

@@ -5,10 +5,10 @@ import { AgentWorkspace } from '@/components/agent/AgentWorkspace';
 import { useConsole } from '@/components/console/ConsoleProvider';
 
 export default function AgentPage() {
-  const { mode, setMode, can } = useConsole();
-  // Opening the workspace directly (link, bookmark) puts you in Agentic mode.
+  const { preferredMode, setMode, can } = useConsole();
+  // Working in the agent makes it your default landing surface.
   useEffect(() => {
-    if (can('agent.use') && mode !== 'AGENTIC') setMode('AGENTIC', { navigate: false });
-  }, [mode, setMode, can]);
+    if (can('agent.use') && preferredMode !== 'AGENTIC') setMode('AGENTIC', { navigate: false });
+  }, [preferredMode, setMode, can]);
   return <AgentWorkspace />;
 }

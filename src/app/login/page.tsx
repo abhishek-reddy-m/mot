@@ -33,7 +33,8 @@ function destinationFor(role: string | undefined, callback: string | null): stri
     if (!isConsole) return callback;
     if (isStaffRole(role) && (callback === '/admin' || canAccessConsolePath(role, callback))) return callback;
   }
-  return homeForRole(role);
+  // Staff land on /admin, which opens their preferred surface (Classic or Agentic).
+  return isStaffRole(role) ? '/admin' : homeForRole(role);
 }
 
 function LoginForm() {
