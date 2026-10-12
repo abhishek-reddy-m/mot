@@ -1,9 +1,10 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { badRequest } from '@/server/errors';
+import { badRequest, DomainError } from '@/server/errors';
 import { handleRoute, json, parseQuery } from '@/server/http';
 import { createLiveSession } from '@/server/voice/live';
 import { openVoiceSession } from '@/server/voice/sessions';
+import { voiceProvider } from '@/server/voice/provider';
 
 const query = z.object({ propertyId: z.string().min(1), audience: z.enum(['guest', 'staff']).default('guest') });
 
@@ -14,6 +15,7 @@ const query = z.object({ propertyId: z.string().min(1), audience: z.enum(['guest
  */
 export const POST = handleRoute(async (request: NextRequest) => {
   const q = parseQuery(request, query);
+  if (voiceProvider() !== 'openai') throw new DomainError(503, 'VOICE_DISABLED', 'The GPT-Live voice line isn’t switched on.');
   const sdp = await request.text();
   if (!sdp.trim().startsWith('v=') || sdp.length > 64_000) throw badRequest('A WebRTC SDP offer is required.');
   const session = await openVoiceSession(request, q, async (ctx) => {

@@ -44,6 +44,7 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
   const tokenRef = React.useRef('');
   const toolCount = React.useRef(0);
   const pendingTools = React.useRef(0);
+  const mutedRef = React.useRef(false);
   const raf = React.useRef(0);
   const toolRef = React.useRef(onToolCall);
   toolRef.current = onToolCall;
@@ -77,6 +78,7 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
       setLevel(0);
       setAgentSpeaking(false);
       setWorking(false);
+      mutedRef.current = false;
       setMuted(false);
       setState(next);
     },
@@ -97,11 +99,15 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
       // Ask for the microphone straight from the click, so the prompt appears before any network wait.
       const probe = await navigator.mediaDevices.getUserMedia({ audio: true });
       probe.getTracks().forEach((t) => t.stop());
+      if (!current()) return;
 
       const res = await fetch(`/api/voice/elevenlabs/session?propertyId=${encodeURIComponent(propertyId)}&audience=${audience}`, { method: 'POST' });
       const body = (await res.json().catch(() => ({}))) as SessionResponse;
       if (!res.ok || !body.signedUrl || !body.token) throw new Error(body.error || 'Couldn’t start the voice line.');
-      if (!current()) return;
+      // Hung up while we were connecting: close the usage row and stop here.
+      const abandon = () =>
+        void fetch('/api/voice/end', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ token: body.token, toolCalls: 0 }), keepalive: true }).catch(() => undefined);
+      if (!current()) return abandon();
       tokenRef.current = body.token;
 
       const clientTools = Object.fromEntries(
@@ -127,11 +133,15 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
 
       // Loaded on demand: the SDK (and its WebRTC dependency) only ships when someone talks.
       const { Conversation } = await import('@elevenlabs/client');
+      if (!current()) return abandon();
       const started = await Conversation.startSession({
         signedUrl: body.signedUrl,
-        overrides: { agent: { prompt: { prompt: body.prompt }, firstMessage: body.firstMessage, language: 'en' } },
+        overrides: { agent: { prompt: { prompt: body.prompt }, firstMessage: body.firstMessage } },
         clientTools,
-        connectionDelay: { default: 0 },
+        // Mute pressed while connecting applies before any audio is sent.
+        onConversationCreated: (c) => {
+          if (mutedRef.current && c.type === 'voice') (c as unknown as LiveConversation).setMicMuted(true);
+        },
         onConnect: () => {
           if (current()) setState('live');
         },
@@ -181,10 +191,11 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
   }, [state, finish, setState]);
 
   const toggleMute = React.useCallback(() => {
-    const next = !muted;
+    const next = !mutedRef.current;
+    mutedRef.current = next;
     conversation.current?.setMicMuted(next);
     setMuted(next);
-  }, [muted]);
+  }, []);
 
   React.useEffect(
     () => () => {

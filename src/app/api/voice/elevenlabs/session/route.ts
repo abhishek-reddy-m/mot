@@ -1,6 +1,8 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
+import { DomainError } from '@/server/errors';
 import { handleRoute, json, parseQuery } from '@/server/http';
+import { voiceProvider } from '@/server/voice/provider';
 import { startElevenLabsConversation } from '@/server/voice/elevenlabs';
 import { openVoiceSession } from '@/server/voice/sessions';
 
@@ -14,9 +16,10 @@ const query = z.object({ propertyId: z.string().min(1), audience: z.enum(['guest
  */
 export const POST = handleRoute(async (request: NextRequest) => {
   const q = parseQuery(request, query);
-  const session = await openVoiceSession(request, q, async (ctx) => ({
-    externalId: null,
-    result: await startElevenLabsConversation({ audience: ctx.audience, prompts: ctx.prompts, firstMessage: ctx.firstMessage, tools: ctx.tools }),
-  }));
+  if (voiceProvider() !== 'elevenlabs') throw new DomainError(503, 'VOICE_DISABLED', 'The ElevenLabs voice line isn’t switched on.');
+  const session = await openVoiceSession(request, q, async (ctx) => {
+    const { conversationId, ...result } = await startElevenLabsConversation({ audience: ctx.audience, prompts: ctx.prompts, firstMessage: ctx.firstMessage, tools: ctx.tools });
+    return { externalId: conversationId, result };
+  });
   return json({ ...session.result, token: session.token });
 });

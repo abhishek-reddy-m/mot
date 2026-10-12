@@ -72,13 +72,13 @@ function TestCall({ propertyId, connected }: { propertyId: string; connected: bo
   });
   const live = voice.state === 'live' || voice.state === 'connecting';
   const agentLine = [...voice.captions].reverse().find((c) => c.role === 'agent')?.text;
-  const [check, setCheck] = React.useState<ModelCheck[] | null>(null);
+  const [check, setCheck] = React.useState<{ provider: string; models: ModelCheck[] } | null>(null);
   const [checking, setChecking] = React.useState(false);
   async function runCheck() {
     setChecking(true);
     try {
-      const res = await api<{ key: boolean; models: ModelCheck[] }>('/api/admin/voice/check');
-      setCheck(res.models);
+      const res = await api<{ provider: string; key: boolean; models: ModelCheck[] }>('/api/admin/voice/check');
+      setCheck({ provider: res.provider, models: res.models });
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -120,14 +120,14 @@ function TestCall({ propertyId, connected }: { propertyId: string; connected: bo
       </div>
       {check && (
         <ul className="relative mt-5 space-y-2 border-t pt-4 text-sm">
-          {check.map((m) => (
+          {check.models.map((m) => (
             <li key={m.model} className="flex items-start gap-2.5">
               <span className={cn('mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full', m.ok ? 'bg-success-soft text-success' : 'bg-destructive/10 text-destructive')}>
                 {m.ok ? <Check className="h-3 w-3" /> : <span className="text-xs font-bold">!</span>}
               </span>
               <span className="min-w-0">
                 <span className="font-medium">{m.role}</span> <code className="rounded bg-muted px-1 font-mono text-xs">{m.model}</code>
-                <span className="block text-muted-foreground">{m.ok ? 'Available to your OpenAI key.' : m.reason}</span>
+                <span className="block text-muted-foreground">{m.ok ? (check.provider === 'elevenlabs' ? 'Connected and in sync.' : 'Available to your OpenAI key.') : m.reason}</span>
               </span>
             </li>
           ))}

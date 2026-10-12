@@ -17,9 +17,20 @@ import { GUEST_TOOLS, STAFF_TOOLS, type FunctionToolSpec } from './live';
 
 const BASE = (process.env.ELEVENLABS_API_BASE || 'https://api.elevenlabs.io').replace(/\/$/, '');
 const LLM = process.env.ELEVENLABS_LLM || 'gemini-2.5-flash';
-const CONFIG_VERSION = 1;
+const CONFIG_VERSION = 2;
 
 type Audience = 'guest' | 'staff';
+
+/**
+ * Provisioning rows are scoped to the ElevenLabs account (key + region) and
+ * the deployment environment, so switching keys provisions fresh agents and
+ * Preview deployments sharing the database never rewrite Production's agents.
+ */
+const ENVIRONMENT = process.env.ELEVENLABS_NAMESPACE || process.env.VERCEL_ENV || 'local';
+function namespace(): string {
+  const account = createHash('sha256').update(`${BASE}|${process.env.ELEVENLABS_API_KEY ?? ''}`).digest('hex').slice(0, 10);
+  return `elevenlabs:${account}:${ENVIRONMENT}`;
+}
 
 export function elevenLabsConfigured(): boolean {
   return !!process.env.ELEVENLABS_API_KEY;
@@ -81,6 +92,7 @@ export function describeElevenLabsError(e: unknown): string {
     case null:
       return 'Couldn’t reach ElevenLabs just now — try again in a moment.';
     case 401:
+      if (/missing[_ ]?permission/i.test(e.detail)) return `This ElevenLabs key is missing a permission StayOS needs — give it “ElevenLabs Agents” write access (or no restrictions). ElevenLabs says: ${detail}`;
       return 'ElevenLabs didn’t accept the API key. Re-check ELEVENLABS_API_KEY in Vercel (Settings → Environment Variables), then redeploy.';
     case 403:
       return `This ElevenLabs key isn’t allowed to manage agents. Create a key with “ElevenLabs Agents” write access (or no restrictions). ElevenLabs says: ${detail}`;
@@ -144,14 +156,15 @@ function toolConfig(spec: FunctionToolSpec, audience: Audience) {
   };
 }
 
-const CLIENT_EVENTS = ['conversation_initiation_metadata', 'audio', 'interruption', 'user_transcript', 'agent_response', 'agent_response_correction', 'client_tool_call', 'agent_tool_response', 'vad_score', 'ping'];
+const CLIENT_EVENTS = ['conversation_initiation_metadata', 'audio', 'interruption', 'user_transcript', 'agent_response', 'agent_response_correction', 'client_tool_call', 'agent_tool_response', 'vad_score', 'client_error', 'ping'];
 
 function agentConfig(audience: Audience, toolIds: string[]) {
   const guest = audience === 'guest';
   const voiceId = process.env.ELEVENLABS_VOICE_ID;
+  const suffix = ENVIRONMENT === 'production' ? '' : ` (${ENVIRONMENT})`;
   return {
-    name: guest ? 'StayOS — guest front desk' : 'StayOS — staff hands-free',
-    tags: ['stayos', guest ? 'guest' : 'staff'],
+    name: `${guest ? 'StayOS — guest front desk' : 'StayOS — staff hands-free'}${suffix}`,
+    tags: ['stayos', guest ? 'guest' : 'staff', ENVIRONMENT],
     conversation_config: {
       agent: {
         first_message: guest ? 'Hi, thanks for calling. How can I help?' : 'Hi — what do you need?',
@@ -171,11 +184,12 @@ function agentConfig(audience: Audience, toolIds: string[]) {
     },
     platform_settings: {
       auth: { enable_auth: true },
-      overrides: {
-        conversation_config_override: {
-          agent: { first_message: true, language: true, prompt: { prompt: true } },
-          tts: { voice_id: true },
-        },
+      // Only what each conversation actually sends: the hotel's prompt and greeting.
+      overrides: { conversation_config_override: { agent: { first_message: true, prompt: { prompt: true } } } },
+      // Provider-side backstop on top of StayOS's own per-hotel limits.
+      call_limits: {
+        agent_concurrency_limit: Number(process.env.ELEVENLABS_MAX_CONCURRENT || 20),
+        daily_limit: Number(process.env.ELEVENLABS_MAX_DAILY || 1000),
       },
     },
   };
@@ -187,13 +201,16 @@ const hash = (v: unknown) => createHash('sha256').update(JSON.stringify({ v: CON
 // Provisioning (create once, update on change)
 // ---------------------------------------------------------------------------
 
-type Tx = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
+type Db = Pick<typeof prisma, 'voiceProviderAgent'>;
 
-async function syncTool(tx: Tx, spec: FunctionToolSpec, audience: Audience): Promise<string> {
+const saveRow = (db: Db, key: string, externalId: string, configHash: string) =>
+  db.voiceProviderAgent.upsert({ where: { key }, create: { key, externalId, configHash }, update: { externalId, configHash } });
+
+async function syncTool(db: Db, spec: FunctionToolSpec, audience: Audience): Promise<string> {
   const config = toolConfig(spec, audience);
-  const key = `elevenlabs:tool:${audience}:${spec.name}`;
+  const key = `${namespace()}:tool:${audience}:${spec.name}`;
   const configHash = hash(config);
-  const row = await tx.voiceProviderAgent.findUnique({ where: { key } });
+  const row = await db.voiceProviderAgent.findUnique({ where: { key } });
   if (row?.configHash === configHash) return row.externalId;
   let id: string | null = null;
   if (row) {
@@ -205,15 +222,21 @@ async function syncTool(tx: Tx, spec: FunctionToolSpec, audience: Audience): Pro
     }
   }
   if (!id) id = (await call<{ id: string }>('POST', '/v1/convai/tools', { tool_config: config })).id;
-  await tx.voiceProviderAgent.upsert({ where: { key }, create: { key, externalId: id, configHash }, update: { externalId: id, configHash } });
+  await saveRow(db, key, id, configHash);
   return id;
 }
 
+const agentKey = (audience: Audience) => `${namespace()}:${audience.toUpperCase()}`;
+const ownAgent = (audience: Audience) => (audience === 'guest' ? process.env.ELEVENLABS_GUEST_AGENT_ID : process.env.ELEVENLABS_STAFF_AGENT_ID);
+
+/** Forget that an agent is in sync (e.g. it was deleted in ElevenLabs), so the next sync re-checks it. */
+const invalidateAgent = (audience: Audience) => prisma.voiceProviderAgent.updateMany({ where: { key: agentKey(audience) }, data: { configHash: '' } });
+
 async function syncAgent(audience: Audience): Promise<string> {
-  const own = audience === 'guest' ? process.env.ELEVENLABS_GUEST_AGENT_ID : process.env.ELEVENLABS_STAFF_AGENT_ID;
+  const own = ownAgent(audience);
   if (own) return own; // bring-your-own agent: managed in ElevenLabs
 
-  const key = `elevenlabs:${audience.toUpperCase()}`;
+  const key = agentKey(audience);
   const specs = audience === 'guest' ? GUEST_TOOLS : STAFF_TOOLS;
   // Fast path without the lock: nothing changed since the last sync.
   const desiredHash = hash({ tools: specs.map((s) => toolConfig(s, audience)), agent: agentConfig(audience, []) });
@@ -221,29 +244,54 @@ async function syncAgent(audience: Audience): Promise<string> {
   if (cached?.configHash === desiredHash) return cached.externalId;
 
   // One instance provisions at a time (the lock is released with the transaction).
-  return prisma.$transaction(
-    async (tx) => {
+  // Failures are returned, not thrown, so the transaction still commits the rows
+  // of anything already created at ElevenLabs — a retry reuses them (no orphans).
+  const outcome = await prisma.$transaction(
+    async (tx): Promise<{ id: string } | { error: unknown }> => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${key}))`;
-      const row = await tx.voiceProviderAgent.findUnique({ where: { key } });
-      if (row?.configHash === desiredHash) return row.externalId;
-      const toolIds: string[] = [];
-      for (const spec of specs) toolIds.push(await syncTool(tx, spec, audience));
-      const body = agentConfig(audience, toolIds);
-      let id: string | null = null;
-      if (row) {
-        try {
-          await call('PATCH', `/v1/convai/agents/${encodeURIComponent(row.externalId)}`, body);
-          id = row.externalId;
-        } catch (e) {
-          if (!(e instanceof ElevenLabsError) || e.status !== 404) throw e;
+      try {
+        const row = await tx.voiceProviderAgent.findUnique({ where: { key } });
+        if (row?.configHash === desiredHash) return { id: row.externalId };
+        const toolIds: string[] = [];
+        for (const spec of specs) toolIds.push(await syncTool(tx, spec, audience));
+        const body = agentConfig(audience, toolIds);
+        let id: string | null = null;
+        if (row) {
+          try {
+            await call('PATCH', `/v1/convai/agents/${encodeURIComponent(row.externalId)}`, body);
+            id = row.externalId;
+          } catch (e) {
+            if (!(e instanceof ElevenLabsError) || e.status !== 404) throw e;
+          }
         }
+        if (!id) id = (await call<{ agent_id: string }>('POST', '/v1/convai/agents/create', body)).agent_id;
+        await saveRow(tx, key, id, desiredHash);
+        return { id };
+      } catch (error) {
+        return { error };
       }
-      if (!id) id = (await call<{ agent_id: string }>('POST', '/v1/convai/agents/create', body)).agent_id;
-      await tx.voiceProviderAgent.upsert({ where: { key }, create: { key, externalId: id, configHash: desiredHash }, update: { externalId: id, configHash: desiredHash } });
-      return id;
     },
     { maxWait: 15_000, timeout: 90_000 },
   );
+  if ('error' in outcome) throw outcome.error;
+  return outcome.id;
+}
+
+/** A single-use signed URL (include_conversation_id makes ElevenLabs burn it on first use). */
+async function signedUrlFor(agentId: string): Promise<{ signedUrl: string; conversationId: string | null }> {
+  const res = await call<{ signed_url: string; conversation_id?: string }>(
+    'GET',
+    `/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}&include_conversation_id=true`,
+  );
+  let conversationId = res.conversation_id ?? null;
+  if (!conversationId) {
+    try {
+      conversationId = new URL(res.signed_url).searchParams.get('conversation_id');
+    } catch {
+      /* keep null */
+    }
+  }
+  return { signedUrl: res.signed_url, conversationId };
 }
 
 // ---------------------------------------------------------------------------
@@ -260,11 +308,20 @@ export async function startElevenLabsConversation(input: {
   prompts: { instructions: string; backendInstructions: string };
   firstMessage: string;
   tools: FunctionToolSpec[];
-}): Promise<{ signedUrl: string; prompt: string; firstMessage: string; tools: string[] }> {
+}): Promise<{ signedUrl: string; conversationId: string | null; prompt: string; firstMessage: string; tools: string[] }> {
   try {
-    const agentId = await syncAgent(input.audience);
-    const { signed_url } = await call<{ signed_url: string }>('GET', `/v1/convai/conversation/get-signed-url?agent_id=${encodeURIComponent(agentId)}`);
-    return { signedUrl: signed_url, prompt: singleModelPrompt(input.prompts), firstMessage: input.firstMessage, tools: input.tools.map((t) => t.name) };
+    let agentId = await syncAgent(input.audience);
+    let signed: { signedUrl: string; conversationId: string | null };
+    try {
+      signed = await signedUrlFor(agentId);
+    } catch (e) {
+      // Our agent vanished at ElevenLabs (deleted in the dashboard): recreate it once.
+      if (!(e instanceof ElevenLabsError) || e.status !== 404 || ownAgent(input.audience)) throw e;
+      await invalidateAgent(input.audience);
+      agentId = await syncAgent(input.audience);
+      signed = await signedUrlFor(agentId);
+    }
+    return { ...signed, prompt: singleModelPrompt(input.prompts), firstMessage: input.firstMessage, tools: input.tools.map((t) => t.name) };
   } catch (e) {
     if (e instanceof DomainError) throw e;
     console.error('ElevenLabs conversation start failed:', e instanceof ElevenLabsError ? `${e.status} ${e.detail}` : e);
@@ -285,7 +342,7 @@ function singleModelPrompt(p: { instructions: string; backendInstructions: strin
   ].join('\n');
 }
 
-/** Console setup check: key works, and both agents exist and are in sync. */
+/** Console setup check: the key works, and both agents exist at ElevenLabs and are in sync. */
 export async function checkElevenLabs(): Promise<{ model: string; role: string; ok: boolean; reason: string | null }[]> {
   try {
     await call('GET', '/v1/convai/agents?page_size=1');
@@ -296,10 +353,17 @@ export async function checkElevenLabs(): Promise<{ model: string; role: string; 
   for (const audience of ['guest', 'staff'] as const) {
     const role = audience === 'guest' ? 'Guest voice agent' : 'Staff voice agent';
     try {
-      const id = await syncAgent(audience);
+      let id = await syncAgent(audience);
+      try {
+        await call('GET', `/v1/convai/agents/${encodeURIComponent(id)}`);
+      } catch (e) {
+        if (!(e instanceof ElevenLabsError) || e.status !== 404 || ownAgent(audience)) throw e;
+        await invalidateAgent(audience);
+        id = await syncAgent(audience);
+      }
       rows.push({ model: id, role, ok: true, reason: null });
     } catch (e) {
-      rows.push({ model: LLM, role, ok: false, reason: describeElevenLabsError(e) });
+      rows.push({ model: ownAgent(audience) ?? LLM, role, ok: false, reason: describeElevenLabsError(e) });
     }
   }
   return rows;
