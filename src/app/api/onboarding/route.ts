@@ -2,9 +2,10 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
-import { conflict } from '@/server/errors';
+import { badRequest, conflict, DomainError } from '@/server/errors';
 import { handleRoute, json, parseJson } from '@/server/http';
 import { VOICES } from '@/server/voice/live';
+import { cloudLoginUrlIssue, pmsLoginUrlSchema } from '@/server/schemas';
 
 const schema = z.object({
   path: z.enum(['FULL', 'BRIDGE', 'VOICE']).default('FULL'),
@@ -29,7 +30,7 @@ const schema = z.object({
     .array(z.object({ name: z.string().trim().min(2).max(80), capacity: z.coerce.number().int().min(1).max(20), basePrice: z.coerce.number().min(0).max(100000), totalRooms: z.coerce.number().int().min(0).max(2000) }))
     .max(8)
     .default([]),
-  bridge: z.object({ system: z.string().trim().min(2).max(60), mode: z.enum(['DESKTOP', 'CLOUD']), loginUrl: z.string().trim().url().max(500).nullable().optional().or(z.literal('')) }).optional(),
+  bridge: z.object({ system: z.string().trim().min(2).max(60), mode: z.enum(['DESKTOP', 'CLOUD']), loginUrl: pmsLoginUrlSchema }).optional(),
   voice: z.object({ voice: z.enum(VOICES).default('marin'), greeting: z.string().trim().max(300).optional().nullable(), handoffPhone: z.string().trim().max(40).optional().nullable() }).optional(),
 });
 
@@ -40,6 +41,13 @@ const schema = z.object({
  */
 export const POST = handleRoute(async (request: NextRequest) => {
   const body = await parseJson(request, schema);
+  const urlIssue = body.bridge ? cloudLoginUrlIssue(body.bridge.mode, body.bridge.loginUrl) : null;
+  if (urlIssue) throw badRequest(urlIssue);
+  // Sign-up is open, so cap new hotels per hour (shared across server instances).
+  const recentSignups = await prisma.property.count({ where: { isDemo: false, createdAt: { gte: new Date(Date.now() - 3600_000) } } });
+  if (recentSignups >= Number(process.env.ONBOARDING_MAX_PER_HOUR || 30)) {
+    throw new DomainError(429, 'RATE_LIMITED', 'Lots of hotels are signing up right now — please try again in a little while.');
+  }
   if (await prisma.user.findUnique({ where: { email: body.account.email }, select: { id: true } })) {
     throw conflict('An account with this email already exists — sign in instead.');
   }

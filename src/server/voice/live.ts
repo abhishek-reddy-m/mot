@@ -24,7 +24,8 @@ export function voiceConfigured(): boolean {
 let client: OpenAI | null = null;
 function openai(): OpenAI {
   if (!voiceConfigured()) throw new DomainError(503, 'VOICE_DISABLED', 'The voice agent isn’t connected yet — add OPENAI_API_KEY to turn it on.');
-  client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  // Fail fast enough to report a clean error inside the serverless function's time limit.
+  client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60_000, maxRetries: 1 });
   return client;
 }
 

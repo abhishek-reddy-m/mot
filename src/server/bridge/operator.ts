@@ -22,7 +22,8 @@ export function operatorConfigured(): boolean {
 let client: OpenAI | null = null;
 const openai = () => {
   if (!operatorConfigured()) throw new DomainError(503, 'OPERATOR_DISABLED', 'The PMS operator needs OPENAI_API_KEY on the StayOS server.');
-  client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+  // Fail fast enough to report a clean error inside the serverless function's time limit.
+  client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60_000, maxRetries: 1 });
   return client;
 };
 

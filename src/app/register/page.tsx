@@ -10,6 +10,7 @@ import { AuthLayout } from '@/components/auth/AuthLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
+import { PublicDemoNote } from '@/components/guest/PublicDemoNote';
 
 function safeCallback(raw: string | null): string {
   if (!raw || !raw.startsWith('/') || raw.startsWith('//') || raw.startsWith('/admin')) return '/dashboard';
@@ -49,6 +50,7 @@ function RegisterForm() {
     <>
       <h1 className="text-2xl font-semibold tracking-tight">Create your account</h1>
       <p className="mt-1.5 text-sm text-muted-foreground">Manage bookings, change dates and check in faster next time.</p>
+      <PublicDemoNote className="mt-4" />
       <form onSubmit={submit} className="mt-8 space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <Field label="First name" htmlFor="r-first">

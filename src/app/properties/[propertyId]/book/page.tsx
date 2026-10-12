@@ -21,6 +21,7 @@ import { EmptyState, Skeleton } from '@/components/ui/primitives';
 import { SegmentedControl } from '@/components/ui/segmented';
 import { SmartImage } from '@/components/ui/smart-image';
 import { brandStyle } from '@/components/guest/brand';
+import { PublicDemoNote } from '@/components/guest/PublicDemoNote';
 
 interface PublicProperty {
   id: string;
@@ -87,6 +88,7 @@ function GuestAuth() {
           { value: 'signin', label: 'I have an account' },
         ]}
       />
+      {mode === 'register' && <PublicDemoNote className="mt-4" />}
       <form onSubmit={submit} className="mt-5 space-y-4">
         <AnimatePresence initial={false} mode="popLayout">
           {mode === 'register' && (

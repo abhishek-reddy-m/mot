@@ -85,17 +85,12 @@ async function main() {
     return;
   }
 
-  // Safe to re-run (e.g. on every deploy): the demo is created once.
-  if (!allowWipe && (await prisma.property.findFirst({ where: { name: 'The Saltwater Inn', isDemo: true }, select: { id: true } }))) {
-    console.log('Demo data already present — nothing to seed.');
-    return;
-  }
-
   const demoHash = await bcrypt.hash(process.env.DEMO_PASSWORD || 'demo1234', 10);
   const mkUser = (email, firstName, lastName, role, phone) =>
     prisma.user.upsert({
       where: { email },
-      update: {},
+      // Re-running repairs the shared demo logins (password, role, active).
+      update: email.endsWith('@stayos.demo') ? { password: demoHash, role, isActive: true } : {},
       create: { email, password: demoHash, firstName, lastName, role, phone: phone || null },
     });
 
@@ -108,7 +103,7 @@ async function main() {
   await prisma.user.upsert({
     where: { email: 'customer@example.com' },
     update: {},
-    create: { email: 'customer@example.com', password: await bcrypt.hash('customer123', 10), firstName: 'John', lastName: 'Doe', role: 'CUSTOMER' },
+    create: { email: 'customer@example.com', password: demoHash, firstName: 'John', lastName: 'Doe', role: 'CUSTOMER' },
   });
 
   const guestNames = [
@@ -121,6 +116,12 @@ async function main() {
   for (const [first, last] of guestNames) {
     const email = `${first}.${last}`.toLowerCase().replace(/[^a-z.]/g, '') + '@example.com';
     guests.push(await mkUser(email, first, last, 'CUSTOMER', `+1 555 01${String(guests.length).padStart(2, '0')}`));
+  }
+
+  // Safe to re-run (e.g. on every deploy): the hotels are created once.
+  if (!allowWipe && (await prisma.property.findFirst({ where: { name: 'The Saltwater Inn', isDemo: true }, select: { id: true } }))) {
+    console.log('Demo hotels already present — logins checked, nothing else to seed.');
+    return;
   }
 
   // ---------- the operational demo property ----------

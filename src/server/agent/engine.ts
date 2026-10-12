@@ -16,7 +16,7 @@ import { enqueueTask, getConnection } from '../services/bridge';
 import { bookingInclude, toBookingSummary } from '../services/mappers';
 import { runWithLLM } from './llm';
 import { parseMessage, WRITE_KINDS, type Intent } from './nlu';
-import { planAlreadyExecuted, signPlan, verifyPlan, type PlanStep } from './plan';
+import { claimPlan, signPlan, verifyPlan, type PlanStep } from './plan';
 import { bookingActions, executeStep, followUps, maxRisk, planWrite, runRead, statusLine, type PlanOutput } from './tools';
 
 export interface AgentRunInput {
@@ -194,8 +194,8 @@ export interface ConfirmResult {
 export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmResult> {
   const plan = verifyPlan(token, actor.userId);
   assertPropertyAccess(actor, plan.pid);
-  if (await planAlreadyExecuted(plan.pid, plan.nonce)) {
-    return { blocks: [{ type: 'result', ok: true, title: 'Already done', lines: ['This plan was already carried out.'] }], context: {} };
+  if (!(await claimPlan(plan.pid, plan.nonce, actor.userId))) {
+    return { blocks: [{ type: 'result', ok: true, title: 'Already confirmed', lines: ['This plan was already confirmed, so nothing ran twice.'] }], context: {} };
   }
   const ctx = { actor, source: 'agent' as const };
   const lines: string[] = [];

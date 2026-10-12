@@ -11,7 +11,7 @@ type Params = { params: Promise<{ taskId: string }> };
 const schema = z.object({
   screenshot: z
     .string()
-    .max(6_000_000)
+    .max(4_000_000) // stays under Vercel's 4.5 MB request-body limit
     .regex(/^data:image\/(png|jpeg);base64,/, 'must be a PNG or JPEG data URL'),
   currentUrl: z.string().max(2000).optional(),
   previousResponseId: z.string().max(200).nullable().optional(),

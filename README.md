@@ -77,7 +77,8 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 | `NEXTAUTH_URL` | prod | Public URL (Stripe return URLs) |
 | `HOTEL_TIMEZONE` | | Hotel "today" (default `America/Los_Angeles`) |
 | `AGENT_PLAN_SECRET` | | Separate secret for signed agent plans |
-| `NEXT_PUBLIC_DEMO_MODE` | | `true` shows one-click demo logins in production |
+| `NEXT_PUBLIC_DEMO_MODE` | | `true` = public demo: one-click demo logins on `/login`; the shared demo logins and the demo hotels' public details (name, listing, voice script) can't be changed |
+| `NEXT_PUBLIC_SITE_URL` | | Pins Stripe return URLs to one host (default: the host the guest booked on) |
 | `OPENAI_API_KEY` | voice / bridge | Enables the voice front desk and the bridge operator |
 | `OPENAI_LIVE_MODEL` | | Voice model (default `gpt-live-1`) |
 | `OPENAI_VOICE_BACKEND_MODEL` | | Model the voice delegates reasoning/tools to (default `gpt-5.6-terra`) |
@@ -91,6 +92,7 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | Google sign-in for guests |
 | `ADMIN_SEED_PASSWORD`, `DEMO_PASSWORD`, `SEED_DEMO`, `ALLOW_SEED_WIPE` | | Seeding controls (production and Vercel builds never wipe unless `ALLOW_SEED_WIPE=true`; the demo is created once) |
 | `SKIP_MIGRATIONS` | | `true` stops the Vercel build from running `prisma migrate deploy` |
+| `VOICE_MAX_SESSIONS_PER_HOUR`, `BRIDGE_MAX_TASKS_PER_HOUR`, `ONBOARDING_MAX_PER_HOUR` | | Spend and abuse ceilings, enforced in the database so they hold across server instances (defaults 300 / 30 per hotel / 30) |
 
 ## The PMS bridge in one minute
 

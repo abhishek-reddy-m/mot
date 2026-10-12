@@ -6,6 +6,7 @@ import { badRequest, notFound } from '@/server/errors';
 import { handleRoute, json, parseJson } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
 import { propertySchema } from '@/server/schemas';
+import { assertDemoHotelUnchanged } from '@/server/demo';
 
 type Params = { params: Promise<{ propertyId: string }> };
 
@@ -26,6 +27,8 @@ export const PUT = handleRoute(async (request: NextRequest, { params }: Params) 
   const actor = await requireStaff('property.write');
   assertPropertyAccess(actor, propertyId);
   const body = await parseJson(request, propertySchema);
+  const current = await prisma.property.findUniqueOrThrow({ where: { id: propertyId }, select: { isDemo: true, name: true, tagline: true, description: true, isActive: true } });
+  assertDemoHotelUnchanged(actor, current, body, ['name', 'tagline', 'description', 'isActive']);
   const updated = await prisma.property.update({
     where: { id: propertyId },
     data: {

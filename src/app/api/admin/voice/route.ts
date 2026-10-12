@@ -5,6 +5,7 @@ import { requireStaff, requirePermission, resolvePropertyId } from '@/server/aut
 import { handleRoute, json, parseJson, parseQuery } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
 import { LIVE_MODEL, VOICES, voiceConfigured } from '@/server/voice/live';
+import { assertDemoHotelUnchanged } from '@/server/demo';
 
 const DEFAULTS = { enabled: true, voice: 'marin', greeting: null, instructions: null, faqs: [], handoffPhone: null, guestWidget: true };
 
@@ -56,6 +57,9 @@ export const PUT = handleRoute(async (request: NextRequest) => {
   requirePermission(actor, 'voice.manage');
   const { propertyId: _p, ...data } = body;
   const clean = { ...data, greeting: data.greeting || null, instructions: data.instructions || null, handoffPhone: data.handoffPhone || null };
+  const property = await prisma.property.findUniqueOrThrow({ where: { id: propertyId }, select: { isDemo: true, voiceAgent: true } });
+  const sent = Object.fromEntries(Object.keys(data).map((k) => [k, clean[k as keyof typeof clean]]));
+  assertDemoHotelUnchanged(actor, { isDemo: property.isDemo, ...DEFAULTS, ...(property.voiceAgent ?? {}) }, sent, ['greeting', 'instructions', 'faqs', 'handoffPhone', 'enabled', 'guestWidget']);
   const config = await prisma.voiceAgentConfig.upsert({
     where: { propertyId },
     create: { propertyId, ...DEFAULTS, ...clean, faqs: clean.faqs ?? [] },

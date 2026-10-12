@@ -21,3 +21,41 @@ export const propertySchema = z.object({
   isActive: z.boolean().optional(),
 });
 
+
+/**
+ * True for a public https:// address. The cloud bridge opens PMS sign-in pages
+ * in a browser on our infrastructure, so it must never be pointed at files,
+ * internal hostnames or IP literals.
+ */
+export function isPublicHttpsUrl(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') return false;
+  const host = url.hostname.toLowerCase();
+  if (host === 'localhost' || /\.(localhost|local|internal|lan|home|corp)$/.test(host)) return false;
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host) || host.startsWith('[')) return false;
+  return host.includes('.');
+}
+
+/**
+ * A PMS sign-in page (optional), http(s) only. Desktop connectors may open a
+ * PMS on the hotel's own network; the cloud browser needs a public https://
+ * address — see cloudLoginUrlIssue.
+ */
+export const pmsLoginUrlSchema = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((v) => /^https?:\/\//i.test(v) && URL.canParse(v), 'must be a full https:// address')
+  .nullable()
+  .optional()
+  .or(z.literal(''));
+
+export function cloudLoginUrlIssue(mode: string, loginUrl: string | null | undefined): string | null {
+  if (mode !== 'CLOUD' || !loginUrl) return null;
+  return isPublicHttpsUrl(loginUrl) ? null : 'The cloud browser can only open public https:// sign-in pages.';
+}

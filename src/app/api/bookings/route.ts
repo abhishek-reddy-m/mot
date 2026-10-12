@@ -54,7 +54,7 @@ export const POST = handleRoute(async (request: NextRequest) => {
   if (isStripe) {
     const stripe = getStripe();
     // Return to the host the guest booked on (also right for preview deployments).
-    const siteUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin;
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || request.nextUrl.origin;
     const checkoutSession = await stripe.checkout.sessions.create({
       mode: 'payment',
       payment_method_types: ['card'],
@@ -91,7 +91,9 @@ export const POST = handleRoute(async (request: NextRequest) => {
     data: { status: 'CONFIRMED', statusHistory: { create: { status: 'CONFIRMED', notes: 'Instant confirmation (pay at property)' } } },
   });
 
-  await sendBookingConfirmation({
+  // Accounts aren't email-verified: a handful of confirmations per hour is plenty for a real guest.
+  const recentBookings = await prisma.booking.count({ where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 3600_000) } } });
+  if (recentBookings <= 5) await sendBookingConfirmation({
     to: user.email,
     guestName: `${user.firstName} ${user.lastName}`.trim() || user.email,
     propertyName: booking.property.name,

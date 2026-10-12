@@ -157,6 +157,11 @@ export async function enqueueTask(ctx: OpContext, propertyId: string, input: { k
   const c = await getConnection(propertyId);
   if (!c) throw badRequest('Connect your PMS first (Your PMS → Connect).');
   if (c.status === 'PAUSED') throw conflict('The bridge is paused. Resume it on the Your PMS page.');
+  // Every task drives paid computer-use steps (≤ MAX_STEPS each): hourly budget per property.
+  const lastHour = await prisma.bridgeTask.count({ where: { propertyId, createdAt: { gte: new Date(Date.now() - 3600_000) } } });
+  if (lastHour >= Number(process.env.BRIDGE_MAX_TASKS_PER_HOUR || 30)) {
+    throw new DomainError(429, 'RATE_LIMITED', `That’s ${lastHour} PMS tasks in the last hour — the hourly limit. Try again shortly.`);
+  }
   const task = await prisma.bridgeTask.create({
     data: { propertyId, connectionId: c.id, kind: input.kind, instruction: input.instruction.slice(0, 1000), payload: input.payload ?? {}, requestedById: ctx.actor.userId },
   });

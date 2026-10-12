@@ -40,6 +40,27 @@ export function assertCanGrant(actor: Actor, role: Role) {
   if (role === 'CUSTOMER') throw forbidden('Guest accounts are created by guests themselves.');
 }
 
+/**
+ * Public demo: the shared @stayos.demo logins are listed on /login, so their
+ * sign-in (email, password), role and active status can't be changed there —
+ * otherwise one visitor could lock everyone else out.
+ */
+export function assertDemoLoginUnchanged(
+  user: { email: string; role: string; isActive: boolean; assignedProperties?: { property: { id: string } }[] },
+  change: { email?: string; password?: string; role?: string; isActive?: boolean; assignedPropertyIds?: string[]; remove?: boolean },
+) {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true' || !user.email.toLowerCase().endsWith('@stayos.demo')) return;
+  const current = (user.assignedProperties ?? []).map((a) => a.property.id).sort().join();
+  const touches =
+    change.remove ||
+    !!change.password ||
+    (change.email !== undefined && change.email.toLowerCase() !== user.email.toLowerCase()) ||
+    (change.role !== undefined && change.role !== user.role) ||
+    (change.isActive !== undefined && change.isActive !== user.isActive) ||
+    (change.assignedPropertyIds !== undefined && [...change.assignedPropertyIds].sort().join() !== current);
+  if (touches) throw forbidden('This is a shared demo login, so its sign-in, role and status stay as they are. Add a team member of your own to try this.');
+}
+
 export function assertAssignable(actor: Actor, propertyIds: string[]) {
   if (actor.propertyIds === 'ALL') return;
   const own = actor.propertyIds;

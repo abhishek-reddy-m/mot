@@ -220,6 +220,16 @@ enum InterfaceMode {
 
 // Audit trail for agentic-mode usage: every agent command and every
 // interface-mode switch is logged here (who, which property, what, when).
+/// Single-use signed agent plans: claimed (by nonce) before any step runs.
+model ExecutedPlan {
+  nonce      String   @id
+  propertyId String
+  userId     String
+  createdAt  DateTime @default(now())
+
+  @@map("executed_plans")
+}
+
 model AgentAuditLog {
   id         String   @id @default(cuid())
   propertyId String
@@ -345,6 +355,7 @@ model VoiceSession {
   propertyId      String
   userId          String?
   audience        String // GUEST | STAFF
+  clientKey       String? // hashed caller (IP + property) for guest rate limits
   liveSessionId   String?
   toolCalls       Int       @default(0)
   summary         String?
@@ -353,6 +364,7 @@ model VoiceSession {
   property        Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@index([propertyId, startedAt])
+  @@index([clientKey, startedAt])
   @@map("voice_sessions")
 }
 

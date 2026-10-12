@@ -5,7 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { requireStaff, type Actor } from '@/server/authz';
 import { badRequest, forbidden, notFound } from '@/server/errors';
 import { handleRoute, json, parseJson } from '@/server/http';
-import { assertAssignable, assertCanGrant, userSelect, visibleUsersWhere } from '@/server/services/users';
+import { assertAssignable, assertCanGrant, assertDemoLoginUnchanged, userSelect, visibleUsersWhere } from '@/server/services/users';
 
 type Params = { params: Promise<{ userId: string }> };
 
@@ -49,6 +49,7 @@ export const PATCH = handleRoute(async (request: NextRequest, { params }: Params
   const user = await loadVisible(actor, userId);
   assertEditable(actor, user);
   const body = await parseJson(request, patchSchema);
+  assertDemoLoginUnchanged(user, body);
   if (body.role) assertCanGrant(actor, body.role);
   if (body.assignedPropertyIds) assertAssignable(actor, body.assignedPropertyIds);
   if (userId === actor.userId && (body.role || body.isActive === false)) {
@@ -92,6 +93,7 @@ export const DELETE = handleRoute(async (_req: NextRequest, { params }: Params) 
   if (userId === actor.userId) throw badRequest("You can't delete your own account.");
   const user = await loadVisible(actor, userId);
   assertEditable(actor, user);
+  assertDemoLoginUnchanged(user, { remove: true });
   const history = (await prisma.booking.count({ where: { userId } })) + (await prisma.agentAuditLog.count({ where: { userId } }));
   if (history > 0) {
     await prisma.user.update({ where: { id: userId }, data: { isActive: false } });

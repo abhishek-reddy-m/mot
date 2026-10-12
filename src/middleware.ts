@@ -13,7 +13,7 @@ export async function middleware(request: NextRequest) {
   const token = await getToken({
     req: request,
     cookieName: process.env.NODE_ENV === 'production' ? '__Secure-next-auth.session-token' : 'next-auth.session-token',
-    secret: process.env.NEXTAUTH_SECRET,
+    secret: process.env.AUTH_SECRET ?? process.env.NEXTAUTH_SECRET,
   });
   const role = token?.role as string | undefined;
 

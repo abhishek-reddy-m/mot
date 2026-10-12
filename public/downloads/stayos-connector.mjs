@@ -129,6 +129,7 @@ async function runTask({ server, token, claim, page }) {
   let pending = null;
   const finish = (status, summary, error) => api(server, token, `/api/bridge/tasks/${task.id}/finish`, { status, summary, error }).catch((e) => log('could not report result:', e.message));
   try {
+    if (claim.fresh && connection.loginUrl && !/^https:\/\//i.test(connection.loginUrl)) throw new Error('The cloud browser only opens https:// sign-in pages.');
     if (connection.loginUrl && (page.url() === 'about:blank' || claim.fresh)) await page.goto(connection.loginUrl, { waitUntil: 'domcontentloaded' });
     for (let i = 0; i < maxSteps; i++) {
       await page.waitForLoadState('domcontentloaded').catch(() => undefined);

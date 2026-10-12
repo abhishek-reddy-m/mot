@@ -5,6 +5,7 @@ import { prisma } from '@/lib/prisma';
 import { requireActor } from '@/server/authz';
 import { badRequest } from '@/server/errors';
 import { handleRoute, json, parseJson } from '@/server/http';
+import { assertDemoLoginUnchanged } from '@/server/services/users';
 
 const select = {
   firstName: true,
@@ -46,10 +47,11 @@ export const PUT = handleRoute(async (request: NextRequest) => {
   const { currentPassword, newPassword, ...details } = await parseJson(request, schema);
   let password: string | undefined;
   if (newPassword) {
-    const user = await prisma.user.findUnique({ where: { id: actor.userId }, select: { password: true } });
+    const user = await prisma.user.findUnique({ where: { id: actor.userId }, select: { password: true, email: true, role: true, isActive: true } });
     if (!user?.password || !currentPassword || !(await bcrypt.compare(currentPassword, user.password))) {
       throw badRequest('Your current password isn’t right.');
     }
+    assertDemoLoginUnchanged(user, { password: newPassword });
     password = await bcrypt.hash(newPassword, 12);
   }
   const clean = Object.fromEntries(Object.entries(details).map(([k, v]) => [k, typeof v === 'string' && v === '' && k !== 'firstName' && k !== 'lastName' ? null : v]));

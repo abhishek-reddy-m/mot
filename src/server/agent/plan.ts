@@ -65,11 +65,17 @@ export function verifyPlan(token: string, userId: string): SignedPlanPayload {
   return payload;
 }
 
-/** True when a plan with this nonce already ran (double-click / replay protection). */
-export async function planAlreadyExecuted(propertyId: string, nonce: string): Promise<boolean> {
-  const hit = await prisma.agentAuditLog.findFirst({
-    where: { propertyId, action: 'PLAN_EXECUTED', detail: { contains: `"nonce":"${nonce}"` } },
-    select: { id: true },
-  });
-  return !!hit;
+/**
+ * Claims a plan before any step runs (double-click / replay protection).
+ * The nonce is the primary key, so of two concurrent confirms — even on
+ * different server instances — exactly one wins. False when already claimed.
+ */
+export async function claimPlan(propertyId: string, nonce: string, userId: string): Promise<boolean> {
+  try {
+    await prisma.executedPlan.create({ data: { nonce, propertyId, userId } });
+    return true;
+  } catch (e) {
+    if ((e as { code?: string }).code === 'P2002') return false;
+    throw e;
+  }
 }

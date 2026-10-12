@@ -24,12 +24,14 @@ The repo deploys as-is: `vercel.json` runs `scripts/vercel-build.mjs`, which
    | `OPENAI_API_KEY` | enables the voice front desk and the PMS bridge operator |
    | `STRIPE_*`, `RESEND_API_KEY`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_CLIENT_*` | optional |
 
-   Leave `NEXTAUTH_URL` unset: auth trusts the request host, which keeps preview URLs working. Set it (or `NEXT_PUBLIC_SITE_URL`) only to pin Stripe return URLs to a custom domain.
+   Leave `NEXTAUTH_URL` unset: auth trusts the request host, which keeps preview URLs working. Set `NEXT_PUBLIC_SITE_URL` only to pin Stripe return URLs to a custom domain.
 4. **Deploy** → *Deployments* → *Redeploy* (env and database changes only apply to new builds).
 5. **Check** → `https://<your-domain>/api/health` should return `{"ok":true,"database":"up","seeded":true}`.
 
 ## Notes
 
 - Migrations run on every build that has a database (`prisma migrate deploy` only applies pending ones). Set `SKIP_MIGRATIONS=true` to opt out, e.g. for preview branches sharing the production database.
+- Serverless-safe by design: plan single-use, voice and bridge budgets, and sign-up limits live in Postgres, so they hold across every function instance. Photo uploads are downscaled in the browser and sent one per request (Vercel caps request bodies at 4.5 MB).
+- Public demo (`NEXT_PUBLIC_DEMO_MODE=true`): the shared `@stayos.demo` logins can't be re-passworded, deactivated or deleted, demo hotels keep their public details, and every deploy re-checks the demo logins. Sign-up forms tell visitors not to enter real details.
 - Deployment Protection (Vercel Authentication) protects preview and per-deployment URLs by default; the production domain stays public.
 - The cloud PMS bridge worker (`node stayos-connector.mjs worker`) is a long-running process: run it on a small VM or container with `BRIDGE_WORKER_SECRET` set on both sides — not on Vercel Functions.

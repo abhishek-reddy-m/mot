@@ -15,7 +15,10 @@ interface Photo {
   isMain: boolean;
 }
 
-const MAX_BYTES = 6 * 1024 * 1024;
+const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
+const MAX_EDGE = 2000;
+// Request bodies on Vercel Functions top out at 4.5 MB; stay well under it.
+const MAX_UPLOAD_CHARS = 4_000_000;
 
 function toDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,6 +27,26 @@ function toDataUrl(file: File): Promise<string> {
     r.onerror = () => reject(r.error);
     r.readAsDataURL(file);
   });
+}
+
+/** Downscale to ≤2000px and re-encode as JPEG — sharp on any screen, a few hundred KB. */
+async function toUploadDataUrl(file: File): Promise<string> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, MAX_EDGE / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    const ctx = canvas.getContext('2d')!;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    return canvas.toDataURL('image/jpeg', 0.85);
+  } catch {
+    // A format this browser can't decode: send the original.
+    return toDataUrl(file);
+  }
 }
 
 /**
@@ -40,17 +63,23 @@ export function PhotoManager({ endpoint, editable = true }: { endpoint: string; 
   async function upload(files: FileList | null) {
     if (!files?.length) return;
     const list = [...files].filter((f) => f.type.startsWith('image/'));
-    const tooBig = list.find((f) => f.size > MAX_BYTES);
+    const tooBig = list.find((f) => f.size > MAX_SOURCE_BYTES);
     if (tooBig) {
-      toast.error(`${tooBig.name} is larger than 6 MB.`);
+      toast.error(`${tooBig.name} is larger than 25 MB.`);
       return;
     }
     setBusy('upload');
     try {
-      const images = await Promise.all(list.map(toDataUrl));
-      await api(endpoint, { method: 'POST', json: { images } });
-      toast.success(`Uploaded ${images.length} photo${images.length > 1 ? 's' : ''}`);
-      await mutate();
+      // One photo per request keeps every upload under the body limit.
+      let done = 0;
+      for (const file of list) {
+        const image = await toUploadDataUrl(file);
+        if (image.length > MAX_UPLOAD_CHARS) throw new Error(`${file.name} is too large to upload — try a JPEG or a smaller photo.`);
+        await api(endpoint, { method: 'POST', json: { images: [image] } });
+        done += 1;
+        await mutate();
+      }
+      toast.success(`Uploaded ${done} photo${done > 1 ? 's' : ''}`);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
