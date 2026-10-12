@@ -14,6 +14,9 @@ export function OccupancyChart({ days, height = 160, className }: { days: Occupa
   const [active, setActive] = React.useState<number | null>(null);
   if (!days.length) return null;
   const shown = active !== null ? days[active] : null;
+  // Keep labels legible for long ranges: label roughly 14 nights across.
+  const every = Math.max(1, Math.ceil(days.length / 14));
+  const gap = days.length > 45 ? 'gap-px' : 'gap-[3px]';
   return (
     <div className={cn('w-full', className)}>
       <div className="mb-2 flex h-5 items-center gap-3 text-xs text-muted-foreground">
@@ -35,7 +38,7 @@ export function OccupancyChart({ days, height = 160, className }: { days: Occupa
             <span className="absolute -top-2 right-0 bg-card pl-1 text-[10px] text-muted-foreground/70">{g}%</span>
           </div>
         ))}
-        <div className="absolute inset-0 flex items-end gap-[3px] pr-7">
+        <div className={cn('absolute inset-0 flex items-end pr-7', gap)}>
           {days.map((d, i) => {
             const wknd = weekday(d.date) === 5 || weekday(d.date) === 6;
             const tone = d.occupancyPct >= 85 ? 'bg-success' : d.occupancyPct >= 50 ? 'bg-primary' : d.occupancyPct >= 25 ? 'bg-primary/60' : 'bg-primary/30';
@@ -59,10 +62,10 @@ export function OccupancyChart({ days, height = 160, className }: { days: Occupa
           })}
         </div>
       </div>
-      <div className="mt-1.5 flex gap-[3px] pr-7">
+      <div className={cn('mt-1.5 flex h-4 pr-7', gap)}>
         {days.map((d, i) => (
-          <span key={d.date} className={cn('flex-1 text-center text-[10px] text-muted-foreground tabular', days.length > 16 && i % 2 === 1 && 'invisible')}>
-            {fmtDay(d.date, 'numeric')}
+          <span key={d.date} className="relative flex-1 text-[10px] text-muted-foreground tabular">
+            {i % every === 0 && <span className="absolute left-1/2 -translate-x-1/2 whitespace-nowrap">{fmtDay(d.date, 'numeric')}</span>}
           </span>
         ))}
       </div>

@@ -298,7 +298,9 @@ export function ConsoleShell({ children }: { children: React.ReactNode }) {
               <motion.div
                 key={mode + (pathname.startsWith('/admin/agent') ? ':agent' : '')}
                 initial={{ opacity: 0, y: 8, filter: 'blur(2px)' }}
-                animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+                // Clear filter/transform once settled: either one would make this
+                // wrapper the containing block for position:fixed children.
+                animate={{ opacity: 1, y: 0, filter: 'blur(0px)', transitionEnd: { filter: 'none', transform: 'none' } }}
                 exit={{ opacity: 0, y: -6, filter: 'blur(2px)' }}
                 transition={{ duration: 0.25, ease: [0.22, 1, 0.36, 1] }}
                 className="h-full"

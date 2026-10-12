@@ -40,42 +40,78 @@ export const GET = handleRoute(async (request: NextRequest) => {
   return json(rooms);
 });
 
-const createSchema = z.object({
-  propertyId: z.string().min(1),
-  roomTypeId: z.string().min(1),
-  roomNumber: z.string().trim().min(1).max(20),
-  floor: z.string().trim().max(20).optional().nullable(),
-  notes: z.string().max(500).optional().nullable(),
-  tags: z.array(z.string().trim().min(1).max(24)).max(12).optional(),
-});
+const createSchema = z
+  .object({
+    propertyId: z.string().min(1),
+    roomTypeId: z.string().min(1),
+    roomNumber: z.string().trim().min(1).max(20).optional(),
+    /** Bulk: several room numbers of the same type at once. */
+    roomNumbers: z.array(z.string().trim().min(1).max(20)).min(1).max(200).optional(),
+    floor: z.string().trim().max(20).optional().nullable(),
+    notes: z.string().max(500).optional().nullable(),
+    tags: z.array(z.string().trim().min(1).max(24)).max(12).optional(),
+  })
+  .refine((b) => !!b.roomNumber !== !!b.roomNumbers, { message: 'Provide roomNumber or roomNumbers' });
 
-/** POST — add a physical room. */
+/** Floor from a room number like 204 → "2", 1203 → "12"; null for "A1". */
+function inferFloor(roomNumber: string): string | null {
+  const m = roomNumber.match(/^(\d+)\d{2}$/);
+  return m ? String(Number(m[1])) : null;
+}
+
+/**
+ * POST — add one physical room, or several of one type (bulk). The room
+ * type's sellable count grows to cover the room numbers that exist.
+ */
 export const POST = handleRoute(async (request: NextRequest) => {
   const actor = await requireStaff('room.manage');
   const body = await parseJson(request, createSchema);
   assertPropertyAccess(actor, body.propertyId);
-  const roomType = await prisma.roomType.findUnique({ where: { id: body.roomTypeId }, select: { propertyId: true, name: true } });
+  const roomType = await prisma.roomType.findUnique({ where: { id: body.roomTypeId }, select: { propertyId: true, name: true, totalRooms: true } });
   if (!roomType) throw notFound('Room type');
   if (roomType.propertyId !== body.propertyId) throw badRequest('That room type belongs to a different property.');
-  const exists = await prisma.room.findUnique({
-    where: { propertyId_roomNumber: { propertyId: body.propertyId, roomNumber: body.roomNumber } },
+
+  const numbers = [...new Set(body.roomNumbers ?? [body.roomNumber!])];
+  const existing = await prisma.room.findMany({
+    where: { propertyId: body.propertyId, roomNumber: { in: numbers } },
+    select: { roomNumber: true },
   });
-  if (exists) throw conflict(`Room ${body.roomNumber} already exists at this property.`);
-  const room = await prisma.room.create({
-    data: {
-      propertyId: body.propertyId,
-      roomTypeId: body.roomTypeId,
-      roomNumber: body.roomNumber,
-      floor: body.floor || null,
-      notes: body.notes || null,
-      tags: body.tags?.map((t) => t.toLowerCase()) ?? [],
-      status: 'CLEAN',
-      isOutOfOrder: false,
-    },
-    include: { roomType: { select: { id: true, name: true } } },
+  if (existing.length) {
+    const list = existing.map((r) => r.roomNumber).join(', ');
+    throw conflict(`Room${existing.length > 1 ? 's' : ''} ${list} already exist${existing.length > 1 ? '' : 's'} at this property.`);
+  }
+
+  const tags = body.tags?.map((t) => t.toLowerCase()) ?? [];
+  const created = await prisma.$transaction(async (tx) => {
+    const rooms = [];
+    for (const roomNumber of numbers) {
+      rooms.push(
+        await tx.room.create({
+          data: {
+            propertyId: body.propertyId,
+            roomTypeId: body.roomTypeId,
+            roomNumber,
+            floor: body.floor || inferFloor(roomNumber),
+            notes: body.notes || null,
+            tags,
+            status: 'CLEAN',
+            isOutOfOrder: false,
+          },
+          include: { roomType: { select: { id: true, name: true } } },
+        })
+      );
+    }
+    const physical = await tx.room.count({ where: { roomTypeId: body.roomTypeId } });
+    if (physical > roomType.totalRooms) await tx.roomType.update({ where: { id: body.roomTypeId }, data: { totalRooms: physical } });
+    return rooms;
   });
-  await recordAudit({ actor, source: 'classic' }, body.propertyId, 'ROOM_CREATE', `Added room ${room.roomNumber} (${roomType.name})`, {
-    roomId: room.id,
-  });
-  return json(room, { status: 201 });
+
+  await recordAudit(
+    { actor, source: 'classic' },
+    body.propertyId,
+    'ROOM_CREATE',
+    created.length === 1 ? `Added room ${created[0].roomNumber} (${roomType.name})` : `Added ${created.length} ${roomType.name} rooms: ${numbers.join(', ')}`.slice(0, 300),
+    { roomIds: created.map((r) => r.id) }
+  );
+  return json(body.roomNumbers ? created : created[0], { status: 201 });
 });

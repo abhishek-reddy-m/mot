@@ -36,7 +36,7 @@ export function nightsBetween(a: ISODate, b: ISODate): number {
 
 /** "Today", "Tomorrow", "Yesterday" or "Fri, Oct 16". */
 export function relativeDay(day: ISODate, today: ISODate): string {
-  const diff = nightsBetween(today, day) * (day >= today ? 1 : -1);
+  const diff = Math.round((at(day).getTime() - at(today).getTime()) / 86_400_000);
   if (diff === 0) return 'Today';
   if (diff === 1) return 'Tomorrow';
   if (diff === -1) return 'Yesterday';

@@ -37,9 +37,10 @@ export async function recordAudit(
   }
 }
 
-export async function listActivity(propertyId: string, limit = 60): Promise<ActivityEntry[]> {
+export async function listActivity(propertyId: string, limit = 60, opts: { bookingId?: string } = {}): Promise<ActivityEntry[]> {
   const rows = await prisma.agentAuditLog.findMany({
-    where: { propertyId },
+    // Booking-scoped entries carry `"bookingId":"…"` in their JSON detail.
+    where: { propertyId, ...(opts.bookingId ? { detail: { contains: `"bookingId":"${opts.bookingId}"` } } : {}) },
     orderBy: { createdAt: 'desc' },
     take: Math.min(limit, 200),
     include: { user: { select: { id: true, firstName: true, lastName: true } } },

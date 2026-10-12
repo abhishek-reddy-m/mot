@@ -1,339 +1,153 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import * as React from 'react';
+import useSWR from 'swr';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { CalendarDays, Search, Sparkles, X } from 'lucide-react';
+import type { BookingSummary } from '@/lib/dto';
+import { fetcher } from '@/lib/fetcher';
+import { fmtDay, relativeDay } from '@/lib/format';
+import { money } from '@/lib/status';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Calendar, User, Building2, DollarSign, Search, Filter, Eye, Loader2 } from 'lucide-react';
+import { EmptyState, PageHeader, Skeleton } from '@/components/ui/primitives';
+import { SegmentedControl } from '@/components/ui/segmented';
+import { BookingRow } from '@/components/hotel/BookingRow';
+import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider';
 
-type Property = {
-  id: string;
-  name: string;
+type View = 'upcoming' | 'inhouse' | 'past' | 'cancelled' | 'all';
+
+const VIEWS: Record<View, { label: string; status?: string; future?: boolean }> = {
+  upcoming: { label: 'Upcoming', status: 'PENDING,CONFIRMED', future: true },
+  inhouse: { label: 'In house', status: 'CHECKED_IN' },
+  past: { label: 'Past', status: 'CHECKED_OUT' },
+  cancelled: { label: 'Cancelled', status: 'CANCELLED,NO_SHOW' },
+  all: { label: 'All' },
 };
 
-type BookingType = {
-  id: string;
-  userId: string;
-  propertyId: string;
-  roomTypeId: string;
-  checkIn: string;
-  checkOut: string;
-  guests: number;
-  rooms: number;
-  totalPrice: number;
-  status: string;
-  createdAt: string;
-  user: {
-    firstName: string;
-    lastName: string;
-    email: string;
-  };
-  property: {
-    name: string;
-  };
-  roomType: {
-    name: string;
-  };
-};
+function useDebounced<T>(value: T, ms = 250): T {
+  const [v, setV] = React.useState(value);
+  React.useEffect(() => {
+    const t = setTimeout(() => setV(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return v;
+}
 
-export default function AdminBookingsPage() {
+export default function BookingsPage() {
   const router = useRouter();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
-  const [propertyFilter, setPropertyFilter] = useState('');
-  const [bookings, setBookings] = useState<BookingType[]>([]);
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-
-  // Fetch properties and bookings
-  useEffect(() => {
-    const fetchProperties = async () => {
-      try {
-        const response = await fetch('/api/admin/properties');
-        if (!response.ok) {
-          throw new Error('Failed to fetch properties');
-        }
-        const data = await response.json();
-        setProperties(data);
-      } catch (err) {
-        console.error('Error fetching properties:', err);
-        setError('Failed to load properties');
-      }
-    };
-
-    const fetchBookings = async () => {
-      try {
-        setLoading(true);
-        const response = await fetch('/api/admin/bookings');
-        if (!response.ok) {
-          throw new Error('Failed to fetch bookings');
-        }
-        const data = await response.json();
-        setBookings(data);
-      } catch (err) {
-        console.error('Error fetching bookings:', err);
-        setError('Failed to load bookings');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchProperties();
-    fetchBookings();
-  }, []);
-
-  // Calculate nights from check-in and check-out dates
-  const calculateNights = (checkIn: string, checkOut: string) => {
-    const start = new Date(checkIn);
-    const end = new Date(checkOut);
-    const diffTime = Math.abs(end.getTime() - start.getTime());
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-  };
-
-  const filteredBookings = bookings.filter(booking => {
-    const fullName = `${booking.user.firstName} ${booking.user.lastName}`.toLowerCase();
-    const matchesSearch = 
-      fullName.includes(searchTerm.toLowerCase()) ||
-      booking.user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      booking.id.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || booking.status.toLowerCase() === statusFilter.toLowerCase();
-    const matchesProperty = propertyFilter === '' || booking.propertyId === propertyFilter;
-    
-    return matchesSearch && matchesStatus && matchesProperty;
+  const { ctx, askAgent, can } = useConsole();
+  const today = ctx?.today ?? '';
+  const [view, setView] = React.useState<View>('upcoming');
+  const [text, setText] = React.useState('');
+  const q = useDebounced(text.trim());
+  const searching = q.length > 0;
+  const cfg = VIEWS[view];
+  const url = usePropertyUrl('/api/admin/bookings', {
+    q: q || undefined,
+    // A search looks everywhere; the tabs only narrow an unfiltered list.
+    status: searching ? undefined : cfg.status,
+    from: !searching && cfg.future && today ? today : undefined,
+    limit: 200,
   });
+  const { data, isLoading } = useSWR<BookingSummary[]>(url, fetcher, { keepPreviousData: true });
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'confirmed': return 'bg-blue-100 text-blue-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'completed': return 'bg-green-100 text-green-800';
-      case 'cancelled': return 'bg-red-100 text-red-800';
-      default: return 'bg-gray-100 text-gray-800';
-    }
-  };
+  const rows = React.useMemo(() => {
+    const list = [...(data ?? [])];
+    if (!searching && (view === 'upcoming' || view === 'inhouse')) list.sort((a, b) => a.checkIn.localeCompare(b.checkIn) || a.guest.name.localeCompare(b.guest.name));
+    return list;
+  }, [data, searching, view]);
 
-  const getPaymentColor = (status: string) => {
-    switch (status) {
-      case 'paid': return 'bg-green-100 text-green-800';
-      case 'pending': return 'bg-yellow-100 text-yellow-800';
-      case 'refunded': return 'bg-blue-100 text-blue-800';
-      default: return 'bg-gray-100 text-gray-800';
+  // Group by arrival day so the list reads like a calendar.
+  const groups = React.useMemo(() => {
+    const out: { day: string; items: BookingSummary[] }[] = [];
+    for (const b of rows) {
+      const last = out[out.length - 1];
+      if (last && last.day === b.checkIn) last.items.push(b);
+      else out.push({ day: b.checkIn, items: [b] });
     }
-  };
+    return out;
+  }, [rows]);
+
+  const total = rows.reduce((s, b) => s + (b.status === 'CANCELLED' || b.status === 'NO_SHOW' ? 0 : b.totalPrice), 0);
 
   return (
-    <div className="p-4 lg:p-6 space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
-        <div>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Bookings</h1>
-          <p className="text-gray-600 mt-1">Manage guest reservations and bookings</p>
-        </div>
-        <div className="flex space-x-2">
-          <Button variant="outline" className="flex items-center gap-2">
-            <Filter className="h-4 w-4" />
-            <span>Export</span>
-          </Button>
-        </div>
-      </div>
+    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <PageHeader
+        title="Reservations"
+        description={data ? `${rows.length} reservation${rows.length === 1 ? '' : 's'}${total ? ` · ${money(total, { cents: false })}` : ''}` : 'Loading…'}
+        actions={
+          can('agent.use') ? (
+            <Button variant="ghost" size="sm" className="text-agent hover:bg-agent-soft" onClick={() => askAgent('who is arriving tomorrow?')}>
+              <Sparkles className="h-4 w-4" /> Ask
+            </Button>
+          ) : undefined
+        }
+      />
 
-      {/* Error display */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md mb-6">
-          {error}
-        </div>
-      )}
-      
-      {/* Filters */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-6">
-        <div className="relative md:col-span-6 lg:col-span-5">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative flex-1">
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search bookings..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 w-full"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Search guest, email, phone or code…"
+            className="pl-9 pr-9"
+            aria-label="Search reservations"
           />
+          {text && (
+            <button onClick={() => setText('')} className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-muted-foreground hover:bg-accent" aria-label="Clear search">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
-        
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 md:col-span-6 lg:col-span-7">
-          <select
-            value={propertyFilter}
-            onChange={(e) => setPropertyFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">All Properties</option>
-            {properties.map(property => (
-              <option key={property.id} value={property.id}>
-                {property.name}
-              </option>
-            ))}
-          </select>
-          
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="all">All Status</option>
-            <option value="PENDING">Pending</option>
-            <option value="CONFIRMED">Confirmed</option>
-            <option value="CHECKED_IN">Checked In</option>
-            <option value="CHECKED_OUT">Checked Out</option>
-            <option value="CANCELLED">Cancelled</option>
-            <option value="NO_SHOW">No Show</option>
-          </select>
-        </div>
+        <SegmentedControl
+          layoutId="bookings-view"
+          aria-label="Reservation view"
+          value={view}
+          onChange={setView}
+          options={(Object.keys(VIEWS) as View[]).map((v) => ({ value: v, label: VIEWS[v].label }))}
+          className={`scrollbar-thin max-w-full overflow-x-auto ${searching ? 'opacity-50' : ''}`}
+        />
       </div>
+      {searching && <p className="-mt-3 text-xs text-muted-foreground">Searching all reservations for “{q}”.</p>}
 
-      {/* Loading State */}
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600 mb-4" />
-            <p className="text-gray-600">Loading bookings...</p>
+      {/* overflow-clip (not hidden) keeps the sticky day headers pinned to the viewport. */}
+      <Card className="overflow-clip p-0">
+        {isLoading && !data ? (
+          <div className="space-y-px">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Skeleton key={i} className="h-[72px] rounded-none" />
+            ))}
           </div>
-        </div>
-      ) : (
-        /* Bookings Table */
-        <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50">
-                <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Booking Details
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Guest
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Property & Room
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Dates
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Amount
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {filteredBookings.map((booking) => {
-                  const nights = calculateNights(booking.checkIn, booking.checkOut);
-                  const checkInDate = new Date(booking.checkIn).toLocaleDateString();
-                  const checkOutDate = new Date(booking.checkOut).toLocaleDateString();
-                  const fullName = `${booking.user.firstName} ${booking.user.lastName}`;
-                  
-                  return (
-                    <tr key={booking.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="text-sm font-medium text-gray-900">{booking.id}</div>
-                        <div className="text-sm text-gray-500">{nights} nights</div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <User className="h-4 w-4 text-gray-400 mr-2" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{fullName}</div>
-                            <div className="text-sm text-gray-500">{booking.user.email}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <Building2 className="h-4 w-4 text-gray-400 mr-2" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{booking.property.name}</div>
-                            <div className="text-sm text-gray-500">{booking.roomType.name}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <Calendar className="h-4 w-4 text-gray-400 mr-2" />
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{checkInDate}</div>
-                            <div className="text-sm text-gray-500">to {checkOutDate}</div>
-                          </div>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="flex items-center">
-                          <DollarSign className="h-4 w-4 text-gray-400 mr-1" />
-                          <span className="text-sm font-medium text-gray-900">${Number(booking.totalPrice).toFixed(2)}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap">
-                        <div className="space-y-1">
-                          <Badge className={`${getStatusColor(booking.status.toLowerCase())} text-xs`}>
-                            {booking.status.replace('_', ' ')}
-                          </Badge>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                        <div className="flex gap-2">
-                          <Button 
-                            variant="outline" 
-                            size="sm"
-                            onClick={() => router.push(`/admin/bookings/${booking.id}`)}
-                          >
-                            <Eye className="h-4 w-4" />
-                          </Button>
-                          
-                          {booking.status === 'CONFIRMED' && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="bg-blue-50 hover:bg-blue-100 text-blue-700"
-                              onClick={() => router.push(`/admin/bookings/${booking.id}?action=checkin`)}
-                            >
-                              Check In
-                            </Button>
-                          )}
-                          
-                          {(booking.status === 'PENDING' || booking.status === 'CONFIRMED') && (
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="bg-red-50 hover:bg-red-100 text-red-700"
-                              onClick={() => router.push(`/admin/bookings/${booking.id}?action=cancel`)}
-                            >
-                              Cancel
-                            </Button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {!loading && filteredBookings.length === 0 && (
-        <div className="text-center py-16 bg-white rounded-lg shadow-sm">
-          <Calendar className="h-14 w-14 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-xl font-medium text-gray-900 mb-2">No bookings found</h3>
-          <p className="text-gray-600 max-w-md mx-auto">
-            {propertyFilter 
-              ? "No bookings for the selected property. Try selecting a different property or adjusting your filters."
-              : "Try adjusting your search terms or filters"}
-          </p>
-        </div>
-      )}
+        ) : rows.length === 0 ? (
+          <EmptyState
+            icon={CalendarDays}
+            title={searching ? 'No matches' : `No ${VIEWS[view].label.toLowerCase()} reservations`}
+            description={searching ? 'Try a last name, the 8-character code, or an email address.' : undefined}
+          />
+        ) : (
+          groups.map((g) => (
+            <section key={g.day}>
+              <div className="sticky top-14 z-10 flex items-center justify-between border-b bg-surface-sunken/90 px-4 py-1.5 text-xs backdrop-blur">
+                <span className="font-medium">
+                  {fmtDay(g.day, 'weekday')}
+                  {today && relativeDay(g.day, today) !== fmtDay(g.day, 'weekday') && (
+                    <span className="ml-2 font-normal text-muted-foreground">{relativeDay(g.day, today)}</span>
+                  )}
+                </span>
+                <span className="text-muted-foreground tabular">{g.items.length}</span>
+              </div>
+              <div className="divide-y">
+                {g.items.map((b) => (
+                  <BookingRow key={b.id} booking={b} today={today} onClick={() => router.push(`/admin/bookings/${b.id}`)} />
+                ))}
+              </div>
+            </section>
+          ))
+        )}
+      </Card>
     </div>
   );
 }

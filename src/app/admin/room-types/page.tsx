@@ -1,275 +1,229 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import * as React from 'react';
+import Link from 'next/link';
+import useSWR from 'swr';
+import { toast } from 'sonner';
+import { AnimatePresence, motion } from 'framer-motion';
+import { BedDouble, ChevronRight, Plus, Tag, TriangleAlert, Users } from 'lucide-react';
+import { api, fetcher } from '@/lib/fetcher';
+import { money } from '@/lib/status';
+import { parseRoomNumbers } from '@/lib/rooms';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
-import { Bed, Users, Edit, Trash2, Plus, Search, DollarSign, Loader2 } from 'lucide-react';
+import { EmptyState, PageHeader, Skeleton } from '@/components/ui/primitives';
+import { SmartImage } from '@/components/ui/smart-image';
+import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider';
 
-type Property = {
-  id: string;
-  name: string;
-};
-
-type RoomType = {
+interface RoomTypeRow {
   id: string;
   name: string;
   description: string | null;
   capacity: number;
-  basePrice: number;
+  basePrice: number | string;
   totalRooms: number;
   amenities: string[];
   isActive: boolean;
-  property: {
-    id: string;
-    name: string;
-  };
-  _count?: {
-    bookings: number;
-  };
+  photos: { url: string }[];
+  _count: { bookings: number; rooms: number };
+}
+interface RoomRow {
+  id: string;
+  roomNumber: string;
+  floor: string | null;
+  roomTypeId: string;
+  status: 'CLEAN' | 'DIRTY' | 'INSPECTED' | 'OUT_OF_ORDER';
+  isOutOfOrder: boolean;
+}
+
+const DOT: Record<RoomRow['status'], string> = {
+  CLEAN: 'bg-success',
+  INSPECTED: 'bg-success',
+  DIRTY: 'bg-warning',
+  OUT_OF_ORDER: 'bg-destructive',
 };
 
-export default function AdminRoomTypesPage() {
-  const router = useRouter();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [properties, setProperties] = useState<Property[]>([]);
-  const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [selectedPropertyId, setSelectedPropertyId] = useState('');
+function AddRooms({ roomType, propertyId, onDone }: { roomType: RoomTypeRow; propertyId: string; onDone: () => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [text, setText] = React.useState('');
+  const [busy, setBusy] = React.useState(false);
+  const parsed = text.trim() ? parseRoomNumbers(text) : null;
+  const error = parsed && 'error' in parsed ? parsed.error : null;
+  const numbers = parsed && 'numbers' in parsed ? parsed.numbers : [];
 
-  useEffect(() => {
-    const fetchProperties = async () => {
-      try {
-        const response = await fetch('/api/admin/properties');
-        if (!response.ok) {
-          throw new Error(`Failed to fetch properties: ${response.status}`);
-        }
-        const data = await response.json();
-        setProperties(data);
-      } catch (err) {
-        console.error('Error fetching properties:', err);
-        setError('Failed to load properties');
-      }
-    };
+  async function save(e: React.FormEvent) {
+    e.preventDefault();
+    if (!numbers.length) return;
+    setBusy(true);
+    try {
+      await api('/api/admin/rooms', { method: 'POST', json: { propertyId, roomTypeId: roomType.id, roomNumbers: numbers } });
+      toast.success(`Added ${numbers.length} ${roomType.name} room${numbers.length > 1 ? 's' : ''}`);
+      setText('');
+      setOpen(false);
+      onDone();
+    } catch (err) {
+      toast.error((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
-    const fetchRoomTypes = async () => {
-      try {
-        setLoading(true);
-        console.log('Fetching room types...');
-        
-        // First try a non-auth test
-        const testResponse = await fetch('/api/admin/room-types', { method: 'HEAD' });
-        console.log('Test HEAD response:', testResponse.status, testResponse.ok);
-        if (testResponse.ok) {
-          console.log('HEAD test successful - endpoint is accessible');
-        } else {
-          console.log('Test response error - status:', testResponse.status);
-        }
-        
-        // Now try the actual GET request
-        const response = await fetch('/api/admin/room-types');
-        console.log('Room types response status:', response.status);
-        
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error('Response error text:', errorText);
-          throw new Error(`Failed to fetch room types: ${response.status} - ${errorText}`);
-        }
-        
-        const data = await response.json();
-        console.log('Room types data received:', data.length);
-        setRoomTypes(data);
-      } catch (err) {
-        console.error('Error fetching room types:', err);
-        setError('Failed to load room types');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    // Also test the auth API
-    const testAuth = async () => {
-      try {
-        const response = await fetch('/api/test-auth');
-        console.log('Auth test response status:', response.status);
-        if (response.ok) {
-          const data = await response.json();
-          console.log('Auth test data:', data);
-        } else {
-          console.log('Auth test error:', await response.text());
-        }
-      } catch (err) {
-        console.error('Auth test error:', err);
-      }
-    };
-
-    fetchProperties();
-    fetchRoomTypes();
-    testAuth();
-  }, []);
-
-  // Filter room types by property and search term
-  const filteredRoomTypes = roomTypes.filter(roomType => {
-    const matchesSearch = 
-      roomType.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-      (roomType.description?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
-    const matchesProperty = selectedPropertyId ? roomType.property.id === selectedPropertyId : true;
-    
-    return matchesSearch && matchesProperty;
-  });
-
+  if (!open) {
+    return (
+      <button
+        onClick={() => setOpen(true)}
+        className="inline-flex h-7 items-center gap-1 rounded-md border border-dashed px-2 text-xs text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary"
+      >
+        <Plus className="h-3 w-3" /> Add rooms
+      </button>
+    );
+  }
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Room Types</h1>
-          <p className="text-gray-600">Manage room types and configurations</p>
-        </div>
-        <Button 
-          className="flex items-center space-x-2"
-          onClick={() => router.push('/admin/room-types/add')}
-        >
-          <Plus className="h-4 w-4" />
-          <span>Add Room Type</span>
+    <form onSubmit={save} className="mt-2 w-full space-y-1.5">
+      <div className="flex gap-2">
+        <Input autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. 101-110, 201, 203" className="h-9" aria-label="Room numbers" />
+        <Button type="submit" size="sm" className="h-9" loading={busy} disabled={!numbers.length}>
+          Add{numbers.length ? ` ${numbers.length}` : ''}
+        </Button>
+        <Button type="button" variant="ghost" size="sm" className="h-9" onClick={() => setOpen(false)}>
+          Cancel
         </Button>
       </div>
+      <p className={cn('text-xs', error ? 'text-destructive' : 'text-muted-foreground')}>
+        {error ?? (numbers.length ? `${numbers.slice(0, 12).join(', ')}${numbers.length > 12 ? ` … +${numbers.length - 12}` : ''} · floors are read from the number` : 'Ranges and lists both work.')}
+      </p>
+    </form>
+  );
+}
 
-      {/* Search and Filter */}
-      <div className="flex flex-col md:flex-row items-start md:items-center space-y-4 md:space-y-0 md:space-x-4">
-        <div className="relative flex-1 max-w-md w-full">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-4 w-4 text-gray-400" />
-          <Input
-            placeholder="Search room types..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 w-full"
-          />
-        </div>
-        
-        <div className="w-full md:w-auto">
-          <select
-            className="w-full md:w-64 p-2 border rounded-md"
-            value={selectedPropertyId}
-            onChange={(e) => setSelectedPropertyId(e.target.value)}
-          >
-            <option value="">All Properties</option>
-            {properties.map(property => (
-              <option key={property.id} value={property.id}>
-                {property.name}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-      
-      {/* Error display */}
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 p-4 rounded-md">
-          {error}
-        </div>
-      )}
+export default function RoomTypesPage() {
+  const { propertyId, property, can } = useConsole();
+  const typesUrl = usePropertyUrl('/api/admin/room-types');
+  const roomsUrl = usePropertyUrl('/api/admin/rooms');
+  const { data: types, isLoading, mutate } = useSWR<RoomTypeRow[]>(typesUrl, fetcher);
+  const { data: rooms, mutate: mutateRooms } = useSWR<RoomRow[]>(roomsUrl, fetcher);
+  const editable = can('inventory.write');
+  const byType = React.useMemo(() => {
+    const m = new Map<string, RoomRow[]>();
+    for (const r of rooms ?? []) m.set(r.roomTypeId, [...(m.get(r.roomTypeId) ?? []), r]);
+    return m;
+  }, [rooms]);
+  const totalRooms = (types ?? []).filter((t) => t.isActive).reduce((s, t) => s + t.totalRooms, 0);
 
-      {/* Loading state */}
-      {loading ? (
-        <div className="flex justify-center items-center h-64">
-          <div className="text-center">
-            <Loader2 className="h-8 w-8 animate-spin mx-auto text-blue-600 mb-4" />
-            <p className="text-gray-600">Loading room types...</p>
-          </div>
-        </div>
-      ) : (
-        /* Room Types Grid */
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {filteredRoomTypes.map((roomType) => (
-            <Card key={roomType.id} className="hover:shadow-lg transition-shadow">
-              <CardHeader>
-                <div className="flex items-start justify-between">
-                  <div className="flex-1">
-                    <div className="flex items-center space-x-2">
-                      <Bed className="h-5 w-5 text-blue-600 flex-shrink-0" />
-                      <CardTitle className="text-lg">{roomType.name}</CardTitle>
-                    </div>
-                    <div className="mt-1 text-sm text-blue-600 font-medium">
-                      {roomType.property.name}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <DollarSign className="h-4 w-4 text-green-600" />
-                    <span className="font-bold text-green-600">${Number(roomType.basePrice).toFixed(2)}/night</span>
-                  </div>
-                </div>
-                <CardDescription className="mt-2">{roomType.description || 'No description available'}</CardDescription>
-                <div className="mt-2">
-                  <Badge variant={roomType.isActive ? "default" : "secondary"}>
-                    {roomType.isActive ? 'Active' : 'Inactive'}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid grid-cols-3 gap-4 text-sm">
-                  <div className="text-center">
-                    <div className="flex items-center justify-center space-x-1">
-                      <Users className="h-4 w-4 text-gray-600" />
-                      <span className="font-semibold">{roomType.capacity}</span>
-                    </div>
-                    <span className="text-gray-600 text-xs">Max Guests</span>
-                  </div>
-                  <div className="text-center">
-                    <div className="font-semibold">{roomType.totalRooms}</div>
-                    <span className="text-gray-600 text-xs">Total Rooms</span>
-                  </div>
-                  <div className="text-center">
-                    <div className="font-semibold text-green-600">{roomType.totalRooms - (roomType._count?.bookings || 0)}</div>
-                    <span className="text-gray-600 text-xs">Available</span>
-                  </div>
-                </div>
+  return (
+    <div className="mx-auto max-w-6xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <PageHeader
+        title="Rooms"
+        description={types ? `${types.length} room type${types.length === 1 ? '' : 's'} · ${totalRooms} sellable rooms${property ? ` at ${property.name}` : ''}` : 'Loading…'}
+        actions={
+          editable ? (
+            <Button asChild>
+              <Link href="/admin/room-types/add">
+                <Plus className="h-4 w-4" /> Add room type
+              </Link>
+            </Button>
+          ) : undefined
+        }
+      />
 
-                {roomType.amenities.length > 0 && (
-                  <div>
-                    <h4 className="font-medium text-gray-900 mb-2">Amenities</h4>
-                    <div className="flex flex-wrap gap-1">
-                      {roomType.amenities.map((amenity, index) => (
-                        <Badge key={index} variant="secondary" className="text-xs">
-                          {amenity}
-                        </Badge>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex space-x-2 pt-4">
-                  <Button 
-                    variant="outline" 
-                    size="sm" 
-                    className="flex-1"
-                    onClick={() => router.push(`/admin/room-types/${roomType.id}`)}
-                  >
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+      {isLoading ? (
+        <div className="space-y-4">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-40 rounded-2xl" />
           ))}
         </div>
-      )}
+      ) : !types?.length ? (
+        <Card>
+          <EmptyState
+            icon={BedDouble}
+            title="No room types yet"
+            description="Start with the kinds of rooms you sell — like “Ocean King” or “Family Suite” — then add the room numbers."
+            action={
+              editable ? (
+                <Button asChild>
+                  <Link href="/admin/room-types/add">Add your first room type</Link>
+                </Button>
+              ) : undefined
+            }
+          />
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          <AnimatePresence initial={false}>
+            {types.map((t) => {
+              const list = byType.get(t.id) ?? [];
+              const gap = t.totalRooms - list.length;
+              return (
+                <motion.div key={t.id} layout initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
+                  <Card className={cn('overflow-hidden p-0', !t.isActive && 'opacity-70')}>
+                    <div className="flex flex-col sm:flex-row">
+                      <Link href={`/admin/room-types/${t.id}`} className="relative block h-40 shrink-0 bg-muted sm:h-auto sm:w-56">
+                        <SmartImage src={t.photos[0]?.url} className="h-full w-full" />
+                        {!t.isActive && <span className="absolute left-3 top-3 rounded-full bg-foreground/80 px-2 py-0.5 text-[11px] font-medium text-background">Hidden from sale</span>}
+                      </Link>
+                      <div className="flex min-w-0 flex-1 flex-col p-5">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <Link href={`/admin/room-types/${t.id}`} className="text-lg font-semibold tracking-tight hover:underline">
+                              {t.name}
+                            </Link>
+                            <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                              <span className="flex items-center gap-1.5">
+                                <Users className="h-3.5 w-3.5" /> Sleeps {t.capacity}
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <Tag className="h-3.5 w-3.5" /> {money(Number(t.basePrice), { cents: false })} base
+                              </span>
+                              <span className="flex items-center gap-1.5">
+                                <BedDouble className="h-3.5 w-3.5" /> {t.totalRooms} sellable
+                              </span>
+                            </div>
+                          </div>
+                          <Button asChild variant="ghost" size="sm" className="shrink-0">
+                            <Link href={`/admin/room-types/${t.id}`}>
+                              {editable ? 'Edit' : 'View'} <ChevronRight className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                        </div>
+                        {t.amenities.length > 0 && <p className="mt-2 line-clamp-1 text-xs text-muted-foreground">{t.amenities.join(' · ')}</p>}
 
-      {!loading && filteredRoomTypes.length === 0 && (
-        <div className="text-center py-12">
-          <Bed className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-gray-900 mb-2">No room types found</h3>
-          <p className="text-gray-600">
-            {selectedPropertyId 
-              ? "No room types for the selected property. Try selecting a different property or creating new room types." 
-              : "Try adjusting your search terms or creating new room types."}
-          </p>
+                        <div className="mt-4 flex flex-wrap items-center gap-1.5">
+                          {list.map((r) => (
+                            <span key={r.id} className="inline-flex h-7 items-center gap-1.5 rounded-md border bg-surface px-2 text-xs font-medium tabular" title={r.isOutOfOrder ? 'Out of order' : r.status.toLowerCase()}>
+                              <span className={cn('h-1.5 w-1.5 rounded-full', DOT[r.isOutOfOrder ? 'OUT_OF_ORDER' : r.status])} />
+                              {r.roomNumber}
+                            </span>
+                          ))}
+                          {can('room.manage') && propertyId && (
+                            <AddRooms
+                              roomType={t}
+                              propertyId={propertyId}
+                              onDone={() => {
+                                void mutateRooms();
+                                void mutate();
+                              }}
+                            />
+                          )}
+                        </div>
+                        {gap > 0 && (
+                          <p className="mt-3 flex items-center gap-1.5 text-xs text-warning">
+                            <TriangleAlert className="h-3.5 w-3.5" />
+                            {list.length === 0
+                              ? `Add room numbers so guests can be assigned a room (${t.totalRooms} to set up).`
+                              : `${gap} more sellable room${gap > 1 ? 's' : ''} than room numbers — add the rest so every guest can get a key.`}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </Card>
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         </div>
       )}
-      
     </div>
   );
 }

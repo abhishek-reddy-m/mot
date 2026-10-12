@@ -19,6 +19,10 @@ interface ConsoleState {
   /** Where you land by default: your last explicit choice, else the property's default. */
   preferredMode: InterfaceMode;
   setMode: (mode: InterfaceMode, opts?: { navigate?: boolean }) => void;
+  /** True when the person picked a mode themselves (vs following the property default). */
+  hasModePreference: boolean;
+  /** Forget the personal choice and follow the property default again. */
+  clearModePreference: () => void;
   can: (perm: string) => boolean;
   role: string | undefined;
   commandOpen: boolean;
@@ -42,9 +46,10 @@ const read = (key: string) => {
     return null;
   }
 };
-const write = (key: string, value: string) => {
+const write = (key: string, value: string | null) => {
   try {
-    window.localStorage.setItem(key, value);
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
   } catch {
     /* storage may be unavailable (private mode) — preference just won't persist */
   }
@@ -105,6 +110,11 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
     [userId, propertyId, pathname, router, homeHref]
   );
 
+  const clearModePreference = React.useCallback(() => {
+    setModeOverride(null);
+    if (userId && propertyId) write(`stayos:mode:${userId}:${propertyId}`, null);
+  }, [userId, propertyId]);
+
   const can = React.useCallback((perm: string) => !!ctx?.permissions.includes(perm), [ctx]);
 
   const askAgent = React.useCallback(
@@ -154,6 +164,8 @@ export function ConsoleProvider({ children }: { children: React.ReactNode }) {
     mode,
     preferredMode,
     setMode,
+    hasModePreference: modeOverride !== null,
+    clearModePreference,
     can,
     role: ctx?.user.role,
     commandOpen,

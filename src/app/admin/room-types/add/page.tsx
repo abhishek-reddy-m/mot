@@ -1,432 +1,106 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { toast } from 'sonner';
+import { ArrowLeft } from 'lucide-react';
+import { api } from '@/lib/fetcher';
+import { parseRoomNumbers } from '@/lib/rooms';
 import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { ArrowLeft, Save, Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
-
-type PreviewImage = {
-  file: File;
-  preview: string;
-};
+import { Field } from '@/components/ui/label';
+import { PageHeader } from '@/components/ui/primitives';
+import { EMPTY_ROOM_TYPE, RoomTypeFields, validateRoomType, type RoomTypeDraft } from '@/components/setup/RoomTypeFields';
+import { useConsole } from '@/components/console/ConsoleProvider';
 
 export default function AddRoomTypePage() {
   const router = useRouter();
-  const [isLoading, setIsLoading] = useState(false);
-  const [properties, setProperties] = useState<{id: string, name: string}[]>([]);
-  const [selectedImages, setSelectedImages] = useState<PreviewImage[]>([]);
-  const [error, setError] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    description: '',
-    capacity: '',
-    basePrice: '',
-    propertyId: '',
-    amenities: '',
-    totalRooms: '0'
-  });
+  const { property, propertyId, refresh } = useConsole();
+  const [draft, setDraft] = React.useState<RoomTypeDraft>(EMPTY_ROOM_TYPE);
+  const [numbers, setNumbers] = React.useState('');
+  const [error, setError] = React.useState<string | null>(null);
+  const [saving, setSaving] = React.useState(false);
 
-  // Define a type for the property data
-  type PropertyData = {
-    id: string;
-    name: string;
-    // Add other fields as needed
-  };
-  
-  useEffect(() => {
-    // Fetch properties from API
-    const fetchProperties = async () => {
-      try {
-        const response = await fetch('/api/admin/properties');
-        if (response.ok) {
-          const data = await response.json();
-          setProperties(data.map((property: PropertyData) => ({ id: property.id, name: property.name })));
-        }
-      } catch (error) {
-        console.error('Error fetching properties:', error);
-      }
-    };
+  const parsed = numbers.trim() ? parseRoomNumbers(numbers) : null;
+  const roomNumbers = parsed && 'numbers' in parsed ? parsed.numbers : [];
+  const numbersError = parsed && 'error' in parsed ? parsed.error : null;
 
-    fetchProperties();
-  }, []);
-
-  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files) return;
-
-    const newImages: PreviewImage[] = [];
-    
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      
-      // Validate file type
-      if (!file.type.startsWith('image/')) {
-        setError(`File "${file.name}" is not an image`);
-        continue;
-      }
-      
-      // Validate file size (max 5MB)
-      if (file.size > 5 * 1024 * 1024) {
-        setError(`File "${file.name}" is too large. Maximum size is 5MB`);
-        continue;
-      }
-      
-      newImages.push({
-        file,
-        preview: URL.createObjectURL(file)
-      });
-    }
-    
-    setSelectedImages([...selectedImages, ...newImages]);
-    
-    // Clear input
-    if (fileInputRef.current) {
-      fileInputRef.current.value = '';
-    }
-  };
-
-  const removeImage = (index: number) => {
-    const newImages = [...selectedImages];
-    URL.revokeObjectURL(newImages[index].preview);
-    newImages.splice(index, 1);
-    setSelectedImages(newImages);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function save(e: React.FormEvent) {
     e.preventDefault();
-    setIsLoading(true);
-    setError('');
-
+    const problem = validateRoomType(draft) ?? numbersError;
+    setError(problem);
+    if (problem || !propertyId) return;
+    setSaving(true);
     try {
-      const amenitiesArray = formData.amenities.split(',').map(item => item.trim()).filter(item => item);
-      
-      // First, create the room type
-      const response = await fetch('/api/admin/room-types', {
+      const totalRooms = Math.max(Number(draft.totalRooms || 0), roomNumbers.length);
+      const created = await api<{ id: string; name: string }>('/api/admin/room-types', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+        json: {
+          propertyId,
+          name: draft.name.trim(),
+          description: draft.description.trim() || null,
+          capacity: Number(draft.capacity),
+          basePrice: Number(draft.basePrice),
+          totalRooms,
+          amenities: draft.amenities,
         },
-        body: JSON.stringify({
-          ...formData,
-          capacity: parseInt(formData.capacity),
-          basePrice: parseFloat(formData.basePrice),
-          totalRooms: parseInt(formData.totalRooms),
-          // Initially, all rooms are available
-          availableRooms: parseInt(formData.totalRooms),
-          amenities: amenitiesArray
-        }),
       });
-
-      if (!response.ok) {
-        throw new Error('Error creating room type');
-      }
-
-      const roomType = await response.json();
-
-      // If we have images, upload them
-      if (selectedImages.length > 0) {
-        const base64Images: string[] = [];
-        
-        for (const img of selectedImages) {
-          const base64 = await new Promise<string>((resolve, reject) => {
-            const reader = new FileReader();
-            reader.onload = () => resolve(reader.result as string);
-            reader.onerror = reject;
-            reader.readAsDataURL(img.file);
-          });
-          base64Images.push(base64);
-        }
-
-        // Upload photos
-        const photoResponse = await fetch(`/api/admin/room-types/${roomType.id}/photos`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ images: base64Images }),
-        });
-
-        if (!photoResponse.ok) {
-          console.error('Failed to upload photos, but room type was created');
+      if (roomNumbers.length) {
+        try {
+          await api('/api/admin/rooms', { method: 'POST', json: { propertyId, roomTypeId: created.id, roomNumbers } });
+        } catch (err) {
+          toast.error(`Room type saved, but rooms weren’t added: ${(err as Error).message}`);
         }
       }
-
-      router.push('/admin/room-types');
-    } catch (error) {
-      setError('Error creating room type. Please try again.');
+      toast.success(`${created.name} is ready to sell`);
+      refresh();
+      router.push(`/admin/room-types/${created.id}`);
+    } catch (err) {
+      setError((err as Error).message);
     } finally {
-      setIsLoading(false);
+      setSaving(false);
     }
-  };
-
-  // Define a strongly typed event handler
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const { name, value } = e.target;
-    setFormData({
-      ...formData,
-      [name]: value
-    });
-  };
+  }
 
   return (
-    <div className="p-6 space-y-6">
-      {/* Header */}
-      <div className="flex items-center space-x-4">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => router.back()}
-          className="flex items-center space-x-2"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          <span>Back</span>
-        </Button>
-        <div>
-          <h1 className="text-3xl font-bold text-gray-900">Add New Room Type</h1>
-          <p className="text-gray-600">Create a new room type configuration</p>
+    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6 lg:p-8">
+      <Link href="/admin/room-types" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
+        <ArrowLeft className="h-4 w-4" /> Rooms
+      </Link>
+      <PageHeader title="New room type" description={property ? `For ${property.name}. You can add photos and adjust rates right after.` : undefined} />
+
+      <form onSubmit={save} className="space-y-6">
+        <Card className="p-5 sm:p-6">
+          <RoomTypeFields value={draft} onChange={setDraft} />
+        </Card>
+
+        <Card className="p-5 sm:p-6">
+          <Field
+            label="Room numbers (optional)"
+            htmlFor="rt-numbers"
+            hint={numbersError ?? (roomNumbers.length ? `${roomNumbers.length} rooms: ${roomNumbers.slice(0, 10).join(', ')}${roomNumbers.length > 10 ? '…' : ''}` : 'Ranges and lists both work, like “101-110, 201”. Floors are read from the number.')}
+            error={numbersError ?? undefined}
+          >
+            <Input id="rt-numbers" value={numbers} onChange={(e) => setNumbers(e.target.value)} placeholder="101-110" />
+          </Field>
+        </Card>
+
+        {error && (
+          <p className="rounded-lg border border-destructive/25 bg-destructive-soft px-3 py-2 text-sm text-destructive" role="alert">
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2">
+          <Button type="button" variant="ghost" onClick={() => router.back()}>
+            Cancel
+          </Button>
+          <Button type="submit" loading={saving}>
+            Create room type
+          </Button>
         </div>
-      </div>
-
-      {/* Form */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Room Type Information</CardTitle>
-          <CardDescription>
-            Enter the details for the new room type
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit} className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div>
-                <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
-                  Room Type Name *
-                </label>
-                <Input
-                  id="name"
-                  name="name"
-                  type="text"
-                  required
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="e.g., Standard Double, Deluxe Suite"
-                />
-              </div>
-
-              <div>
-                <label htmlFor="propertyId" className="block text-sm font-medium text-gray-700 mb-2">
-                  Property *
-                </label>
-                <select
-                  id="propertyId"
-                  name="propertyId"
-                  required
-                  value={formData.propertyId}
-                  onChange={handleChange}
-                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Select a property</option>
-                  {properties.map((property) => (
-                    <option key={property.id} value={property.id}>
-                      {property.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="md:col-span-2">
-                <label htmlFor="description" className="block text-sm font-medium text-gray-700 mb-2">
-                  Description
-                </label>
-                <Textarea
-                  id="description"
-                  name="description"
-                  rows={3}
-                  value={formData.description}
-                  onChange={handleChange}
-                  placeholder="Brief description of the room type..."
-                />
-              </div>
-
-              <div>
-                <label htmlFor="capacity" className="block text-sm font-medium text-gray-700 mb-2">
-                  Maximum Capacity *
-                </label>
-                <Input
-                  id="capacity"
-                  name="capacity"
-                  type="number"
-                  required
-                  min="1"
-                  max="10"
-                  value={formData.capacity}
-                  onChange={handleChange}
-                  placeholder="4"
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  Maximum number of guests
-                </p>
-              </div>
-
-              <div>
-                <label htmlFor="basePrice" className="block text-sm font-medium text-gray-700 mb-2">
-                  Base Price (per night) *
-                </label>
-                <Input
-                  id="basePrice"
-                  name="basePrice"
-                  type="number"
-                  required
-                  min="0"
-                  step="0.01"
-                  value={formData.basePrice}
-                  onChange={handleChange}
-                  placeholder="99.99"
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  Base price in USD
-                </p>
-              </div>
-              
-              <div>
-                <label htmlFor="totalRooms" className="block text-sm font-medium text-gray-700 mb-2">
-                  Total Room Count *
-                </label>
-                <Input
-                  id="totalRooms"
-                  name="totalRooms"
-                  type="number"
-                  required
-                  min="0"
-                  value={formData.totalRooms}
-                  onChange={handleChange}
-                  placeholder="10"
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  Number of rooms of this type
-                </p>
-              </div>
-
-              <div className="md:col-span-2">
-                <label htmlFor="amenities" className="block text-sm font-medium text-gray-700 mb-2">
-                  Room Amenities
-                </label>
-                <Input
-                  id="amenities"
-                  name="amenities"
-                  type="text"
-                  value={formData.amenities}
-                  onChange={handleChange}
-                  placeholder="Free WiFi, Air Conditioning, Private Bathroom, Mini Fridge (separate with commas)"
-                />
-                <p className="text-sm text-gray-500 mt-1">
-                  Separate multiple amenities with commas
-                </p>
-              </div>
-
-              {/* Photo Upload Section */}
-              <div className="md:col-span-2">
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Room Type Photos
-                </label>
-                <div className="space-y-4">
-                  {/* Upload Button */}
-                  <div className="flex items-center gap-4">
-                    <input
-                      type="file"
-                      ref={fileInputRef}
-                      onChange={handleFileSelect}
-                      multiple
-                      accept="image/*"
-                      className="hidden"
-                    />
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      <Upload className="h-4 w-4 mr-2" />
-                      Select Photos
-                    </Button>
-                    <span className="text-sm text-gray-500">
-                      Max 5MB per image. JPG, PNG, GIF supported.
-                    </span>
-                  </div>
-
-                  {/* Selected Images Preview */}
-                  {selectedImages.length > 0 ? (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                      {selectedImages.map((img, index) => (
-                        <div
-                          key={index}
-                          className="relative group rounded-lg overflow-hidden border border-gray-200"
-                        >
-                          <img
-                            src={img.preview}
-                            alt={`Preview ${index + 1}`}
-                            className="w-full h-24 object-cover"
-                          />
-                          {index === 0 && (
-                            <div className="absolute top-1 left-1 bg-blue-500 text-white text-xs px-2 py-0.5 rounded-full">
-                              Main
-                            </div>
-                          )}
-                          <button
-                            type="button"
-                            onClick={() => removeImage(index)}
-                            className="absolute top-1 right-1 bg-red-500 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                          >
-                            <X className="h-3 w-3" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="text-center py-6 text-gray-500 border-2 border-dashed rounded-lg">
-                      <ImageIcon className="h-8 w-8 mx-auto mb-2 text-gray-400" />
-                      <p className="text-sm">No photos selected</p>
-                      <p className="text-xs">The first photo will be set as the main image</p>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {error && (
-              <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-md text-sm">
-                {error}
-              </div>
-            )}
-
-            <div className="flex justify-end space-x-4">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.back()}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Create Room Type
-                  </>
-                )}
-              </Button>
-            </div>
-          </form>
-        </CardContent>
-      </Card>
+      </form>
     </div>
   );
 }
