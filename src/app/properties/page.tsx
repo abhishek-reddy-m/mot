@@ -47,6 +47,7 @@ type PropertyWithAvailability = {
   lowestPrice: number | null;
   roomTypeCount: number;
   hasAvailability: boolean;
+  isDemo?: boolean;
 }
 
 // Helper function to extract available rooms count from API data
@@ -340,6 +341,13 @@ export default function PropertiesPage() {
           {property.hasAvailability && (
             <div className="absolute top-4 left-4 bg-green-100 text-green-800 text-xs px-2 py-1 rounded-md font-medium z-10">
               Available Now
+            </div>
+          )}
+
+          {/* Demo badge — seeded example data is labeled honestly */}
+          {property.isDemo && (
+            <div className="absolute bottom-4 left-4 bg-slate-900/80 text-white text-xs px-2 py-1 rounded-md font-medium z-10">
+              Demo property
             </div>
           )}
         </div>

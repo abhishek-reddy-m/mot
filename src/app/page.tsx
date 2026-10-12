@@ -1,438 +1,476 @@
 import Link from 'next/link';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Navigation from '@/components/Navigation';
-import { HeroSection } from '@/components/HeroSection';
-import { 
-  Search, 
-  MapPin, 
-  Calendar, 
-  Users, 
-  Star, 
-  Shield, 
-  Clock, 
-  Wifi,
+import { PRODUCT_NAME, PRODUCT_TAGLINE } from '@/config/product';
+import {
+  PhoneCall,
+  MessageCircle,
+  Globe,
+  RefreshCw,
+  ArrowRight,
   CheckCircle,
-  ChevronRight
+  PlayCircle,
+  Percent,
+  Clock,
+  Rocket,
+  ChevronDown,
 } from 'lucide-react';
 
-export default function HomePage() {
+const PAINS = [
+  {
+    title: 'OTAs take 15–25% of every booking.',
+    body: 'You do the work; the platforms take the cut. Your direct website — if you have one — can\u2019t compete with their booking flow.',
+  },
+  {
+    title: 'Missed calls are missed revenue.',
+    body: 'A guest calls at 11 PM about a late check-in. Nobody answers. They book the place down the road.',
+  },
+  {
+    title: 'Five systems that don\u2019t talk to each other.',
+    body: 'Your reservation system, your website, your phone, your messages — double bookings and rate mistakes live in the gaps.',
+  },
+];
+
+const FEATURES = [
+  {
+    icon: Globe,
+    title: 'White-label booking site',
+    tagline: 'A booking website that looks, sounds, and feels like your hotel.',
+    points: [
+      'Your logo, your colors, your fonts, your domain.',
+      'Mobile-first booking flow: search → room → guest details → pay. Under 2 minutes.',
+      'Real-time availability and rates — no \u201ccall to confirm.\u201d',
+    ],
+    proof: 'Guests never see our name. It\u2019s your brand from the first click to the confirmation email.',
+  },
+  {
+    icon: PhoneCall,
+    title: 'AI voice agent',
+    tagline: 'A front-desk clerk who never sleeps, never puts anyone on hold.',
+    points: [
+      'Answers calls 24/7: quotes rates, checks availability, takes reservations.',
+      'Speaks naturally, handles interruptions, transfers to you when it should.',
+      'Every call logged with a summary in your dashboard.',
+    ],
+    proof: 'Built on real-time voice AI with your rates, policies, and FAQs loaded in.',
+  },
+  {
+    icon: MessageCircle,
+    title: 'WhatsApp agent',
+    tagline: 'Meet guests where they already are.',
+    points: [
+      'Guests ask about rooms, parking, check-in time — the agent answers instantly.',
+      'Sends booking links, confirmations, and pre-arrival messages automatically.',
+      'Hands off to your team for anything unusual.',
+    ],
+    proof: 'No app to install. It works inside the WhatsApp your guests already use.',
+  },
+  {
+    icon: RefreshCw,
+    title: 'OTA & channel sync',
+    tagline: 'One calendar to rule them all.',
+    points: [
+      'Two-way sync with Booking.com, Expedia, and Airbnb: rates and availability update everywhere, instantly.',
+      'No more double bookings, no more manual rate entry at midnight.',
+      'Direct bookings stay commission-free; OTA bookings flow into the same dashboard.',
+    ],
+    proof: 'Change a rate once — it changes everywhere.',
+  },
+];
+
+const STEPS = [
+  {
+    n: '1',
+    title: 'Tell us about your property',
+    body: 'Rooms, rates, photos, policies. Import from your current system or start fresh — most owners finish in under an hour.',
+  },
+  {
+    n: '2',
+    title: 'Make it yours',
+    body: 'Add your property name, tagline, and brand colors. Preview your booking site live before anyone else sees it.',
+  },
+  {
+    n: '3',
+    title: 'Go live and get booked',
+    body: 'Open your dashboard, turn on the AI agents, sync your booking channels. Your first commission-free booking can arrive tonight.',
+  },
+];
+
+const TIERS = [
+  {
+    name: 'Starter',
+    price: '$49',
+    unit: '/mo',
+    features: ['1 property, up to 25 rooms', '100 AI voice minutes/mo', 'WhatsApp agent', '1 OTA channel sync', 'Email support'],
+    cta: 'Start free',
+    popular: false,
+  },
+  {
+    name: 'Professional',
+    price: '$149',
+    unit: '/mo',
+    features: ['1 property, unlimited rooms', '500 AI voice minutes/mo', 'WhatsApp agent', 'All OTA channels', 'Priority support + onboarding call'],
+    cta: 'Start free',
+    popular: true,
+  },
+  {
+    name: 'Portfolio',
+    price: 'Custom',
+    unit: '',
+    features: ['Multiple properties', 'Custom AI voice volume', 'WhatsApp agent', 'All channels + API', 'Dedicated manager'],
+    cta: 'Talk to us',
+    popular: false,
+  },
+];
+
+const FAQS = [
+  {
+    q: `Will my guests know I'm using ${PRODUCT_NAME}?`,
+    a: 'No. Your booking site, emails, and messages carry only your branding. We\u2019re invisible infrastructure.',
+  },
+  {
+    q: 'I already use Booking.com/Expedia. Do I have to leave them?',
+    a: `${PRODUCT_NAME} syncs with your booking channels two ways — you keep that demand and add commission-free direct bookings on top.`,
+  },
+  {
+    q: 'What happens to my current reservation system?',
+    a: 'Two paths: connect to your existing system, or migrate fully to ours. We\u2019ll help with either during onboarding.',
+  },
+  {
+    q: 'How does the AI voice agent handle complicated requests?',
+    a: 'It\u2019s trained on your rates, policies, and FAQs, and it knows when to hand off — anything unusual goes straight to you or your front desk, with a full transcript.',
+  },
+  {
+    q: 'Is my guest data safe?',
+    a: 'Your data is isolated per property, encrypted in transit and at rest, and never sold or shared. You can export everything, anytime.',
+  },
+  {
+    q: 'What does it cost to get started?',
+    a: 'Nothing upfront — start free and only pay when you go live. Final launch pricing is confirmed during onboarding.',
+  },
+];
+
+export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
+    <div className="min-h-screen bg-white text-slate-900">
       <Navigation />
-      
-      {/* Hero Section */}
-      <HeroSection />
 
-      {/* LA Districts Preview */}
-      <section className="py-20 bg-white relative -mt-16 z-20">
-        <div className="container mx-auto px-4">
-          <div className="bg-white rounded-3xl shadow-2xl p-8 md:p-12 border border-gray-100">
-            <div className="text-center mb-16">
-              <h2 className="text-4xl md:text-5xl font-bold text-gray-900 mb-6">
-                Explore LA&apos;s <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">Iconic Districts</span>
-              </h2>
-              <p className="text-xl text-gray-600 max-w-3xl mx-auto leading-relaxed">
-                From the glamour of Hollywood to the beaches of Santa Monica, discover your perfect neighborhood in the City of Angels
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
-              <div className="group cursor-pointer transform hover:scale-105 transition-all duration-300">
-                <div className="relative h-40 rounded-2xl overflow-hidden mb-4 shadow-lg">
-                  <div className="absolute inset-0 bg-gradient-to-br from-purple-500 to-blue-600"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-white font-bold text-3xl drop-shadow-lg">🎬</span>
-                  </div>
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-all duration-300"></div>
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
-                    <div className="text-white">
-                      <h3 className="font-bold text-lg mb-1">Hollywood</h3>
-                      <p className="text-sm text-blue-100">Entertainment Capital</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm">Walk the Walk of Fame</p>
-                </div>
-              </div>
-
-              <div className="group cursor-pointer transform hover:scale-105 transition-all duration-300">
-                <div className="relative h-40 rounded-2xl overflow-hidden mb-4 shadow-lg">
-                  <div className="absolute inset-0 bg-gradient-to-br from-blue-500 to-cyan-600"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-white font-bold text-3xl drop-shadow-lg">🏖️</span>
-                  </div>
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-all duration-300"></div>
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
-                    <div className="text-white">
-                      <h3 className="font-bold text-lg mb-1">Santa Monica</h3>
-                      <p className="text-sm text-blue-100">Beach Paradise</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm">Ocean views & pier fun</p>
-                </div>
-              </div>
-
-              <div className="group cursor-pointer transform hover:scale-105 transition-all duration-300">
-                <div className="relative h-40 rounded-2xl overflow-hidden mb-4 shadow-lg">
-                  <div className="absolute inset-0 bg-gradient-to-br from-indigo-500 to-purple-600"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-white font-bold text-3xl drop-shadow-lg">💎</span>
-                  </div>
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-all duration-300"></div>
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
-                    <div className="text-white">
-                      <h3 className="font-bold text-lg mb-1">Beverly Hills</h3>
-                      <p className="text-sm text-purple-100">Luxury District</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm">Rodeo Drive shopping</p>
-                </div>
-              </div>
-
-              <div className="group cursor-pointer transform hover:scale-105 transition-all duration-300">
-                <div className="relative h-40 rounded-2xl overflow-hidden mb-4 shadow-lg">
-                  <div className="absolute inset-0 bg-gradient-to-br from-blue-600 to-indigo-700"></div>
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <span className="text-white font-bold text-3xl drop-shadow-lg">🏙️</span>
-                  </div>
-                  <div className="absolute inset-0 bg-black/30 group-hover:bg-black/20 transition-all duration-300"></div>
-                  <div className="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/60 to-transparent p-4">
-                    <div className="text-white">
-                      <h3 className="font-bold text-lg mb-1">Downtown LA</h3>
-                      <p className="text-sm text-blue-100">Business Hub</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="text-center">
-                  <p className="text-gray-600 text-sm">Arts district & skyline</p>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-12 text-center">
-              <Link href="/properties">
-                <Button className="bg-gradient-to-r from-blue-500 to-purple-500 hover:from-blue-600 hover:to-purple-600 text-white px-8 py-3 rounded-xl font-semibold shadow-lg hover:shadow-xl transition-all duration-200">
-                  Explore All LA Areas
-                  <ChevronRight className="h-5 w-5 ml-2" />
-                </Button>
-              </Link>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Features Section */}
-      <section className="py-24 bg-gradient-to-b from-gray-50 to-white">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <p className="text-blue-600 font-semibold mb-2 text-sm uppercase tracking-wider font-montserrat">Casa Blanca&apos;s Premier Experience</p>
-            <h2 className="text-3xl md:text-5xl font-bold text-gray-900 mb-6">
-              Why Choose <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent font-dancing-script">Casa Blanca</span>
-            </h2>
-            <p className="text-lg text-gray-600 max-w-3xl mx-auto font-montserrat">
-              Experience the epitome of luxury and elegance at Casa Blanca, 
-              Los Angeles&apos; most distinguished boutique hotel with world-class amenities and unparalleled service.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            <div className="bg-white rounded-2xl p-8 shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:border-purple-200 group transform hover:-translate-y-2">
-              <div className="w-16 h-16 bg-gradient-to-br from-purple-100 to-purple-200 rounded-full flex items-center justify-center mb-6 group-hover:from-purple-500 group-hover:to-purple-600 transition-all duration-300">
-                <Star className="h-8 w-8 text-purple-600 group-hover:text-white transition-colors duration-300" />
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Hollywood Glamour</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Experience the magic of Hollywood with luxury suites, premium amenities, and star-worthy service in the heart of LA.
-              </p>
-              <div className="mt-6 pt-4 border-t border-gray-100">
-                <p className="text-purple-600 font-medium flex items-center">
-                  <span>Celebrity-approved</span>
-                  <span className="flex ml-2">
-                    {[1, 2, 3, 4, 5].map((n) => (
-                      <Star key={n} className="h-3 w-3 text-yellow-400 fill-current" />
-                    ))}
-                  </span>
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl p-8 shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:border-blue-200 group transform hover:-translate-y-2">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center mb-6 group-hover:from-blue-500 group-hover:to-blue-600 transition-all duration-300">
-                <Shield className="h-8 w-8 text-blue-600 group-hover:text-white transition-colors duration-300" />
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">Prime Locations</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Stay in LA&apos;s most coveted neighborhoods, from beachfront Santa Monica to the vibrant streets of West Hollywood.
-              </p>
-              <div className="mt-6 pt-4 border-t border-gray-100">
-                <p className="text-blue-600 font-medium">
-                  25+ Premium LA Locations
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl p-8 shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:border-indigo-200 group transform hover:-translate-y-2">
-              <div className="w-16 h-16 bg-gradient-to-br from-indigo-100 to-indigo-200 rounded-full flex items-center justify-center mb-6 group-hover:from-indigo-500 group-hover:to-indigo-600 transition-all duration-300">
-                <Clock className="h-8 w-8 text-indigo-600 group-hover:text-white transition-colors duration-300" />
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">24/7 LA Concierge</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Our local LA experts are available round-the-clock to help you discover hidden gems and exclusive experiences.
-              </p>
-              <div className="mt-6 pt-4 border-t border-gray-100">
-                <p className="text-indigo-600 font-medium">
-                  Local insider knowledge included
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl p-8 shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100 hover:border-blue-200 group transform hover:-translate-y-2">
-              <div className="w-16 h-16 bg-gradient-to-br from-blue-100 to-blue-200 rounded-full flex items-center justify-center mb-6 group-hover:from-blue-500 group-hover:to-blue-600 transition-all duration-300">
-                <Wifi className="h-8 w-8 text-blue-600 group-hover:text-white transition-colors duration-300" />
-              </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-3">California Lifestyle</h3>
-              <p className="text-gray-600 leading-relaxed">
-                Enjoy rooftop pools, fitness centers, spa services, and dining that captures the essence of LA living.
-              </p>
-              <div className="mt-6 pt-4 border-t border-gray-100">
-                <p className="text-blue-600 font-medium">
-                  Resort-style amenities
-                </p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Testimonials Section */}
-      <section className="py-20 bg-gradient-to-br from-blue-50 via-white to-purple-50">
-        <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <p className="text-blue-600 font-semibold mb-2 text-sm uppercase tracking-wider">Guest Love Stories</p>
-            <h2 className="text-3xl md:text-4xl font-bold text-gray-900 mb-6">
-              <span className="bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">LA Experiences</span> That Inspire
-            </h2>
-            <p className="text-lg text-gray-600 max-w-2xl mx-auto">
-              Hear from travelers who&apos;ve fallen in love with Los Angeles through our exceptional hospitality
-            </p>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {/* Testimonial 1 */}
-            <div className="bg-white p-8 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100 transform hover:-translate-y-1">
-              <div className="flex items-center mb-6">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <Star key={n} className="h-5 w-5 text-yellow-400 fill-current" />
-                ))}
-              </div>
-              <p className="text-gray-700 mb-8 italic leading-relaxed text-lg">
-                &quot;Staying in Hollywood was a dream come true! The hotel&apos;s rooftop pool overlooked the city, and the concierge got us VIP access to exclusive LA spots. Unforgettable!&quot;
-              </p>
-              <div className="flex items-center">
-                <div className="w-14 h-14 bg-gradient-to-br from-purple-400 to-purple-600 rounded-full flex items-center justify-center mr-4">
-                  <span className="text-white font-bold text-lg">SM</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-900">Sarah Martinez</h4>
-                  <p className="text-sm text-gray-500">Hollywood Experience</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Testimonial 2 */}
-            <div className="bg-white p-8 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100 transform hover:-translate-y-1">
-              <div className="flex items-center mb-6">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <Star key={n} className="h-5 w-5 text-yellow-400 fill-current" />
-                ))}
-              </div>
-              <p className="text-gray-700 mb-8 italic leading-relaxed text-lg">
-                &quot;Santa Monica beachfront suite was incredible! Woke up to ocean views every morning, walked to the pier, and the spa treatments were world-class. Pure paradise!&quot;
-              </p>
-              <div className="flex items-center">
-                <div className="w-14 h-14 bg-gradient-to-br from-blue-400 to-blue-600 rounded-full flex items-center justify-center mr-4">
-                  <span className="text-white font-bold text-lg">MR</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-900">Michael Rodriguez</h4>
-                  <p className="text-sm text-gray-500">Beach Vacation</p>
-                </div>
-              </div>
-            </div>
-
-            {/* Testimonial 3 */}
-            <div className="bg-white p-8 rounded-2xl shadow-xl hover:shadow-2xl transition-all duration-300 border border-gray-100 transform hover:-translate-y-1">
-              <div className="flex items-center mb-6">
-                {[1, 2, 3, 4, 5].map((n) => (
-                  <Star key={n} className="h-5 w-5 text-yellow-400 fill-current" />
-                ))}
-              </div>
-              <p className="text-gray-700 mb-8 italic leading-relaxed text-lg">
-                &quot;Beverly Hills luxury at its finest! The penthouse suite, personal butler service, and proximity to Rodeo Drive made this the perfect LA getaway. Five stars!&quot;
-              </p>
-              <div className="flex items-center">
-                <div className="w-14 h-14 bg-gradient-to-br from-indigo-400 to-indigo-600 rounded-full flex items-center justify-center mr-4">
-                  <span className="text-white font-bold text-lg">EK</span>
-                </div>
-                <div>
-                  <h4 className="font-bold text-gray-900">Emily Kim</h4>
-                  <p className="text-sm text-gray-500">Luxury Weekend</p>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* CTA Section */}
-      <section className="py-24 bg-gradient-to-r from-blue-600 via-purple-700 to-indigo-600 text-white relative overflow-hidden">
-        {/* Abstract background elements */}
-        <div className="absolute top-0 left-0 w-96 h-96 bg-white opacity-5 rounded-full -translate-x-1/2 -translate-y-1/2"></div>
-        <div className="absolute bottom-0 right-0 w-80 h-80 bg-blue-300 opacity-10 rounded-full translate-x-1/3 translate-y-1/3"></div>
-        <div className="absolute top-1/2 left-1/4 w-32 h-32 bg-purple-300 opacity-10 rounded-full"></div>
-        
-        <div className="container mx-auto px-4 relative z-10">
+      {/* HERO */}
+      <section className="relative overflow-hidden bg-gradient-to-b from-slate-50 to-white">
+        <div className="container mx-auto px-4 pt-16 pb-20 md:pt-24 md:pb-28">
           <div className="max-w-4xl mx-auto text-center">
-            <h2 className="text-4xl md:text-6xl font-bold mb-6 leading-tight">
-              Ready to Experience <span className="text-blue-200 font-dancing-script">Casa Blanca</span>?
-            </h2>
-            <p className="text-xl text-blue-100 mb-10 max-w-2xl mx-auto leading-relaxed font-montserrat">
-              Join discerning travelers who&apos;ve discovered the perfect blend of luxury and comfort. 
-              From elegant suites to personalized service – your extraordinary stay awaits at Casa Blanca!
+            <p className="text-xs font-bold tracking-[0.2em] text-cyan-700 uppercase mb-6">
+              Built for independent hotels &amp; motels
             </p>
-            <div className="flex flex-col sm:flex-row gap-6 justify-center">
-              <Link href="/properties">
-                <Button size="lg" className="bg-white text-blue-600 hover:bg-blue-50 px-10 py-4 text-lg font-semibold shadow-xl transform hover:scale-105 transition-all duration-200">
-                  <Search className="h-6 w-6 mr-2" />
-                  Book Casa Blanca
-                </Button>
+            <h1 className="text-4xl md:text-6xl font-extrabold tracking-tight mb-6">
+              {PRODUCT_TAGLINE}
+            </h1>
+            <p className="text-lg md:text-xl text-slate-600 max-w-3xl mx-auto mb-10 leading-relaxed">
+              {PRODUCT_NAME} gives your property a beautiful booking site under your own name,
+              an AI agent that answers calls and chats like your best front-desk clerk, and one
+              dashboard that keeps your booking channels in perfect sync.
+            </p>
+            <div className="flex flex-col sm:flex-row gap-4 justify-center mb-6">
+              <Link
+                href="/onboarding"
+                className="inline-flex items-center justify-center px-8 py-4 rounded-xl bg-cyan-700 text-white font-semibold text-lg hover:bg-cyan-800 transition-colors shadow-lg"
+              >
+                Launch my booking site
+                <ArrowRight className="h-5 w-5 ml-2" />
               </Link>
-              <Link href="/register">
-                <Button variant="outline" size="lg" className="border-2 border-white text-white hover:bg-white/10 backdrop-blur-sm px-10 py-4 text-lg font-semibold">
-                  Start Your Journey
-                </Button>
+              <Link
+                href="/properties"
+                className="inline-flex items-center justify-center px-8 py-4 rounded-xl border-2 border-slate-200 text-slate-800 font-semibold text-lg hover:border-cyan-700 hover:text-cyan-800 transition-colors"
+              >
+                <PlayCircle className="h-5 w-5 mr-2" />
+                See a live demo
               </Link>
             </div>
-            <div className="mt-10 flex flex-wrap justify-center gap-8 text-sm text-blue-200">
-              <span className="flex items-center">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                No booking fees
+            <p className="text-sm text-slate-500">
+              No credit card to start · Your branding, your domain · Live in days, not months
+            </p>
+          </div>
+
+          {/* Product visual: stylized booking-site mockup */}
+          <div className="max-w-3xl mx-auto mt-16 rounded-2xl border border-slate-200 shadow-2xl overflow-hidden bg-white">
+            <div className="flex items-center gap-2 px-4 py-3 bg-slate-100 border-b border-slate-200">
+              <span className="w-3 h-3 rounded-full bg-red-400" />
+              <span className="w-3 h-3 rounded-full bg-yellow-400" />
+              <span className="w-3 h-3 rounded-full bg-green-400" />
+              <span className="ml-3 text-xs text-slate-500 bg-white rounded-md px-3 py-1 border border-slate-200">
+                book.yourhotel.com
               </span>
-              <span className="flex items-center">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Best rate guarantee
-              </span>
-              <span className="flex items-center">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                Instant confirmation
-              </span>
-              <span className="flex items-center">
-                <CheckCircle className="h-4 w-4 mr-2" />
-                24/7 concierge service
-              </span>
+            </div>
+            <div className="p-6 md:p-8">
+              <div className="flex items-center justify-between mb-6">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-lg bg-cyan-700 flex items-center justify-center text-white font-bold">Y</div>
+                  <div>
+                    <div className="font-bold">Your Hotel Name</div>
+                    <div className="text-xs text-slate-500">Your tagline here</div>
+                  </div>
+                </div>
+                <div className="px-4 py-2 rounded-lg bg-cyan-700 text-white text-sm font-semibold">Book now</div>
+              </div>
+              <div className="grid grid-cols-3 gap-4">
+                {['Deluxe King', 'Double Queen', 'Family Suite'].map((room, i) => (
+                  <div key={room} className="rounded-xl border border-slate-200 overflow-hidden">
+                    <div className={`h-20 bg-gradient-to-br ${i === 0 ? 'from-cyan-600 to-cyan-800' : i === 1 ? 'from-amber-500 to-orange-700' : 'from-slate-500 to-slate-700'}`} />
+                    <div className="p-3">
+                      <div className="text-sm font-semibold">{room}</div>
+                      <div className="text-xs text-slate-500">from ${129 + i * 60}/night</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="bg-gray-900 text-white pt-16 pb-8">
-        <div className="container mx-auto px-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-12">
-            <div className="space-y-4">
-              <h3 className="text-2xl font-bold text-white flex items-center">
-                <span className="bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent mr-2 font-dancing-script">Casa Blanca</span>
-                <span className="font-montserrat font-bold tracking-wide uppercase text-sm">HOTELS</span>
-              </h3>
-              <p className="text-gray-400 max-w-xs leading-relaxed font-montserrat">
-                Experience the elegance and luxury of Casa Blanca Hotels, Los Angeles&apos; premier boutique hotel collection in the heart of the city&apos;s most iconic neighborhoods.
-              </p>
-              <div className="flex space-x-4 pt-2">
-                <a href="#" className="w-10 h-10 rounded-full bg-gradient-to-r from-blue-500 to-purple-500 flex items-center justify-center hover:from-blue-600 hover:to-purple-600 transition-all duration-200">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path fillRule="evenodd" d="M22 12c0-5.523-4.477-10-10-10S2 6.477 2 12c0 4.991 3.657 9.128 8.438 9.878v-6.987h-2.54V12h2.54V9.797c0-2.506 1.492-3.89 3.777-3.89 1.094 0 2.238.195 2.238.195v2.46h-1.26c-1.243 0-1.63.771-1.63 1.562V12h2.773l-.443 2.89h-2.33v6.988C18.343 21.128 22 16.991 22 12z" clipRule="evenodd" />
-                  </svg>
-                </a>
-                <a href="#" className="w-10 h-10 rounded-full bg-gradient-to-r from-indigo-400 to-indigo-600 flex items-center justify-center hover:from-indigo-500 hover:to-indigo-700 transition-all duration-200">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M8.29 20.251c7.547 0 11.675-6.253 11.675-11.675 0-.178 0-.355-.012-.53A8.348 8.348 0 0022 5.92a8.19 8.19 0 01-2.357.646 4.118 4.118 0 001.804-2.27 8.224 8.224 0 01-2.605.996 4.107 4.107 0 00-6.993 3.743 11.65 11.65 0 01-8.457-4.287 4.106 4.106 0 001.27 5.477A4.072 4.072 0 012.8 9.713v.052a4.105 4.105 0 003.292 4.022 4.095 4.095 0 01-1.853.07 4.108 4.108 0 003.834 2.85A8.233 8.233 0 012 18.407a11.616 11.616 0 006.29 1.84" />
-                  </svg>
-                </a>
-                <a href="#" className="w-10 h-10 rounded-full bg-gradient-to-r from-purple-500 to-blue-500 flex items-center justify-center hover:from-purple-600 hover:to-blue-600 transition-all duration-200">
-                  <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-                    <path fillRule="evenodd" d="M12.315 2c2.43 0 2.784.013 3.808.06 1.064.049 1.791.218 2.427.465a4.902 4.902 0 011.772 1.153 4.902 4.902 0 011.153 1.772c.247.636.416 1.363.465 2.427.048 1.067.06 1.407.06 4.123v.08c0 2.643-.012 2.987-.06 4.043-.049 1.064-.218 1.791-.465 2.427a4.902 4.902 0 01-1.153 1.772 4.902 4.902 0 01-1.772 1.153c-.636.247-1.363.416-2.427.465-1.067.048-1.407.06-4.123.06h-.08c-2.643 0-2.987-.012-4.043-.06-1.064-.049-1.791-.218-2.427-.465a4.902 4.902 0 01-1.772-1.153 4.902 4.902 0 01-1.153-1.772c-.247-.636-.416-1.363-.465-2.427-.047-1.024-.06-1.379-.06-3.808v-.63c0-2.43.013-2.784.06-3.808.049-1.064.218-1.791.465-2.427a4.902 4.902 0 011.153-1.772A4.902 4.902 0 015.45 2.525c.636-.247 1.363-.416 2.427-.465C8.901 2.013 9.256 2 11.685 2h.63zm-.081 1.802h-.468c-2.456 0-2.784.011-3.807.058-.975.045-1.504.207-1.857.344-.467.182-.8.398-1.15.748-.35.35-.566.683-.748 1.15-.137.353-.3.882-.344 1.857-.047 1.023-.058 1.351-.058 3.807v.468c0 2.456.011 2.784.058 3.807.045.975.207 1.504.344 1.857.182.466.399.8.748 1.15.35.35.683.566 1.15.748.353.137.882.3 1.857.344 1.054.048 1.37.058 4.041.058h.08c2.597 0 2.917-.01 3.96-.058.976-.045 1.505-.207 1.858-.344.466-.182.8-.398 1.15-.748.35-.35.566-.683.748-1.15.137-.353.3-.882.344-1.857.048-1.055.058-1.37.058-4.041v-.08c0-2.597-.01-2.917-.058-3.96-.045-.976-.207-1.505-.344-1.858a3.097 3.097 0 00-.748-1.15 3.098 3.098 0 00-1.15-.748c-.353-.137-.882-.3-1.857-.344-1.023-.047-1.351-.058-3.807-.058zM12 6.865a5.135 5.135 0 110 10.27 5.135 5.135 0 010-10.27zm0 1.802a3.333 3.333 0 100 6.666 3.333 3.333 0 000-6.666zm5.338-3.205a1.2 1.2 0 110 2.4 1.2 1.2 0 010-2.4z" clipRule="evenodd" />
-                  </svg>
-                </a>
+      {/* TRUST STRIP */}
+      <section className="border-y border-slate-100 bg-white">
+        <div className="container mx-auto px-4 py-10">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-5xl mx-auto">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-cyan-50 flex items-center justify-center shrink-0">
+                <Percent className="h-6 w-6 text-cyan-700" />
+              </div>
+              <div>
+                <div className="font-bold text-lg">0% commission</div>
+                <p className="text-slate-600 text-sm">on direct bookings — keep every dollar you earn.</p>
               </div>
             </div>
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-cyan-50 flex items-center justify-center shrink-0">
+                <Clock className="h-6 w-6 text-cyan-700" />
+              </div>
+              <div>
+                <div className="font-bold text-lg">24/7 AI front desk</div>
+                <p className="text-slate-600 text-sm">calls, WhatsApp, and chat answered instantly.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-cyan-50 flex items-center justify-center shrink-0">
+                <Rocket className="h-6 w-6 text-cyan-700" />
+              </div>
+              <div>
+                <div className="font-bold text-lg">Days, not months</div>
+                <p className="text-slate-600 text-sm">from sign-up to taking live bookings.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
 
+      {/* PROBLEM → SOLUTION */}
+      <section className="py-20 md:py-28 bg-slate-50">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-extrabold mb-4">
+              Running a hotel is hard enough. Your tech shouldn&apos;t make it harder.
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 max-w-6xl mx-auto mb-12">
+            {PAINS.map((pain) => (
+              <div key={pain.title} className="bg-white rounded-2xl p-8 border border-slate-200 shadow-sm">
+                <h3 className="font-bold text-lg mb-3 text-red-700">{pain.title}</h3>
+                <p className="text-slate-600 leading-relaxed">{pain.body}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-center text-xl font-semibold text-slate-800 max-w-2xl mx-auto">
+            {PRODUCT_NAME} replaces all of it with one platform that carries{' '}
+            <span className="text-cyan-700">your name</span> — not ours.
+          </p>
+        </div>
+      </section>
+
+      {/* FEATURES */}
+      <section id="features" className="py-20 md:py-28">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-extrabold mb-4">
+              Everything a modern hotel needs. Nothing with someone else&apos;s logo on it.
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-6xl mx-auto">
+            {FEATURES.map((f) => (
+              <div key={f.title} className="rounded-2xl border border-slate-200 p-8 hover:shadow-xl transition-shadow bg-white">
+                <div className="w-14 h-14 rounded-2xl bg-cyan-700 flex items-center justify-center mb-6">
+                  <f.icon className="h-7 w-7 text-white" />
+                </div>
+                <h3 className="text-2xl font-bold mb-2">{f.title}</h3>
+                <p className="text-slate-600 font-medium mb-5">{f.tagline}</p>
+                <ul className="space-y-2.5 mb-6">
+                  {f.points.map((p) => (
+                    <li key={p} className="flex items-start gap-2.5 text-slate-700">
+                      <CheckCircle className="h-5 w-5 text-cyan-700 shrink-0 mt-0.5" />
+                      <span className="text-sm leading-relaxed">{p}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-sm text-slate-500 italic border-l-2 border-cyan-200 pl-4">{f.proof}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* HOW IT WORKS */}
+      <section id="how-it-works" className="py-20 md:py-28 bg-slate-900 text-white">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-extrabold mb-4">
+              From sign-up to your first direct booking in three steps.
+            </h2>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-6xl mx-auto">
+            {STEPS.map((s) => (
+              <div key={s.n} className="relative">
+                <div className="text-6xl font-extrabold text-cyan-500/30 mb-4">{s.n}</div>
+                <h3 className="text-xl font-bold mb-3">{s.title}</h3>
+                <p className="text-slate-300 leading-relaxed">{s.body}</p>
+              </div>
+            ))}
+          </div>
+          <div className="text-center mt-14">
+            <Link
+              href="/onboarding"
+              className="inline-flex items-center px-8 py-4 rounded-xl bg-cyan-600 text-white font-semibold text-lg hover:bg-cyan-500 transition-colors"
+            >
+              Start step 1 — it takes a minute
+              <ArrowRight className="h-5 w-5 ml-2" />
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      {/* PRICING */}
+      <section id="pricing" className="py-20 md:py-28 bg-slate-50">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto text-center mb-14">
+            <h2 className="text-3xl md:text-4xl font-extrabold mb-4">Simple pricing. Zero commission on direct bookings.</h2>
+            <p className="text-slate-600">Every plan includes your white-labeled booking site and unlimited direct bookings at 0% commission.</p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-5xl mx-auto">
+            {TIERS.map((t) => (
+              <div
+                key={t.name}
+                className={`rounded-2xl p-8 bg-white border-2 ${t.popular ? 'border-cyan-700 shadow-xl relative' : 'border-slate-200'}`}
+              >
+                {t.popular && (
+                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-cyan-700 text-white text-xs font-bold px-4 py-1 rounded-full uppercase tracking-wider">
+                    Most popular
+                  </span>
+                )}
+                <h3 className="text-xl font-bold mb-2">{t.name}</h3>
+                <div className="mb-6">
+                  <span className="text-4xl font-extrabold">{t.price}</span>
+                  <span className="text-slate-500">{t.unit}</span>
+                </div>
+                <ul className="space-y-3 mb-8">
+                  {t.features.map((f) => (
+                    <li key={f} className="flex items-start gap-2.5 text-sm text-slate-700">
+                      <CheckCircle className="h-4 w-4 text-cyan-700 shrink-0 mt-0.5" />
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+                <Link
+                  href="/onboarding"
+                  className={`block text-center px-6 py-3 rounded-xl font-semibold transition-colors ${
+                    t.popular
+                      ? 'bg-cyan-700 text-white hover:bg-cyan-800'
+                      : 'border-2 border-slate-200 text-slate-800 hover:border-cyan-700'
+                  }`}
+                >
+                  {t.cta}
+                </Link>
+              </div>
+            ))}
+          </div>
+          <p className="text-center text-sm text-slate-500 mt-8">
+            Launch pricing. No setup fees. Cancel anytime. Your data stays yours.
+          </p>
+        </div>
+      </section>
+
+      {/* FAQ */}
+      <section id="faq" className="py-20 md:py-28">
+        <div className="container mx-auto px-4">
+          <div className="max-w-3xl mx-auto">
+            <h2 className="text-3xl md:text-4xl font-extrabold mb-10 text-center">Questions, answered.</h2>
+            <div className="space-y-4">
+              {FAQS.map((f) => (
+                <details key={f.q} className="group rounded-xl border border-slate-200 bg-white open:shadow-md transition-shadow">
+                  <summary className="flex items-center justify-between cursor-pointer px-6 py-5 font-semibold list-none">
+                    {f.q}
+                    <ChevronDown className="h-5 w-5 text-slate-400 group-open:rotate-180 transition-transform shrink-0 ml-4" />
+                  </summary>
+                  <p className="px-6 pb-6 text-slate-600 leading-relaxed">{f.a}</p>
+                </details>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* FINAL CTA */}
+      <section className="py-20 md:py-28 bg-gradient-to-r from-cyan-800 to-cyan-950 text-white">
+        <div className="container mx-auto px-4 text-center max-w-3xl">
+          <h2 className="text-3xl md:text-5xl font-extrabold mb-6">
+            Your next guest is searching right now. Be the booking they find.
+          </h2>
+          <Link
+            href="/onboarding"
+            className="inline-flex items-center px-10 py-5 rounded-xl bg-white text-cyan-900 font-bold text-lg hover:bg-cyan-50 transition-colors shadow-xl"
+          >
+            Launch my booking site
+            <ArrowRight className="h-5 w-5 ml-2" />
+          </Link>
+          <p className="mt-6 text-cyan-200 text-sm">Free to start · Live in days · Your brand front and center</p>
+        </div>
+      </section>
+
+      {/* FOOTER */}
+      <footer className="bg-slate-950 text-slate-400 py-14">
+        <div className="container mx-auto px-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-10">
             <div>
-              <h3 className="text-lg font-bold mb-6 text-white">LA Neighborhoods</h3>
-              <ul className="space-y-3">
-                <li><Link href="/properties?area=hollywood" className="text-gray-400 hover:text-blue-400 transition-colors">Hollywood Hotels</Link></li>
-                <li><Link href="/properties?area=santa-monica" className="text-gray-400 hover:text-blue-400 transition-colors">Santa Monica</Link></li>
-                <li><Link href="/properties?area=beverly-hills" className="text-gray-400 hover:text-blue-400 transition-colors">Beverly Hills</Link></li>
-                <li><Link href="/properties?area=west-hollywood" className="text-gray-400 hover:text-blue-400 transition-colors">West Hollywood</Link></li>
-                <li><Link href="/properties?area=downtown" className="text-gray-400 hover:text-blue-400 transition-colors">Downtown LA</Link></li>
+              <h4 className="text-white font-bold mb-4">Product</h4>
+              <ul className="space-y-2 text-sm">
+                <li><a href="#features" className="hover:text-white">Features</a></li>
+                <li><a href="#pricing" className="hover:text-white">Pricing</a></li>
+                <li><a href="#faq" className="hover:text-white">FAQ</a></li>
+                <li><Link href="/properties" className="hover:text-white">Live demo</Link></li>
               </ul>
             </div>
-
             <div>
-              <h3 className="text-lg font-bold mb-6 text-white">Guest Services</h3>
-              <ul className="space-y-3">
-                <li><Link href="/help" className="text-gray-400 hover:text-blue-400 transition-colors">Help Center</Link></li>
-                <li><Link href="/cancellation" className="text-gray-400 hover:text-blue-400 transition-colors">Cancellation Policy</Link></li>
-                <li><Link href="/concierge" className="text-gray-400 hover:text-blue-400 transition-colors">LA Concierge</Link></li>
-                <li><Link href="/experiences" className="text-gray-400 hover:text-blue-400 transition-colors">LA Experiences</Link></li>
+              <h4 className="text-white font-bold mb-4">Get started</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link href="/onboarding" className="hover:text-white">Onboard your hotel</Link></li>
+                <li><Link href="/register" className="hover:text-white">Create account</Link></li>
+                <li><Link href="/login" className="hover:text-white">Sign in</Link></li>
               </ul>
             </div>
-
             <div>
-              <h3 className="text-lg font-bold mb-6 text-white">Contact Casa Blanca</h3>
-              <ul className="space-y-3 text-gray-400">
-                <li className="flex items-center">
-                  <svg className="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"></path>
-                  </svg>
-                  hello@casablancala.com
-                </li>
-                <li className="flex items-center">
-                  <svg className="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z"></path>
-                  </svg>
-                  1-800-CASA-BLANCA
-                </li>
-                <li className="flex items-center">
-                  <svg className="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"></path>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                  </svg>
-                  Los Angeles, California
-                </li>
-                <li className="flex items-center">
-                  <svg className="w-5 h-5 mr-2 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                  24/7 Concierge Service
-                </li>
+              <h4 className="text-white font-bold mb-4">Demo</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link href="/properties" className="hover:text-white">Browse demo properties</Link></li>
+                <li><Link href="/about" className="hover:text-white">About</Link></li>
+                <li><Link href="/contact" className="hover:text-white">Contact</Link></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="text-white font-bold mb-4">Legal</h4>
+              <ul className="space-y-2 text-sm">
+                <li><Link href="/terms" className="hover:text-white">Terms</Link></li>
+                <li><Link href="/privacy" className="hover:text-white">Privacy</Link></li>
               </ul>
             </div>
           </div>
-
-          <div className="mt-12 pt-8 border-t border-gray-800 text-center text-gray-500 flex flex-col md:flex-row justify-between items-center">
-            <p>&copy; 2025 Casa Blanca Hotels. All rights reserved. Made with ❤️ in Los Angeles.</p>
-            <div className="flex space-x-6 mt-4 md:mt-0">
-              <Link href="/terms" className="text-sm text-gray-500 hover:text-blue-400 transition-colors">Terms</Link>
-              <Link href="/privacy" className="text-sm text-gray-500 hover:text-blue-400 transition-colors">Privacy</Link>
-              <Link href="/cookies" className="text-sm text-gray-500 hover:text-blue-400 transition-colors">Cookies</Link>
-              <Link href="/sitemap" className="text-sm text-gray-500 hover:text-blue-400 transition-colors">Sitemap</Link>
-            </div>
+          <div className="pt-8 border-t border-slate-800 text-sm text-center">
+            © 2026 {PRODUCT_NAME}. Built for the people who keep the lights on.
           </div>
         </div>
       </footer>
