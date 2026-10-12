@@ -108,7 +108,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     updateAge: 24 * 60 * 60, // Update session every 24 hours
   },
   callbacks: {
-    async signIn({ user, account, profile }) {
+    async signIn({ user, account }) {
       // Allow Google sign-in only for customers
       if (account?.provider === "google") {
         // Check if user exists
@@ -138,7 +138,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // Credentials login allowed for all active users with a password
       return true
     },
-    async jwt({ token, user, account }) {
+    async jwt({ token, user }) {
       if (user) {
         token.role = user.role
         token.email = user.email

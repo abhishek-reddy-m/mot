@@ -1,124 +1,54 @@
 import Link from 'next/link';
+import { ArrowRight, Building2, ShieldCheck, Sparkles } from 'lucide-react';
 import Navigation from '@/components/Navigation';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Building2, PhoneCall, MessageCircle, RefreshCw, Shield, Percent } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { SiteFooter } from '@/components/guest/SiteFooter';
 import { PRODUCT_NAME } from '@/config/product';
+
+const PRINCIPLES = [
+  { icon: Building2, title: 'Your brand, your guests', text: 'Guests book with you, not with us. Your name, your colours, your data — exportable any time.' },
+  { icon: Sparkles, title: 'Say it, see it', text: 'Software should understand “check in the Smiths” and show you the right screen — not make you hunt for it.' },
+  { icon: ShieldCheck, title: 'People stay in charge', text: 'The agent proposes, a person confirms. Every action is permission-checked and written to the activity log.' },
+];
 
 export default function AboutPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 to-white">
-      <Navigation />
-
-      <section className="bg-gradient-to-r from-cyan-800 to-cyan-950 text-white py-20">
-        <div className="container mx-auto px-4">
-          <div className="max-w-4xl mx-auto text-center">
-            <h1 className="text-5xl md:text-6xl font-extrabold mb-6">About {PRODUCT_NAME}</h1>
-            <p className="text-xl md:text-2xl text-cyan-100">
-              The platform that puts independent hotels back in charge of their bookings.
+    <div className="min-h-dvh bg-background">
+      <Navigation variant="marketing" />
+      <main>
+        <section className="relative overflow-hidden">
+          <div className="pointer-events-none absolute -top-32 left-1/2 h-[420px] w-[800px] -translate-x-1/2 rounded-full bg-aurora opacity-[0.12] blur-3xl" />
+          <div className="relative mx-auto max-w-3xl px-4 py-16 text-center sm:px-6 sm:py-24">
+            <h1 className="font-display text-4xl leading-tight tracking-tight sm:text-6xl">Built for the people who keep the lights on</h1>
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-muted-foreground">
+              Independent hotel owners do everything — front desk, housekeeping, night audit — and still lose 15–25% of every booking to online travel agencies, plus every guest who calls after hours and gets no answer. {PRODUCT_NAME} gives them a booking site under their own name, a front desk they can run by just saying what they need, and a voice that never misses a call.
             </p>
           </div>
-        </div>
-      </section>
-
-      <section className="py-20">
-        <div className="container mx-auto px-4">
-          <div className="max-w-4xl mx-auto">
-            <div className="text-center mb-12">
-              <h2 className="text-3xl md:text-4xl font-extrabold text-gray-900 mb-6">Our story</h2>
-              <p className="text-lg text-gray-600 leading-relaxed">
-                {PRODUCT_NAME} was built for the independent hotel owners who do everything —
-                front desk, housekeeping, night audit — and still lose 15–25% of every booking
-                to online travel agencies, plus the guests who call after hours and never get
-                an answer. We give those owners a white-labeled booking website, an AI agent
-                that answers calls and messages like their best clerk, and one dashboard that
-                keeps every channel in sync. Your brand, your data, your revenue.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-12 mb-16">
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-4">Our mission</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  Help every independent hotel take direct bookings commission-free, answer
-                  every guest inquiry instantly, and run their whole operation from one place.
-                </p>
+        </section>
+        <section className="mx-auto max-w-5xl px-4 pb-20 sm:px-6">
+          <div className="grid gap-5 md:grid-cols-3">
+            {PRINCIPLES.map((p) => (
+              <div key={p.title} className="rounded-3xl border bg-card p-6">
+                <span className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary-soft text-primary">
+                  <p.icon className="h-5 w-5" />
+                </span>
+                <p className="mt-4 font-semibold">{p.title}</p>
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{p.text}</p>
               </div>
-              <div>
-                <h3 className="text-2xl font-bold text-gray-900 mb-4">Our vision</h3>
-                <p className="text-gray-600 leading-relaxed">
-                  A world where a 20-room motel has better technology than the biggest chains —
-                  and guests never know the difference, because all they see is the hotel&apos;s own brand.
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto mb-16">
-              <Card className="text-center border-0 shadow-lg">
-                <CardHeader>
-                  <div className="w-16 h-16 bg-cyan-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Percent className="h-8 w-8 text-cyan-700" />
-                  </div>
-                  <CardTitle>0% commission</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>Direct bookings stay commission-free. Keep every dollar you earn.</CardDescription>
-                </CardContent>
-              </Card>
-
-              <Card className="text-center border-0 shadow-lg">
-                <CardHeader>
-                  <div className="w-16 h-16 bg-indigo-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <PhoneCall className="h-8 w-8 text-indigo-700" />
-                  </div>
-                  <CardTitle>Always-on AI staff</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>Voice and WhatsApp agents trained on your rates, policies, and FAQs.</CardDescription>
-                </CardContent>
-              </Card>
-
-              <Card className="text-center border-0 shadow-lg">
-                <CardHeader>
-                  <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    <Shield className="h-8 w-8 text-emerald-700" />
-                  </div>
-                  <CardTitle>Your data, isolated</CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <CardDescription>Per-property data isolation, encrypted in transit and at rest. Export anytime.</CardDescription>
-                </CardContent>
-              </Card>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-4xl mx-auto">
-              {[
-                { icon: Building2, title: 'White-label booking site', body: 'Your logo, colors, fonts, and domain. Guests never see our name.' },
-                { icon: MessageCircle, title: 'WhatsApp agent', body: 'Meet guests where they already are — instant answers, booking links, confirmations.' },
-                { icon: RefreshCw, title: 'Channel sync', body: 'Two-way sync with the big booking platforms. Change a rate once — it changes everywhere.' },
-              ].map((f) => (
-                <div key={f.title} className="flex gap-4">
-                  <div className="w-12 h-12 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
-                    <f.icon className="h-6 w-6 text-slate-700" />
-                  </div>
-                  <div>
-                    <h4 className="font-bold mb-1">{f.title}</h4>
-                    <p className="text-sm text-gray-600">{f.body}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-
-            <div className="text-center mt-16">
-              <Link
-                href="/onboarding"
-                className="inline-flex items-center px-8 py-4 rounded-xl bg-cyan-700 text-white font-semibold text-lg hover:bg-cyan-800 transition-colors"
-              >
-                Onboard your hotel
-              </Link>
-            </div>
+            ))}
           </div>
-        </div>
-      </section>
+          <div className="mt-12 rounded-3xl border bg-surface-sunken/60 p-8 text-center">
+            <p className="text-lg font-semibold">Start where you are</p>
+            <p className="mx-auto mt-2 max-w-xl text-muted-foreground">Run everything on {PRODUCT_NAME}, keep your current system and let the agent work it, or start with just the voice agent.</p>
+            <Button asChild className="mt-6">
+              <Link href="/onboarding">
+                Set up your hotel <ArrowRight className="h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+        </section>
+      </main>
+      <SiteFooter />
     </div>
   );
 }

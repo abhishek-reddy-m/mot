@@ -226,7 +226,13 @@ export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmR
     {
       type: 'result',
       ok: !failed,
-      title: failed ? 'Some changes didn’t go through' : plan.steps.length === 1 ? 'Done' : `Done — ${plan.steps.length} changes made`,
+      title: failed
+        ? 'Some changes didn’t go through'
+        : bridged.length === plan.steps.length
+          ? `Sent to ${bridged[0].system} — the operator is on it`
+          : plan.steps.length === 1
+            ? 'Done'
+            : `Done — ${plan.steps.length} changes made`,
       lines,
     },
   ];

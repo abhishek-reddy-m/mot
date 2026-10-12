@@ -1,8 +1,10 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 /**
  * Demo seed: one fully-operational property (The Saltwater Inn) with staff
- * for every role, numbered rooms, and a realistic "today" at the front desk,
- * plus two smaller listing-only properties.
+ * for every role, numbered rooms, a realistic "today" at the front desk,
+ * activity history and a configured voice front desk; a second hotel that
+ * keeps its own PMS (Harbor Motel, bridge path); and two listing-only
+ * properties.
  *
  * Dev: wipes the database first. Production: never wipes unless
  * ALLOW_SEED_WIPE=true, and never creates an admin without ADMIN_SEED_PASSWORD.
@@ -33,6 +35,11 @@ const code = () => Array.from({ length: 6 }, () => CODE_ALPHABET[crypto.randomIn
 async function wipe() {
   console.log('Clearing existing data…');
   await prisma.agentAuditLog.deleteMany({});
+  await prisma.bridgeTask.deleteMany({});
+  await prisma.pmsConnection.deleteMany({});
+  await prisma.guestRequest.deleteMany({});
+  await prisma.voiceSession.deleteMany({});
+  await prisma.voiceAgentConfig.deleteMany({});
   await prisma.roomHousekeeping.deleteMany({});
   await prisma.bookingStatusHistory.deleteMany({});
   await prisma.booking.deleteMany({});
@@ -220,22 +227,36 @@ async function main() {
   };
   // guests[0] (Jordan Smith, the anniversary couple) only gets their own stay.
   let g = 0;
+  let n = 0;
   const nextGuest = () => guests[1 + (g++ % (guests.length - 1))];
+  // Past stays get a real room of their type (rotating), like a working hotel.
+  const pastRoom = {};
+  const roomOfType = (rt) => {
+    const list = roomDefs.filter((d) => d.rt === rt.id).map((d) => d.n);
+    pastRoom[rt.id] = ((pastRoom[rt.id] ?? -1) + 1) % list.length;
+    return list[pastRoom[rt.id]];
+  };
+  const hoursAfter = (date, h) => new Date(date.getTime() + h * 3600_000);
   const book = async ({ guest, rt, inOff, nights, status, room, guestsCount = 2, notes, payment = 'PAY_AT_PROPERTY' }) => {
     const checkIn = addDays(today, inOff);
     const checkOut = addDays(checkIn, nights);
-    const history = [{ status: 'PENDING', notes: 'Booked online' }];
-    if (status !== 'PENDING') history.push({ status: 'CONFIRMED', notes: 'Instant confirmation' });
-    if (['CHECKED_IN', 'CHECKED_OUT'].includes(status)) history.push({ status: 'CHECKED_IN', notes: 'Checked in by Priya Patel' });
-    if (status === 'CHECKED_OUT') history.push({ status: 'CHECKED_OUT', notes: 'Checked out by Priya Patel' });
-    if (status === 'CANCELLED') history.push({ status: 'CANCELLED', notes: 'Cancelled by guest' });
-    if (status === 'NO_SHOW') history.push({ status: 'NO_SHOW', notes: 'Marked no-show by night audit' });
+    // Booked 2–40 days ahead (never in the future).
+    const lead = 2 + ((n++ * 7) % 39);
+    const bookedAt = new Date(Math.min(Date.now() - 3600_000 * (1 + (n % 9)), noon(addDays(checkIn, -lead)).getTime()));
+    const history = [{ status: 'PENDING', notes: 'Booked online', createdAt: bookedAt }];
+    if (status !== 'PENDING') history.push({ status: 'CONFIRMED', notes: 'Instant confirmation', createdAt: hoursAfter(bookedAt, 0.01) });
+    if (['CHECKED_IN', 'CHECKED_OUT'].includes(status)) history.push({ status: 'CHECKED_IN', notes: 'Checked in by Priya Patel', createdAt: hoursAfter(noon(checkIn), 3.5 + (n % 4)) });
+    if (status === 'CHECKED_OUT') history.push({ status: 'CHECKED_OUT', notes: 'Checked out by Priya Patel', createdAt: hoursAfter(noon(checkOut), -1.5) });
+    if (status === 'CANCELLED') history.push({ status: 'CANCELLED', notes: 'Cancelled by guest', createdAt: hoursAfter(bookedAt, 30) });
+    if (status === 'NO_SHOW') history.push({ status: 'NO_SHOW', notes: 'Marked no-show by night audit', createdAt: hoursAfter(noon(checkIn), 14) });
+    const roomNumber = room ?? (status === 'CHECKED_OUT' ? roomOfType(rt) : undefined);
     return prisma.booking.create({
       data: {
+        createdAt: bookedAt,
         userId: (guest || nextGuest()).id,
         propertyId: inn.id,
         roomTypeId: rt.id,
-        roomId: room ? rooms[room].id : null,
+        roomId: roomNumber ? rooms[roomNumber].id : null,
         checkIn: noon(checkIn),
         checkOut: noon(checkOut),
         guests: guestsCount,
@@ -315,6 +336,90 @@ async function main() {
   await prisma.roomHousekeeping.create({ data: { roomId: rooms['202'].id, assignedTo: hk1.id, status: 'PENDING', priority: 1 } });
   await prisma.roomHousekeeping.create({ data: { roomId: rooms['303'].id, assignedTo: null, status: 'PENDING', priority: 1 } });
 
+  // ---------- activity log (what the last day looked like) ----------
+  const ago = (h) => new Date(Date.now() - h * 3600_000);
+  const audit = (userId, propertyId, action, summary, source, hoursAgo) =>
+    prisma.agentAuditLog.create({ data: { userId, propertyId, action, detail: JSON.stringify({ source, summary }), createdAt: ago(hoursAgo) } });
+  await audit(desk.id, inn.id, 'COMMAND', 'Asked: “brief me”', 'agent', 3.2);
+  await audit(desk.id, inn.id, 'BOOKING_STATUS', 'Checked in the guest in room 302 (via plan)', 'agent', 22);
+  await audit(desk.id, inn.id, 'BOOKING_NOTE', 'Added a note: “Extra pillows” for room 203', 'agent', 21.5);
+  await audit(manager.id, inn.id, 'HOUSEKEEPING_ASSIGN', 'Assigned rooms 108 and 202 to Rosa Martinez', 'classic', 2.4);
+  await audit(manager.id, inn.id, 'RATES_UPDATE', 'Ocean King: 4 weekend nights adjusted +10%', 'agent', 26);
+  await audit(owner.id, inn.id, 'VOICE_SETTINGS', 'Updated voice agent settings', 'classic', 30);
+  await audit(desk.id, inn.id, 'ROOM_STATUS', 'Room 106 taken out of order — AC unit replacement', 'classic', 5);
+  await audit(owner.id, inn.id, 'MODE_SWITCH', 'Default interface set to Agentic', 'classic', 48);
+
+  // ---------- voice front desk ----------
+  await prisma.voiceAgentConfig.create({
+    data: {
+      propertyId: inn.id,
+      voice: 'marin',
+      greeting: 'Thanks for calling the Saltwater Inn — this is the front desk. How can I help?',
+      instructions: 'Always mention breakfast is included. Dogs under 30 lb are welcome for $25 a night. We don’t offer day-use rooms.',
+      faqs: [
+        { q: 'Is parking free?', a: 'Yes — free on-site parking for every guest, including EV chargers.' },
+        { q: 'What time is breakfast?', a: 'Breakfast is included, 7 to 10:30 every morning in the garden room.' },
+        { q: 'Can I check in early?', a: 'From 3 PM; earlier when the room is ready — we’ll text you. Bags can be dropped any time.' },
+        { q: 'Do you allow pets?', a: 'Dogs under 30 pounds, $25 per night, in Garden Queen rooms.' },
+      ],
+      handoffPhone: '+1 831 555 0100',
+    },
+  });
+  await prisma.guestRequest.create({ data: { propertyId: inn.id, name: 'Dana Whitfield', phone: '+1 408 555 0144', message: 'Planning a wedding block of 10 rooms for June 12–14 — would like group pricing.', createdAt: ago(1.5) } });
+  await prisma.guestRequest.create({ data: { propertyId: inn.id, name: 'Kenji Mori', email: 'kenji.mori@example.com', message: 'Asked whether the Family Suite has a crib available.', status: 'DONE', handledById: desk.id, createdAt: ago(20) } });
+  await prisma.voiceSession.createMany({
+    data: [
+      { propertyId: inn.id, audience: 'GUEST', liveSessionId: 'demo_1', toolCalls: 3, startedAt: ago(1.6), endedAt: ago(1.52) },
+      { propertyId: inn.id, audience: 'GUEST', liveSessionId: 'demo_2', toolCalls: 2, startedAt: ago(6), endedAt: ago(5.95) },
+      { propertyId: inn.id, audience: 'STAFF', userId: desk.id, liveSessionId: 'demo_3', toolCalls: 4, startedAt: ago(3.3), endedAt: ago(3.2) },
+    ],
+  });
+
+  // ---------- a hotel that keeps its own PMS (bridge path) ----------
+  const harbor = await prisma.property.create({
+    data: {
+      name: 'Harbor Motel',
+      type: 'Motel',
+      tagline: 'Simple rooms by the wharf.',
+      description: 'A friendly 30-room motel two minutes from Fisherman’s Wharf. Runs on Cloudbeds — StayOS works it through the bridge.',
+      address: '12 Pier Road',
+      city: 'Monterey',
+      state: 'CA',
+      zipCode: '93940',
+      phone: '+1 831 555 0177',
+      primaryColor: '#1D4ED8',
+      amenities: ['Free parking', 'Free Wi-Fi', 'Pet friendly'],
+      isDemo: true,
+      setupPath: 'BRIDGE',
+      interfaceMode: 'AGENTIC',
+      photos: { create: [{ url: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?auto=format&fit=crop&w=1600&q=80', publicId: 'harbor_main', isMain: true }] },
+    },
+  });
+  await prisma.roomType.create({ data: { propertyId: harbor.id, name: 'Queen Room', capacity: 2, basePrice: 139, totalRooms: 20, amenities: ['Queen bed', 'Mini fridge'], description: 'Clean and comfortable, steps from the wharf.' } });
+  await prisma.roomType.create({ data: { propertyId: harbor.id, name: 'Double Double', capacity: 4, basePrice: 169, totalRooms: 10, amenities: ['Two doubles'], description: 'Room for the family.' } });
+  for (const u of [owner, manager, desk]) await prisma.userPropertyAssignment.create({ data: { userId: u.id, propertyId: harbor.id } });
+  const conn = await prisma.pmsConnection.create({
+    data: {
+      propertyId: harbor.id,
+      system: 'Cloudbeds',
+      mode: 'DESKTOP',
+      status: 'CONNECTED',
+      loginUrl: 'https://hotels.cloudbeds.com',
+      deviceName: 'Front desk PC',
+      deviceTokenHash: crypto.createHash('sha256').update(crypto.randomBytes(32)).digest('hex'),
+      lastSeenAt: ago(3),
+    },
+  });
+  const task = (kind, instruction, status, summary, hoursAgo) =>
+    prisma.bridgeTask.create({
+      data: { propertyId: harbor.id, connectionId: conn.id, kind, instruction, status, result: summary ? { summary } : undefined, requestedById: desk.id, attempts: 1, createdAt: ago(hoursAgo), startedAt: ago(hoursAgo - 0.01), finishedAt: ago(hoursAgo - 0.02) },
+    });
+  await task('LOOKUP', 'who is arriving today?', 'DONE', '6 arrivals today: Patel (room 12), Moreno (14), Lee (unassigned), Okafor (21), Nguyen (unassigned), Fischer (7).', 4);
+  await task('ACTION', 'check in Moreno into room 14', 'DONE', 'Checked in Ana Moreno to room 14 in Cloudbeds. Balance $0.00 (prepaid).', 3.8);
+  await task('ACTION', 'move the Lee reservation to an accessible room', 'NEEDS_HELP', 'Two reservations named Lee arrive today (D. Lee and M. Lee). Which one should I move?', 3.5);
+  await prisma.voiceAgentConfig.create({ data: { propertyId: harbor.id, voice: 'cedar', greeting: 'Harbor Motel, how can I help?', handoffPhone: '+1 831 555 0177' } });
+  await audit(owner.id, harbor.id, 'BRIDGE_SETUP', 'Connected Cloudbeds (desktop connector)', 'classic', 50);
+
   // ---------- listing-only demo properties ----------
   const listing = async (data, roomTypes) => {
     const p = await prisma.property.create({ data: { ...data, isDemo: true } });
@@ -365,6 +470,7 @@ async function main() {
   const counts = await Promise.all([prisma.booking.count(), prisma.room.count(), prisma.user.count()]);
   console.log(`Seeded: ${counts[0]} bookings, ${counts[1]} rooms, ${counts[2]} users. Hotel "today" = ${today} (${TZ}).`);
   console.log('Demo logins (password demo1234): owner@ / manager@ / frontdesk@ / housekeeping@ / guest@stayos.demo');
+  console.log('Owner, manager and front desk also see Harbor Motel — a hotel that keeps Cloudbeds (bridge path).');
 }
 
 main()

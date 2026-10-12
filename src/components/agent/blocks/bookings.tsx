@@ -110,11 +110,16 @@ export function BookingCard({ block }: { block: Extract<AgentBlock, { type: 'boo
       {notes.length > 0 && (
         <div className="space-y-1 border-b bg-agent-soft/30 px-4 py-3">
           <p className="text-[11px] font-medium uppercase tracking-wide text-agent">Notes</p>
-          {notes.slice(-3).map((n, i) => (
-            <p key={i} className="text-sm text-foreground/90">
-              {n}
-            </p>
-          ))}
+          {notes.slice(-3).map((n, i) => {
+            // Staff notes are stamped "[YYYY-MM-DD · Name] text".
+            const m = n.match(/^\[[^\]·]+·\s*([^\]]+)\]\s*(.*)$/);
+            return (
+              <p key={i} className="text-sm text-foreground/90">
+                {m ? m[2] : n}
+                {m && <span className="ml-1.5 text-xs text-muted-foreground">— {m[1]}</span>}
+              </p>
+            );
+          })}
         </div>
       )}
       {block.history && block.history.length > 0 && (

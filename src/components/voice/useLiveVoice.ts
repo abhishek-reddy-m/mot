@@ -260,7 +260,6 @@ export function useLiveVoice({ propertyId, audience, onToolCall, onStateChange }
     mic.current?.getAudioTracks().forEach((t) => (t.enabled = !next));
     send({ type: next ? 'session.input_audio.mute' : 'session.input_audio.unmute' });
     setMuted(next);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [muted]);
 
   React.useEffect(() => () => cleanup(), [cleanup]);

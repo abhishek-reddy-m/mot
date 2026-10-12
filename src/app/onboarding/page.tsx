@@ -376,8 +376,8 @@ function Onboarding() {
                   </p>
                   <div className="mt-4 space-y-2">
                     {rooms.map((r, i) => (
-                      <div key={i} className="grid grid-cols-[1fr_64px_88px_64px_auto] items-end gap-2">
-                        <Field label={i === 0 ? 'Room type' : ''} htmlFor={`rt-n-${i}`}>
+                      <div key={i} className="grid grid-cols-[1fr_1fr_1fr_auto] items-end gap-2 rounded-xl border p-2 sm:grid-cols-[1fr_64px_88px_64px_auto] sm:border-0 sm:p-0">
+                        <Field label={i === 0 ? 'Room type' : ''} htmlFor={`rt-n-${i}`} className="col-span-4 sm:col-span-1">
                           <Input id={`rt-n-${i}`} value={r.name} onChange={(e) => setRoom(i, 'name', e.target.value)} placeholder="Ocean King" />
                         </Field>
                         <Field label={i === 0 ? 'Sleeps' : ''} htmlFor={`rt-c-${i}`}>
