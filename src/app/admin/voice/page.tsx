@@ -41,7 +41,7 @@ interface VoiceOverview {
   phoneLine: { enabled: boolean } | null;
   /** Phone lines run on ElevenLabs, whichever provider serves the booking page. */
   phoneReady: boolean;
-  stats: { guestCalls: number; phoneCalls: number; staffSessions: number; toolCalls: number; recentMinutes: number; openRequests: number };
+  stats: { guestCalls: number; phoneCalls: number; whatsAppChats: number; staffSessions: number; toolCalls: number; recentMinutes: number; openRequests: number };
   recent: { id: string; audience: string; startedAt: string; endedAt: string | null; toolCalls: number }[];
 }
 interface GuestRequest {
@@ -50,6 +50,8 @@ interface GuestRequest {
   phone: string | null;
   email: string | null;
   message: string;
+  /** VOICE (booking page) | PHONE | WHATSAPP */
+  source: string;
   status: 'NEW' | 'DONE';
   createdAt: string;
 }
@@ -291,7 +293,11 @@ function Requests() {
         <div key={r.id} className={cn('flex flex-col gap-3 p-4 sm:flex-row sm:items-start', r.status === 'DONE' && 'opacity-60')}>
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">
-              {r.name} <span className="font-normal text-muted-foreground">· {timeAgo(r.createdAt)}</span>
+              {r.name}{' '}
+              <span className="font-normal text-muted-foreground">
+                · {timeAgo(r.createdAt)}
+                {r.source === 'PHONE' ? ' · by phone' : r.source === 'WHATSAPP' ? ' · on WhatsApp' : ''}
+              </span>
             </p>
             <p className="mt-1 text-sm">{bookingLink(r.message).text}</p>
             <div className="mt-2 flex flex-wrap gap-3 text-xs">
@@ -389,7 +395,7 @@ export default function VoicePage() {
             <div className="space-y-6">
               <TestCall propertyId={propertyId} connected={data.connected} />
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <StatTile label="Guest conversations" value={data.stats.guestCalls} hint={data.stats.phoneCalls ? `Last 7 days · ${data.stats.phoneCalls} by phone` : 'Last 7 days'} icon={AudioLines} tone="agent" />
+                <StatTile label="Guest conversations" value={data.stats.guestCalls} hint={['Last 7 days', data.stats.phoneCalls ? `${data.stats.phoneCalls} by phone` : '', data.stats.whatsAppChats ? `${data.stats.whatsAppChats} on WhatsApp` : ''].filter(Boolean).join(' · ')} icon={AudioLines} tone="agent" />
                 <StatTile label="Hands-free staff sessions" value={data.stats.staffSessions} hint="Last 7 days" icon={Mic} tone="brand" />
                 <StatTile label="Lookups & actions" value={data.stats.toolCalls} hint="Answered from live data" icon={ShieldCheck} tone="success" />
                 <StatTile label="Messages to handle" value={data.stats.openRequests} hint="Left with the voice" icon={Inbox} tone={data.stats.openRequests ? 'warning' : 'neutral'} onClick={() => setTab('requests')} />
@@ -400,14 +406,14 @@ export default function VoicePage() {
                   { icon: Mic, title: 'Staff hands-free', text: 'Press Talk in the Agent workspace. Changes still need your “yes”.', ok: data.connected, href: '/admin/agent', cta: 'Open the agent' },
                   {
                     icon: PhoneCall,
-                    title: 'Phone line',
+                    title: 'Phone & WhatsApp',
                     text:
                       !data.phoneReady
-                        ? 'Answer your hotel number with this voice — runs on ElevenLabs Agents.'
+                        ? 'Answer your hotel number and WhatsApp with this voice — runs on ElevenLabs Agents.'
                         : !data.phoneLine
-                          ? 'Answer your hotel number with this voice. Keep your number and forward the calls you miss.'
+                          ? 'Answer your hotel number with this voice — and WhatsApp too. Keep your number and forward the calls you miss.'
                           : data.phoneLine.enabled && data.config.enabled
-                            ? 'On — answers every number you point at this hotel’s phone agent.'
+                            ? 'On — answers every phone and WhatsApp number you point at this hotel’s agent.'
                             : 'Paused — callers hear a short “not available” message.',
                     ok: data.phoneReady && !!data.phoneLine?.enabled && data.config.enabled,
                     onClick: () => setTab('phone'),

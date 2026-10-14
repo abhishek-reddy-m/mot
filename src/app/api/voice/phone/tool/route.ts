@@ -14,7 +14,7 @@ const TOOL_NAMES = new Set(PHONE_TOOLS.map((t) => t.name));
 const reply = (output: unknown) => NextResponse.json(output);
 
 /**
- * POST /api/voice/phone/tool — a phone agent's webhook tool. ElevenLabs
+ * POST /api/voice/phone/tool — a phone agent's webhook tool (phone calls and WhatsApp). ElevenLabs
  * sends the model's arguments plus `stayos_tool` and the call's
  * `stayos_session` token; the header secret proves the request is from our
  * agents, the token pins it to one hotel and one call.
@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     return reply({ error: e instanceof DomainError ? e.message : 'This call’s session is invalid.' });
   }
-  if (t.aud !== 'GUEST' || t.ch !== 'PHONE') return reply({ error: 'This session isn’t a phone call.' });
+  if (t.aud !== 'GUEST' || (t.ch !== 'PHONE' && t.ch !== 'WHATSAPP')) return reply({ error: 'This session isn’t a phone call or WhatsApp chat.' });
 
   // Count the call up front; a real conversation never needs this many lookups.
   const session = await prisma.voiceSession
@@ -42,5 +42,5 @@ export async function POST(request: NextRequest) {
   if (!session) return reply({ error: 'This call has ended.' });
   if (session.toolCalls > MAX_TOOL_CALLS) return reply({ error: 'This call has made a lot of lookups already — offer to take a message for the team instead.' });
 
-  return reply(await guestToolOutput(t.pid, name, args, { kind: 'PHONE', callerNumber: session.callerNumber }));
+  return reply(await guestToolOutput(t.pid, name, args, { kind: 'PHONE', callerNumber: session.callerNumber, via: t.ch }));
 }

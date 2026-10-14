@@ -135,8 +135,8 @@ export interface VoiceTokenPayload {
   pid: string; // property
   aud: 'GUEST' | 'STAFF';
   uid: string | null;
-  /** Set for phone calls (tools run server to server, with the phone tool set). */
-  ch?: 'PHONE';
+  /** Set for phone calls and WhatsApp (tools run server to server, with the phone tool set). */
+  ch?: 'PHONE' | 'WHATSAPP';
   exp: number;
 }
 
@@ -315,44 +315,65 @@ export function guestPrompts(p: {
   today: string;
   timezone: string;
   handoffPhone?: string | null;
-  /** A call to the hotel's phone line rather than the booking page. */
-  phone?: { callerNumber: string | null; canTransfer: boolean };
+  /** A call to the hotel's phone line (or a WhatsApp chat or call) rather than the booking page. */
+  phone?: { callerNumber: string | null; canTransfer: boolean; whatsapp?: boolean };
 }) {
   const phone = p.phone;
+  const whatsapp = !!phone?.whatsapp;
   // On the phone, the hotel's number is usually the one that forwarded them here: take a message instead.
-  const person = phone?.canTransfer
-    ? 'If the caller asks for a person, or something urgent needs staff, say you’ll put them through and transfer the call.'
-    : phone
-      ? 'If the caller wants a person, take a message so the team can call them back. Don’t give out the hotel’s phone number for that — it may lead straight back to you.'
-      : p.handoffPhone
-        ? `If the guest wants a person, offer to take a message or give the hotel number ${p.handoffPhone}.`
-        : 'If the guest wants a person, offer to take a message for the team.';
+  const person =
+    phone?.canTransfer && !whatsapp
+      ? 'If the caller asks for a person, or something urgent needs staff, say you’ll put them through and transfer the call.'
+      : whatsapp
+        ? 'If the guest wants a person, take a message so the team can get back to them.'
+        : phone
+          ? 'If the caller wants a person, take a message so the team can call them back. Don’t give out the hotel’s phone number for that — it may lead straight back to you.'
+          : p.handoffPhone
+            ? `If the guest wants a person, offer to take a message or give the hotel number ${p.handoffPhone}.`
+            : 'If the guest wants a person, offer to take a message for the team.';
   const instructions = [
-    `You are the voice of the front desk at ${p.name}${phone ? ', answering the hotel’s phone' : ''}. Warm, calm and brief — like a great hotel receptionist on the phone.`,
-    p.greeting ? `Open with: "${p.greeting}"` : `Open with a short welcome to ${p.name} and ask how you can help.`,
-    'Speak in short sentences. Say prices as natural amounts ("two hundred and twenty-seven dollars a night"). Repeat dates back before acting on them.',
+    whatsapp
+      ? `You are the front desk of ${p.name} on WhatsApp — guests message (or call) this number. Warm, calm and brief, like a great hotel receptionist.`
+      : `You are the voice of the front desk at ${p.name}${phone ? ', answering the hotel’s phone' : ''}. Warm, calm and brief — like a great hotel receptionist on the phone.`,
+    whatsapp ? '' : p.greeting ? `Open with: "${p.greeting}"` : `Open with a short welcome to ${p.name} and ask how you can help.`,
+    // WhatsApp may be text or a call: plain amounts read well and the voice says them naturally.
+    whatsapp
+      ? 'Keep replies short — a sentence or two. Write prices as plain amounts ("$227 a night") and dates like "Fri, Oct 23". Repeat dates back before acting on them.'
+      : 'Speak in short sentences. Say prices as natural amounts ("two hundred and twenty-seven dollars a night"). Repeat dates back before acting on them.',
     'Whenever the guest asks about rooms, prices, availability, policies, the hotel, or an existing booking, delegate — never answer facts from memory.',
-    'If you are waiting on a result, say a brief natural filler ("let me check that for you").',
-    phone ? 'Never take card details over the phone: the team confirms phone bookings and sends a link to finish booking online.' : 'Never ask for card numbers. Bookings are completed on the guest’s screen.',
+    whatsapp ? '' : 'If you are waiting on a result, say a brief natural filler ("let me check that for you").',
+    whatsapp
+      ? 'Never take card details here: the team confirms bookings made on WhatsApp and sends a link to finish booking online.'
+      : phone
+        ? 'Never take card details over the phone: the team confirms phone bookings and sends a link to finish booking online.'
+        : 'Never ask for card numbers. Bookings are completed on the guest’s screen.',
     person,
-    phone ? 'If someone describes an emergency, tell them to hang up and call the local emergency number straight away.' : '',
-    phone ? 'If asked, say you are the hotel’s virtual assistant. When the caller is done, say goodbye and end the call.' : '',
+    phone ? 'If someone describes an emergency, tell them to call the local emergency number straight away.' : '',
+    whatsapp ? 'If asked, say you are the hotel’s virtual assistant.' : phone ? 'If asked, say you are the hotel’s virtual assistant. When the caller is done, say goodbye and end the call.' : '',
   ]
     .filter(Boolean)
     .join('\n');
-  const caller = phone && (phone.callerNumber ? `the number they are calling from (${phone.callerNumber}) unless they give another` : 'a number or email they give you — their caller ID is withheld');
+  const caller =
+    phone &&
+    (whatsapp
+      ? phone.callerNumber
+        ? `the WhatsApp number they are using (${phone.callerNumber}) unless they give another`
+        : 'a number or email they give you'
+      : phone.callerNumber
+        ? `the number they are calling from (${phone.callerNumber}) unless they give another`
+        : 'a number or email they give you — their caller ID is withheld');
   const backendInstructions = [
     `You handle tasks for the voice front desk of ${p.name}. Today is ${p.today} (${p.timezone}). Resolve relative dates ("this Friday", "next weekend") against today.`,
     'Rules:',
     '- Facts come only from tools. Never invent prices, availability, amenities or policies.',
     '- Quote exact prices from check_availability. If nothing fits, say so and suggest other dates or a message to the team.',
     phone
-      ? '- To book: once the caller picks a room from check_availability, get their full name and an email for the booking link, then call request_booking. Tell them the team will confirm and send a link to finish booking — it isn’t booked until then.'
+      ? '- To book: once the guest picks a room from check_availability, get their full name and an email for the booking link, then call request_booking. Tell them the team will confirm and send a link to finish booking — it isn’t booked until then.'
       : '- To book, call start_booking with the chosen room type; tell the guest the checkout has opened on their screen.',
     '- Existing bookings: find_booking needs the confirmation code and last name. Guests can change dates or cancel free until 3 PM the day before arrival on their booking page.',
     '- Anything you cannot do (group rates, complaints, special arrangements): leave_message with their name and callback details.',
     caller ? `- Callback details: use ${caller}.` : '',
-    '- Reply with one or two short sentences for the voice to say.',
+    whatsapp ? '- Reply with one or two short sentences.' : '- Reply with one or two short sentences for the voice to say.',
     p.houseRules ? `House rules from the hotel:\n${p.houseRules}` : '',
   ]
     .filter(Boolean)

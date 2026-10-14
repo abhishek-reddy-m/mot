@@ -17,10 +17,11 @@ export const GET = handleRoute(async (request: NextRequest) => {
   const q = parseQuery(request, z.object({ propertyId: z.string().optional() }));
   const propertyId = await resolvePropertyId(actor, q.propertyId);
   const since = new Date(Date.now() - 7 * 86400_000);
-  const [config, sessions, phoneCalls, openRequests, recentSessions, phoneLine] = await Promise.all([
+  const [config, sessions, phoneCalls, whatsAppChats, openRequests, recentSessions, phoneLine] = await Promise.all([
     prisma.voiceAgentConfig.findUnique({ where: { propertyId } }),
     prisma.voiceSession.groupBy({ by: ['audience'], where: { propertyId, startedAt: { gte: since } }, _count: { _all: true }, _sum: { toolCalls: true } }),
     prisma.voiceSession.count({ where: { propertyId, channel: 'PHONE', startedAt: { gte: since } } }),
+    prisma.voiceSession.count({ where: { propertyId, channel: 'WHATSAPP', startedAt: { gte: since } } }),
     prisma.guestRequest.count({ where: { propertyId, status: 'NEW' } }),
     prisma.voiceSession.findMany({ where: { propertyId }, orderBy: { startedAt: 'desc' }, take: 8, select: { id: true, audience: true, startedAt: true, endedAt: true, toolCalls: true } }),
     prisma.voicePhoneLine.findUnique({ where: { propertyId }, select: { enabled: true } }),
@@ -37,6 +38,7 @@ export const GET = handleRoute(async (request: NextRequest) => {
     stats: {
       guestCalls: sessions.find((s) => s.audience === 'GUEST')?._count._all ?? 0,
       phoneCalls,
+      whatsAppChats,
       staffSessions: sessions.find((s) => s.audience === 'STAFF')?._count._all ?? 0,
       toolCalls: sessions.reduce((s, r) => s + (r._sum.toolCalls ?? 0), 0),
       recentMinutes: Math.round(minutes),

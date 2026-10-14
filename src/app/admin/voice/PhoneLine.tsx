@@ -30,6 +30,7 @@ interface PhoneOverview {
 }
 
 const code = 'rounded bg-muted px-1 font-mono text-xs';
+const PROVIDERS: Record<string, string> = { twilio: 'Twilio', sip_trunk: 'SIP trunk', exotel: 'Exotel', whatsapp: 'WhatsApp' };
 
 function Notice({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -151,7 +152,7 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
               <p className="text-sm font-semibold">Phone line</p>
               {badge}
             </div>
-            <p className="mt-1 text-xs text-muted-foreground">Calls to these numbers are answered by your voice front desk.</p>
+            <p className="mt-1 text-xs text-muted-foreground">Calls — and WhatsApp messages — to these numbers are answered by your voice front desk.</p>
           </div>
           <Button variant="outline" size="sm" onClick={() => void mutate()} disabled={isValidating}>
             <RefreshCw className={isValidating ? 'h-4 w-4 animate-spin' : 'h-4 w-4'} /> Refresh
@@ -171,7 +172,7 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
                   <Phone className="h-4 w-4 text-muted-foreground" />
                   <span className="font-medium tabular-nums">{n.phoneNumber}</span>
                   <span className="truncate text-xs text-muted-foreground">
-                    {[n.label, n.provider === 'sip_trunk' ? 'SIP trunk' : n.provider[0].toUpperCase() + n.provider.slice(1)].filter(Boolean).join(' · ')}
+                    {[n.label, PROVIDERS[n.provider] ?? n.provider].filter(Boolean).join(' · ')}
                   </span>
                 </li>
               ))}
@@ -236,7 +237,15 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
                   </>
                 ),
               },
-              { title: 'Test it', body: <>Press Refresh — the number shows above once it points at this hotel’s agent. Then call your hotel number and let it ring through.</> },
+              {
+                title: 'WhatsApp too (optional)',
+                body: (
+                  <>
+                    In ElevenLabs open <strong>Agents → WhatsApp → Import account</strong>, sign in with the hotel’s Meta business account and assign the same agent. The assistant then answers WhatsApp messages (and WhatsApp calls, once calling is on in WhatsApp Manager). The number can’t also be in use in the WhatsApp Business app — the assistant’s own number is the easy choice; the team keeps the app on the hotel’s number.
+                  </>
+                ),
+              },
+              { title: 'Test it', body: <>Press Refresh — numbers show above once they point at this hotel’s agent. Then call your hotel number and let it ring through, or send the WhatsApp number a message.</> },
             ].map((s, i) => (
               <li key={s.title} className="flex gap-3">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{i + 1}</span>

@@ -25,7 +25,7 @@ export const POST = handleRoute(async (request: NextRequest) => {
   const body = await parseJson(request, schema);
   const t = verifyVoiceToken(body.token);
   if (t.aud !== 'GUEST') throw forbidden('Staff voice tools run through the console agent.');
-  if (t.ch === 'PHONE') throw forbidden('Phone calls run their tools through the phone line.');
+  if (t.ch) throw forbidden('Phone calls and WhatsApp run their tools through the phone line.');
   let args: unknown;
   try {
     args = JSON.parse(body.arguments || '{}');

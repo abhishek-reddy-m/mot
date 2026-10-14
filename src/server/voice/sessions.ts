@@ -46,9 +46,10 @@ async function reserve<T>(data: Prisma.VoiceSessionUncheckedCreateInput, limits:
   const release = () => prisma.voiceSession.delete({ where: { id: row.id } }).catch(() => undefined);
   // Plus one budget across every hotel and audience: a ceiling on the provider bill.
   // Phone calls have their own, so traffic on the booking pages can't silence hotels' phones.
-  const phone = data.channel === 'PHONE';
+  const channel = data.channel ?? 'WEB';
+  const phone = channel !== 'WEB'; // phone calls and WhatsApp
   const global: Limit = {
-    where: { channel: phone ? 'PHONE' : 'WEB', startedAt: since(60 * MINUTE) },
+    where: { channel, startedAt: since(60 * MINUTE) },
     max: Number((phone ? process.env.VOICE_PHONE_MAX_CALLS_PER_HOUR : process.env.VOICE_MAX_SESSIONS_PER_HOUR) || 300),
     message: 'The voice line is very busy right now — please try again shortly.',
   };
@@ -133,12 +134,12 @@ export async function openVoiceSession<T>(
  * one bucket per hotel) and per hotel. Web and phone have separate hotel
  * budgets, so anonymous traffic on the booking page can't silence the phone.
  */
-function guestLimits(propertyId: string, channel: 'WEB' | 'PHONE', clientKey: string, perCaller = 6): Limit[] {
+function guestLimits(propertyId: string, channel: 'WEB' | 'PHONE' | 'WHATSAPP', clientKey: string, perCaller = 6): Limit[] {
   return [
     { where: { clientKey, startedAt: since(10 * MINUTE) }, max: perCaller, message: 'Too many calls in a short time — please try again in a few minutes.' },
     {
       where: { propertyId, audience: 'GUEST', channel, startedAt: since(60 * MINUTE) },
-      max: Number((channel === 'PHONE' ? process.env.VOICE_PHONE_MAX_CALLS_PER_HOTEL_HOUR : null) || 120),
+      max: Number((channel !== 'WEB' ? process.env.VOICE_PHONE_MAX_CALLS_PER_HOTEL_HOUR : null) || 120),
       message: 'Our voice line is very busy — please try again shortly or call the hotel.',
     },
   ];
@@ -152,13 +153,20 @@ function phoneGreeting(greeting: string | null | undefined, hotel: string): stri
 }
 
 /**
- * A call to a hotel's phone line (the provider asked us how to answer it).
- * Same checks and limits as the booking page, with the phone prompt and
- * tools; the token goes back to the provider, which sends it on every tool
- * call. Throws DomainError (VOICE_OFF, RATE_LIMITED, NOT_FOUND) when the
- * call shouldn't be taken.
+ * A call to a hotel's phone line, or a WhatsApp chat or call to the number
+ * on its agent (the provider asked us how to answer it). Same checks and
+ * limits as the booking page, with the phone prompt and tools; the token goes
+ * back to the provider, which sends it on every tool call. Throws DomainError
+ * (VOICE_OFF, RATE_LIMITED, NOT_FOUND) when it shouldn't be taken.
  */
-export async function openPhoneSession(input: { propertyId: string; callerNumber: string | null; externalId: string | null }): Promise<{ token: string; ctx: VoiceSessionContext }> {
+export async function openPhoneSession(input: {
+  propertyId: string;
+  callerNumber: string | null;
+  externalId: string | null;
+  whatsapp?: boolean;
+}): Promise<{ token: string; ctx: VoiceSessionContext }> {
+  const whatsapp = !!input.whatsapp;
+  const channel = whatsapp ? 'WHATSAPP' : 'PHONE';
   const property = await prisma.property.findFirst({
     where: { id: input.propertyId, isActive: true },
     select: { id: true, name: true, voiceAgent: true, phoneLine: true },
@@ -175,20 +183,22 @@ export async function openPhoneSession(input: { propertyId: string; callerNumber
       name: property.name,
       greeting: cfg?.greeting,
       houseRules: cfg?.instructions,
-      phone: { callerNumber: input.callerNumber, canTransfer: !!line.transferNumber },
+      phone: { callerNumber: input.callerNumber, canTransfer: !!line.transferNumber && !whatsapp, whatsapp },
       ...guestContext(),
     }),
-    firstMessage: phoneGreeting(cfg?.greeting, property.name),
+    // The hotel's greeting is written for calls ("Thanks for calling…"); WhatsApp gets a neutral one.
+    firstMessage: whatsapp ? `Hi! This is ${property.name}’s virtual assistant — how can I help?` : phoneGreeting(cfg?.greeting, property.name),
     tools: PHONE_TOOLS,
   };
   // Withheld numbers share one per-hotel bucket (a little roomier than one caller's).
   const caller = input.callerNumber ?? 'withheld';
-  const clientKey = createHash('sha256').update(`phone:${caller}|${property.id}`).digest('hex').slice(0, 32);
+  const clientKey = createHash('sha256').update(`${channel.toLowerCase()}:${caller}|${property.id}`).digest('hex').slice(0, 32);
   const session = await reserve(
-    { propertyId: property.id, audience: 'GUEST', channel: 'PHONE', clientKey, callerNumber: input.callerNumber },
-    guestLimits(property.id, 'PHONE', clientKey, input.callerNumber ? 6 : 12),
+    { propertyId: property.id, audience: 'GUEST', channel, clientKey, callerNumber: input.callerNumber },
+    // A chat may be picked up again and again; calls are rarer.
+    guestLimits(property.id, channel, clientKey, whatsapp ? 20 : input.callerNumber ? 6 : 12),
     async () => ({ externalId: input.externalId, result: null }),
   );
-  // Outlives the longest call (10 minutes) with room to spare.
-  return { ctx, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null, ch: 'PHONE' }, 20 * MINUTE) };
+  // Calls last 10 minutes at most; a WhatsApp chat can go on through the day.
+  return { ctx, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null, ch: channel }, whatsapp ? 24 * 60 * MINUTE : 20 * MINUTE) };
 }

@@ -35,13 +35,17 @@ export async function propertyFacts(propertyId: string) {
   };
 }
 
-/** Where a guest conversation is happening: the booking page, or the hotel's phone line (with the caller ID, if any). */
-export type GuestChannel = { kind: 'WEB' } | { kind: 'PHONE'; callerNumber: string | null };
+/**
+ * Where a guest conversation is happening: the booking page, or the hotel's
+ * phone line or WhatsApp (`via`), with the caller's number if known.
+ */
+export type GuestChannel = { kind: 'WEB' } | { kind: 'PHONE'; callerNumber: string | null; via?: 'PHONE' | 'WHATSAPP' };
 
 const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
 
 export async function runGuestTool(propertyId: string, name: string, rawArgs: unknown, channel: GuestChannel = { kind: 'WEB' }): Promise<unknown> {
   const phone = channel.kind === 'PHONE';
+  const source = channel.kind === 'PHONE' ? (channel.via ?? 'PHONE') : 'VOICE';
   switch (name) {
     case 'get_property_info':
       return propertyFacts(propertyId);
@@ -133,14 +137,14 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
       const q = new URLSearchParams({ roomTypeId: rt.id, checkIn: a.check_in, checkOut: a.check_out, guests: String(a.guests), rooms: String(a.rooms) });
       const link = `${publicSiteUrl() ?? ''}/properties/${propertyId}/book?${q}`;
       const message = [
-        `Phone booking request: ${rt.name}, ${formatDay(a.check_in, 'weekday')} to ${formatDay(a.check_out, 'weekday')} (${nights} night${nights > 1 ? 's' : ''}), ${a.guests} guest${a.guests > 1 ? 's' : ''}${a.rooms > 1 ? `, ${a.rooms} rooms` : ''}.`,
+        `${source === 'WHATSAPP' ? 'WhatsApp' : 'Phone'} booking request: ${rt.name}, ${formatDay(a.check_in, 'weekday')} to ${formatDay(a.check_out, 'weekday')} (${nights} night${nights > 1 ? 's' : ''}), ${a.guests} guest${a.guests > 1 ? 's' : ''}${a.rooms > 1 ? `, ${a.rooms} rooms` : ''}.`,
         total !== null ? `Quoted total: $${total.toFixed(2)}.` : '',
         a.notes ? `Notes: ${a.notes}` : '',
         `Confirm with the guest, then send them this link to finish booking: ${link}`,
       ]
         .filter(Boolean)
         .join(' ');
-      const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: callback || null, email: a.email || null, message, source: 'PHONE' } });
+      const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: callback || null, email: a.email || null, message, source } });
       return {
         saved: true,
         reference: r.id.slice(-6).toUpperCase(),
@@ -154,7 +158,7 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
       // On the phone, the caller ID is the callback number unless they gave another.
       const callback = a.phone || (phone ? channel.callerNumber : null);
       if (!callback && !a.email) return { error: 'Ask for a phone number or email so the team can reply.' };
-      const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: callback || null, email: a.email || null, message: a.message, ...(phone ? { source: 'PHONE' } : {}) } });
+      const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: callback || null, email: a.email || null, message: a.message, source } });
       return { saved: true, reference: r.id.slice(-6).toUpperCase(), say: 'I’ve passed that to the team — they’ll get back to you.' };
     }
 

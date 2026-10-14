@@ -59,7 +59,7 @@ class ElevenLabsError extends Error {
   }
 }
 
-async function call<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown): Promise<T> {
+async function call<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: unknown, timeoutMs = 30_000): Promise<T> {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) throw new DomainError(503, 'VOICE_DISABLED', 'The voice agent isn’t connected yet — add ELEVENLABS_API_KEY to turn it on.');
   let res: Response;
@@ -68,7 +68,7 @@ async function call<T>(method: 'GET' | 'POST' | 'PATCH', path: string, body?: un
       method,
       headers: { 'xi-api-key': key, ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}) },
       body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: AbortSignal.timeout(30_000),
+      signal: AbortSignal.timeout(timeoutMs),
       cache: 'no-store',
     });
   } catch {
@@ -420,6 +420,45 @@ async function syncPhoneAgent(propertyId: string): Promise<string> {
   });
 }
 
+// --- WhatsApp -------------------------------------------------------------------
+// A hotel's phone agent can also be assigned to a WhatsApp number in ElevenLabs
+// (Agents → WhatsApp). The same initiation webhook fires for WhatsApp chats and
+// calls, with the guest's WhatsApp number as caller_id and the business's Meta
+// phone-number ID (digits, no "+") as called_number.
+
+interface WhatsAppAccount {
+  phone_number_id?: string;
+  phone_number?: string;
+  phone_number_name?: string | null;
+  assigned_agent_id?: string | null;
+}
+
+let whatsAppCache: { at: number; accounts: WhatsAppAccount[] } | null = null;
+
+async function whatsAppAccounts(maxAgeMs: number): Promise<WhatsAppAccount[]> {
+  if (whatsAppCache && Date.now() - whatsAppCache.at < maxAgeMs) return whatsAppCache.accounts;
+  // Short timeout: this can run while a guest waits for the first reply.
+  const res = await call<{ items?: WhatsAppAccount[] }>('GET', '/v1/convai/whatsapp-accounts', undefined, 3_000);
+  whatsAppCache = { at: Date.now(), accounts: res.items ?? [] };
+  return whatsAppCache.accounts;
+}
+
+/**
+ * Is this incoming conversation a WhatsApp chat or call? Phone calls carry a
+ * call SID or a "+" number; WhatsApp sends the business's phone-number ID.
+ * Confirmed against the account's WhatsApp numbers when they can be read.
+ */
+export async function isWhatsAppConversation(calledNumber: string | null | undefined, callSid: string | null | undefined): Promise<boolean> {
+  const id = (calledNumber ?? '').trim();
+  if (callSid || !/^\d{6,}$/.test(id)) return false;
+  try {
+    const known = (accounts: WhatsAppAccount[]) => accounts.some((a) => a.phone_number_id === id);
+    return known(await whatsAppAccounts(5 * 60_000)) || known(await whatsAppAccounts(0));
+  } catch {
+    return true; // can't check: digits and no call SID is WhatsApp's shape
+  }
+}
+
 /** Which hotel a phone agent answers for (only agents this deployment created). */
 export async function phonePropertyForAgent(agentId: string): Promise<string | null> {
   if (!agentId) return null;
@@ -456,6 +495,11 @@ export async function phoneLineStatus(propertyId: string): Promise<{ agentId: st
     const numbers = all
       .filter((n) => n.assigned_agent?.agent_id === agentId && n.phone_number)
       .map((n) => ({ phoneNumber: n.phone_number!, label: n.label ?? null, provider: n.provider ?? 'phone' }));
+    // WhatsApp numbers answered by the same agent (a key without WhatsApp access just shows none).
+    const whatsApp = await whatsAppAccounts(0).catch(() => [] as WhatsAppAccount[]);
+    for (const w of whatsApp) {
+      if (w.assigned_agent_id === agentId && w.phone_number) numbers.push({ phoneNumber: w.phone_number, label: w.phone_number_name ?? null, provider: 'whatsapp' });
+    }
     return { agentId, agentName: agent.name ?? phoneAgentConfig(await phoneAgentInput(propertyId), []).name, numbers };
   } catch (e) {
     if (e instanceof DomainError) throw e;

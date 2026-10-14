@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { callerNumber } from '@/lib/phone';
 import { DomainError } from '@/server/errors';
-import { PHONE_SESSION_VARIABLE, PHONE_WEBHOOK_HEADER, phonePropertyForAgent, singleModelPrompt, verifyPhoneWebhook } from '@/server/voice/elevenlabs';
+import { PHONE_SESSION_VARIABLE, PHONE_WEBHOOK_HEADER, isWhatsAppConversation, phonePropertyForAgent, singleModelPrompt, verifyPhoneWebhook } from '@/server/voice/elevenlabs';
 import { openPhoneSession } from '@/server/voice/sessions';
 
 export const dynamic = 'force-dynamic';
@@ -28,16 +28,16 @@ function decline(e: unknown) {
   const code = e instanceof DomainError ? e.code : null;
   const line =
     code === 'RATE_LIMITED'
-      ? 'Thanks for calling — our lines are very busy right now. Please try again in a few minutes.'
+      ? 'Thanks for getting in touch — we’re very busy right now. Please try again in a few minutes.'
       : code === 'VOICE_OFF' || code === 'NOT_FOUND'
-        ? 'Thanks for calling. Our virtual assistant isn’t taking calls on this line right now — please try again later.'
-        : 'Thanks for calling. I’m sorry — we’re having trouble right now. Please try again in a few minutes.';
-  return answer('', 'You have already told the caller you can’t help on this call. Say a brief goodbye and end the call. Do not offer anything else.', line);
+        ? 'Thanks for getting in touch. Our virtual assistant isn’t available on this line right now — please try again later.'
+        : 'Thanks for getting in touch. I’m sorry — we’re having trouble right now. Please try again in a few minutes.';
+  return answer('', 'You have already told the guest you can’t help right now. Say a brief goodbye and end the conversation. Do not offer anything else.', line);
 }
 
 /**
  * POST /api/voice/phone/start — ElevenLabs' conversation-initiation webhook
- * for inbound calls to a hotel's phone agent. Authenticated by the derived
+ * for inbound calls (and WhatsApp chats or calls) to a hotel's phone agent. Authenticated by the derived
  * header secret; answers with the hotel's prompt and a signed session token.
  */
 export async function POST(request: NextRequest) {
@@ -47,12 +47,15 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return decline(null);
   const call = parsed.data;
   try {
-    const propertyId = await phonePropertyForAgent(call.agent_id);
+    const [propertyId, whatsapp] = await Promise.all([phonePropertyForAgent(call.agent_id), isWhatsAppConversation(call.called_number, call.call_sid)]);
     if (!propertyId) throw new DomainError(404, 'NOT_FOUND', 'No hotel answers on this agent.');
+    // WhatsApp IDs are the guest's number without the "+".
+    const caller = callerNumber(call.caller_id);
     const { token, ctx } = await openPhoneSession({
       propertyId,
-      callerNumber: callerNumber(call.caller_id),
+      callerNumber: whatsapp && caller && !caller.startsWith('+') ? `+${caller}` : caller,
       externalId: call.conversation_id || call.call_sid || null,
+      whatsapp,
     });
     return answer(token, singleModelPrompt(ctx.prompts), ctx.firstMessage);
   } catch (e) {
