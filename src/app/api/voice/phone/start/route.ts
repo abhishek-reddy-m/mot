@@ -3,7 +3,6 @@ import { z } from 'zod';
 import { callerNumber } from '@/lib/phone';
 import { DomainError } from '@/server/errors';
 import { PHONE_SESSION_VARIABLE, PHONE_WEBHOOK_HEADER, phonePropertyForAgent, singleModelPrompt, verifyPhoneWebhook } from '@/server/voice/elevenlabs';
-import { voiceProvider } from '@/server/voice/provider';
 import { openPhoneSession } from '@/server/voice/sessions';
 
 export const dynamic = 'force-dynamic';
@@ -42,9 +41,8 @@ function decline(e: unknown) {
  * header secret; answers with the hotel's prompt and a signed session token.
  */
 export async function POST(request: NextRequest) {
-  if (voiceProvider() !== 'elevenlabs' || !verifyPhoneWebhook(request.headers.get(PHONE_WEBHOOK_HEADER))) {
-    return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
-  }
+  // Phone lines run on ElevenLabs whichever provider serves the booking page (the check needs its key).
+  if (!verifyPhoneWebhook(request.headers.get(PHONE_WEBHOOK_HEADER))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
   const parsed = body.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return decline(null);
   const call = parsed.data;

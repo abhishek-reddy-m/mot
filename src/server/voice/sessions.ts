@@ -45,7 +45,13 @@ async function reserve<T>(data: Prisma.VoiceSessionUncheckedCreateInput, limits:
   const row = await prisma.voiceSession.create({ data });
   const release = () => prisma.voiceSession.delete({ where: { id: row.id } }).catch(() => undefined);
   // Plus one budget across every hotel and audience: a ceiling on the provider bill.
-  const global: Limit = { where: { startedAt: since(60 * MINUTE) }, max: Number(process.env.VOICE_MAX_SESSIONS_PER_HOUR || 300), message: 'The voice line is very busy right now — please try again shortly.' };
+  // Phone calls have their own, so traffic on the booking pages can't silence hotels' phones.
+  const phone = data.channel === 'PHONE';
+  const global: Limit = {
+    where: { channel: phone ? 'PHONE' : 'WEB', startedAt: since(60 * MINUTE) },
+    max: Number((phone ? process.env.VOICE_PHONE_MAX_CALLS_PER_HOUR : process.env.VOICE_MAX_SESSIONS_PER_HOUR) || 300),
+    message: 'The voice line is very busy right now — please try again shortly.',
+  };
   for (const limit of [...limits, global]) {
     if ((await prisma.voiceSession.count({ where: limit.where })) > limit.max) {
       await release();
@@ -112,7 +118,7 @@ export async function openVoiceSession<T>(
     firstMessage: cfg?.greeting?.trim() || `Hi, thanks for calling ${property.name}. How can I help?`,
     tools: GUEST_TOOLS,
   };
-  const session = await reserve({ propertyId: property.id, audience: 'GUEST', clientKey }, guestLimits(property.id, clientKey), () => start(ctx)).catch(async (e) => {
+  const session = await reserve({ propertyId: property.id, audience: 'GUEST', clientKey }, guestLimits(property.id, 'WEB', clientKey), () => start(ctx)).catch(async (e) => {
     // The provider's reason is for the hotel's team (e.g. a test call from the console), not for guests.
     if (!(e instanceof DomainError) || e.code !== 'VOICE_UPSTREAM') throw e;
     const viewer = await getActor().catch(() => null);
@@ -122,12 +128,27 @@ export async function openVoiceSession<T>(
   return { result: session.result, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null }) };
 }
 
-/** Per caller (a browser's IP, or a phone's caller ID) and per hotel; phone and web share the hotel's budget. */
-function guestLimits(propertyId: string, clientKey: string | null): Limit[] {
+/**
+ * Per caller (a browser's IP, or a phone's caller ID — withheld numbers share
+ * one bucket per hotel) and per hotel. Web and phone have separate hotel
+ * budgets, so anonymous traffic on the booking page can't silence the phone.
+ */
+function guestLimits(propertyId: string, channel: 'WEB' | 'PHONE', clientKey: string, perCaller = 6): Limit[] {
   return [
-    ...(clientKey ? [{ where: { clientKey, startedAt: since(10 * MINUTE) }, max: 6, message: 'Too many calls in a short time — please try again in a few minutes.' }] : []),
-    { where: { propertyId, audience: 'GUEST', startedAt: since(60 * MINUTE) }, max: 120, message: 'Our voice line is very busy — please try again shortly or call the hotel.' },
+    { where: { clientKey, startedAt: since(10 * MINUTE) }, max: perCaller, message: 'Too many calls in a short time — please try again in a few minutes.' },
+    {
+      where: { propertyId, audience: 'GUEST', channel, startedAt: since(60 * MINUTE) },
+      max: Number((channel === 'PHONE' ? process.env.VOICE_PHONE_MAX_CALLS_PER_HOTEL_HOUR : null) || 120),
+      message: 'Our voice line is very busy — please try again shortly or call the hotel.',
+    },
   ];
+}
+
+/** Callers are always told they're talking to a virtual assistant, whatever greeting the hotel set. */
+function phoneGreeting(greeting: string | null | undefined, hotel: string): string {
+  const g = greeting?.trim();
+  if (!g) return `Thanks for calling ${hotel} — this is the hotel’s virtual assistant. How can I help?`;
+  return /virtual assistant|\bAI\b|automated/i.test(g) ? g : `${g} Just so you know, I’m the hotel’s virtual assistant.`;
 }
 
 /**
@@ -154,18 +175,18 @@ export async function openPhoneSession(input: { propertyId: string; callerNumber
       name: property.name,
       greeting: cfg?.greeting,
       houseRules: cfg?.instructions,
-      handoffPhone: cfg?.handoffPhone,
       phone: { callerNumber: input.callerNumber, canTransfer: !!line.transferNumber },
       ...guestContext(),
     }),
-    firstMessage: cfg?.greeting?.trim() || `Thanks for calling ${property.name} — this is the hotel’s virtual assistant. How can I help?`,
+    firstMessage: phoneGreeting(cfg?.greeting, property.name),
     tools: PHONE_TOOLS,
   };
-  // Withheld numbers share no per-caller budget; the hotel's hourly limit still applies.
-  const clientKey = input.callerNumber ? createHash('sha256').update(`phone:${input.callerNumber}|${property.id}`).digest('hex').slice(0, 32) : null;
+  // Withheld numbers share one per-hotel bucket (a little roomier than one caller's).
+  const caller = input.callerNumber ?? 'withheld';
+  const clientKey = createHash('sha256').update(`phone:${caller}|${property.id}`).digest('hex').slice(0, 32);
   const session = await reserve(
     { propertyId: property.id, audience: 'GUEST', channel: 'PHONE', clientKey, callerNumber: input.callerNumber },
-    guestLimits(property.id, clientKey),
+    guestLimits(property.id, 'PHONE', clientKey, input.callerNumber ? 6 : 12),
     async () => ({ externalId: input.externalId, result: null }),
   );
   // Outlives the longest call (10 minutes) with room to spare.

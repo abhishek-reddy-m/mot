@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { HOTEL_TIMEZONE, diffDays, formatDay, hotelToday, isISODate, toISODate } from '../dates';
 import { DomainError, badRequest } from '../errors';
+import { publicSiteUrl } from '../public-url';
 import { propertyAvailability } from '../services/inventory';
 import { policyFor } from '../services/guest';
 
@@ -121,17 +122,21 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
       if (a.check_in < today) return { error: `Check-in can’t be in the past — today is ${formatDay(today, 'weekday')}.` };
       if (a.check_out <= a.check_in) return { error: 'Check-out must be after check-in.' };
       if (diffDays(a.check_in, a.check_out) > 30) return { error: 'Stays over 30 nights go through the team — take a message instead.' };
-      const rt = await prisma.roomType.findFirst({ where: { id: a.room_type_id, propertyId, isActive: true }, select: { id: true, name: true } });
+      const rt = await prisma.roomType.findFirst({ where: { id: a.room_type_id, propertyId, isActive: true }, select: { id: true, name: true, capacity: true } });
       if (!rt) return { error: 'That room type isn’t available here — check availability again.' };
+      if (a.guests > rt.capacity * a.rooms) return { error: `The ${rt.name} sleeps up to ${rt.capacity} per room — add a room or choose a larger room.` };
       const option = (await propertyAvailability({ propertyId, checkIn: a.check_in, checkOut: a.check_out, guests: a.guests, rooms: a.rooms })).find((t) => t.id === rt.id);
       if (!option || option.available < a.rooms) return { error: `The ${rt.name} is no longer free for those dates — check availability again.` };
       const nights = diffDays(a.check_in, a.check_out);
       const total = option.quote?.total ?? null;
+      // The same pre-filled checkout the booking page opens: staff send it to the guest to finish online.
+      const q = new URLSearchParams({ roomTypeId: rt.id, checkIn: a.check_in, checkOut: a.check_out, guests: String(a.guests), rooms: String(a.rooms) });
+      const link = `${publicSiteUrl() ?? ''}/properties/${propertyId}/book?${q}`;
       const message = [
         `Phone booking request: ${rt.name}, ${formatDay(a.check_in, 'weekday')} to ${formatDay(a.check_out, 'weekday')} (${nights} night${nights > 1 ? 's' : ''}), ${a.guests} guest${a.guests > 1 ? 's' : ''}${a.rooms > 1 ? `, ${a.rooms} rooms` : ''}.`,
-        total !== null ? `Quoted total: $${total}.` : '',
+        total !== null ? `Quoted total: $${total.toFixed(2)}.` : '',
         a.notes ? `Notes: ${a.notes}` : '',
-        'Confirm with the guest and send a secure payment link.',
+        `Confirm with the guest, then send them this link to finish booking: ${link}`,
       ]
         .filter(Boolean)
         .join(' ');
@@ -140,7 +145,7 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
         saved: true,
         reference: r.id.slice(-6).toUpperCase(),
         quoted_total: total,
-        say: `I’ve sent your request to the team — they’ll confirm and send ${a.email ? 'a secure payment link by email' : 'you a secure payment link'}. It isn’t booked until then.`,
+        say: `I’ve sent your request to the team — they’ll confirm and send you a link to finish booking${a.email ? ' by email' : ''}. It isn’t booked until then.`,
       };
     }
 

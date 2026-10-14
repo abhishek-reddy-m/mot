@@ -15,13 +15,16 @@ import { Skeleton } from '@/components/ui/primitives';
 import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider';
 
 interface PhoneOverview {
-  provider: 'openai' | 'elevenlabs';
   ready: boolean;
   canManage: boolean;
   /** Why this hotel's line can't be changed here (public demo hotels). */
   locked: string | null;
+  /** The hotel's master voice switch (Settings). */
+  voiceOn: boolean;
   line: { enabled: boolean; transferNumber: string | null } | null;
   urlIssue: string | null;
+  /** Live status was fetched (managers only). */
+  checked: boolean;
   status: { agentId: string; agentName: string; numbers: { phoneNumber: string; label: string | null; provider: string }[] } | null;
   statusError: string | null;
 }
@@ -114,13 +117,16 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
 
   const numbers = data.status?.numbers ?? [];
   const agentName = data.status?.agentName ?? `StayOS — ${property?.name ?? 'your hotel'} phone`;
+  const agentId = data.status?.agentId;
   const target = numbers[0]?.phoneNumber ?? '<new number>';
-  const badge = !data.line.enabled ? (
+  const badge = !data.line.enabled || !data.voiceOn ? (
     <Badge variant="neutral">Paused</Badge>
   ) : data.statusError || data.urlIssue ? (
     <Badge variant="danger" dot>
       Needs attention
     </Badge>
+  ) : !data.checked ? (
+    <Badge variant="neutral">On</Badge>
   ) : !data.status ? (
     <Badge variant="neutral">Checking…</Badge>
   ) : numbers.length ? (
@@ -153,8 +159,10 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
         </div>
 
         {data.statusError && <p className="mt-4 text-sm text-destructive">{data.statusError}</p>}
+        {!data.voiceOn && <p className="mt-4 text-sm text-muted-foreground">The voice front desk is switched off in Settings, so callers hear a short “not available” message.</p>}
+        {!data.checked && !data.urlIssue && <p className="mt-4 text-sm text-muted-foreground">A manager or the owner can see which numbers ring this line.</p>}
 
-        {data.line.enabled && data.status && (
+        {data.status && (
           <>
             <ul className="mt-4 space-y-2">
               {numbers.length === 0 && <li className="rounded-xl border border-dashed px-4 py-4 text-sm text-muted-foreground">No number rings this hotel yet — follow the steps below.</li>}
@@ -192,7 +200,7 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
         )}
       </Card>
 
-      {data.line.enabled && (
+      {data.checked && data.line.enabled && (
         <Card className="p-5 sm:p-6">
           <p className="text-sm font-semibold">{numbers.length ? 'How calls reach the assistant' : 'Connect your number'}</p>
           <ol className="mt-4 space-y-4 text-sm">
@@ -201,7 +209,7 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
                 title: 'Get a number for the assistant',
                 body: (
                   <>
-                    Most countries: buy a local number at Twilio (about $1.15 a month in the US). India: an Exotel number. Hotel phone system with SIP: your provider’s SIP trunk.
+                    Most countries: a local number from Twilio (about $1.15 a month in the US). India: an Indian provider such as Exotel — ask ElevenLabs about India data residency first. A hotel phone system with SIP: your provider’s SIP trunk.
                   </>
                 ),
               },
@@ -209,7 +217,14 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
                 title: 'Point it at this hotel in ElevenLabs',
                 body: (
                   <>
-                    In ElevenLabs open <strong>Agents → Phone numbers → Import number</strong> and pick the agent <strong>{agentName}</strong>. Already imported? Open the number and switch its agent.
+                    Whoever runs your StayOS ElevenLabs account imports the number under <strong>Agents → Phone numbers → Import number</strong> and picks the agent <strong>{agentName}</strong>
+                    {agentId ? (
+                      <>
+                        {' '}
+                        — check its ID is <code className={code}>{agentId}</code>
+                      </>
+                    ) : null}
+                    . Already imported? Open the number and switch its agent. Hotel owners don’t need access to that account — send them the number and this ID.
                   </>
                 ),
               },
@@ -217,12 +232,11 @@ export function PhoneLine({ onChanged }: { onChanged?: () => void }) {
                 title: 'Keep your hotel number — forward to it',
                 body: (
                   <>
-                    Dial from the hotel phone. Mobile: <code className={code}>{`**61*${target}*11*20#`}</code> forwards calls nobody answers in 20 seconds,{' '}
-                    <code className={code}>{`**67*${target}#`}</code> when busy (<code className={code}>##002#</code> undoes it). US landline: <code className={code}>*72</code> then the number forwards every call. A hotel phone system can do the same in its settings.
+                    Dial from the hotel phone. Most mobiles: <code className={code}>{`**61*${target}*11*20#`}</code> forwards calls nobody answers in 20 seconds and <code className={code}>{`**67*${target}#`}</code> calls that come in while you’re busy (<code className={code}>##61#</code> and <code className={code}>##67#</code> undo them — your voicemail may need switching back on). US landlines: <code className={code}>*72</code> then the number forwards every call, <code className={code}>*73</code> stops it. Codes vary by carrier (Verizon uses its own) — your carrier or phone system can set “forward when unanswered” too.
                   </>
                 ),
               },
-              { title: 'Call your hotel number and let it ring through', body: <>Then press Refresh — connected numbers show above.</> },
+              { title: 'Test it', body: <>Press Refresh — the number shows above once it points at this hotel’s agent. Then call your hotel number and let it ring through.</> },
             ].map((s, i) => (
               <li key={s.title} className="flex gap-3">
                 <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">{i + 1}</span>

@@ -31,16 +31,20 @@ The repo deploys as-is: `vercel.json` runs `scripts/vercel-build.mjs`, which
 
 ## Phone line (ElevenLabs)
 
-Answer a hotel's phone with the voice front desk. Production only: preview deployments sit behind Vercel Authentication, which would refuse ElevenLabs' webhooks.
+Answer a hotel's phone with the voice front desk. Production only: preview deployments sit behind Vercel Authentication, which would refuse ElevenLabs' webhooks (the console says so on previews).
 
-1. **Hotel in StayOS** → the hotel's own property (demo hotels can't take a real line in the public demo), with its rooms and rates set up — that's what the voice quotes.
-2. **Turn it on** → Console → *Voice* → *Phone* → **Turn on phone line** (owner or platform admin). StayOS creates the hotel's phone agent in ElevenLabs, named `StayOS — <hotel> phone`.
-3. **A number for the assistant** → most countries: buy a local number at Twilio. India: an Exotel number (Indian rules keep call audio in India). A hotel phone system with SIP: a SIP trunk.
-4. **Point it at the agent** → ElevenLabs → *Agents* → *Phone numbers* → *Import number* (Twilio: Account SID + Auth Token; SIP trunk: the provider's details) → choose the agent `StayOS — <hotel> phone`.
-5. **Keep the hotel's number** → forward calls to the new number: on a mobile, `**61*<number>*11*20#` (no answer after 20 s) and `**67*<number>#` (busy), `##002#` to undo; US landlines `*72<number>` (all calls). Or the phone system's "forward on no answer".
-6. **Test** → call the hotel number and let it ring through; *Voice → Phone → Refresh* lists the connected number.
+1. **Hotel in StayOS** → the hotel's own property with its rooms and rates (that's what the voice quotes). In the public demo, demo hotels and the shared demo logins can't take a real line — sign up through *Get started*.
+2. **Turn it on** → Console → *Voice* → *Phone* → **Turn on phone line** (owner or platform admin). StayOS creates the hotel's phone agent in ElevenLabs, named `StayOS — <hotel> phone · <ref>`; the Phone tab shows its agent ID.
+3. **A number for the assistant** → most countries: a local Twilio number. India: an Indian provider such as Exotel — ask ElevenLabs about India data residency first. A hotel phone system with SIP: a SIP trunk.
+4. **Point it at the agent** (whoever runs the ElevenLabs account — never give hotel owners access to it, it holds every hotel's agents and calls) → ElevenLabs → *Agents* → *Phone numbers* → *Import number* (Twilio: Account SID + Auth Token; SIP trunk: the provider's details) → choose the agent whose ID the hotel's Phone tab shows.
+5. **Keep the hotel's number** → forward calls to the new number. Most mobiles: `**61*<number>*11*20#` (no answer after 20 s) and `**67*<number>#` (busy); `##61#` / `##67#` undo them. US landlines: `*72<number>` forwards everything, `*73` stops. Codes vary by carrier; phone systems have "forward on no answer".
+6. **Test** → *Voice → Phone → Refresh* lists the number once it points at the agent; then call the hotel number and let it ring through.
 
-How it works: ElevenLabs calls `POST /api/voice/phone/start` when a call comes in (StayOS answers with the hotel's prompt, greeting and a signed session token, or a polite "not available" when the line is paused or busy), then `POST /api/voice/phone/tool` for each lookup. Both carry an `X-StayOS-Webhook` header derived from `NEXTAUTH_SECRET` (or `AGENT_PLAN_SECRET`) — rotating that secret means pressing *Refresh* on each line so the agents pick up the new value. Phone calls share the hotel's voice limits (6 per caller per 10 minutes, 120 per hotel per hour), end after 10 minutes or 45 seconds of silence, and phone bookings arrive in *Messages* for the team to confirm with a payment link. If a caller asks for a person, the agent transfers to the hotel's *Put callers through to* number — use a direct line that doesn't forward back to the assistant.
+How it works: ElevenLabs calls `POST /api/voice/phone/start` when a call comes in. StayOS answers with the hotel's prompt and greeting (which always says it's a virtual assistant) and a signed session token — or a polite "not available" when the line is paused, the voice is off in *Settings*, or limits are hit. Then ElevenLabs calls `POST /api/voice/phone/tool` for each lookup. Both carry an `X-StayOS-Webhook` header derived from `AGENT_PLAN_SECRET` (or `NEXTAUTH_SECRET` when that isn't set): after rotating it, press *Refresh* on each hotel's Phone tab so its agent picks up the new value. Rotating `ELEVENLABS_API_KEY` within the same ElevenLabs account keeps every line working; moving to another account needs each number re-pointed.
+
+- **Limits** (in the database, across all instances): 6 calls per caller per 10 minutes (withheld numbers share 12 per hotel), `VOICE_PHONE_MAX_CALLS_PER_HOTEL_HOUR` (default 120) per hotel and `VOICE_PHONE_MAX_CALLS_PER_HOUR` (default 300) across hotels — separate from the booking page's budgets. ElevenLabs' own per-agent caps (`ELEVENLABS_MAX_CONCURRENT`, `ELEVENLABS_MAX_DAILY`) apply per hotel. Calls end after 10 minutes or 45 seconds of silence.
+- **Bookings by phone** arrive in *Messages* with the quote and a **Copy booking link** button: the team confirms with the guest and sends the pre-filled link to finish booking online.
+- **A person**: with *Put callers through to* set, the agent transfers callers who ask for one — use a direct line that doesn't forward back to the assistant. Without it, the agent takes a message.
 
 ## Notes
 

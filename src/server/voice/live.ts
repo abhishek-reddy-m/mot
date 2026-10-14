@@ -235,7 +235,7 @@ const REQUEST_BOOKING: FunctionToolSpec = {
   type: 'function',
   name: 'request_booking',
   description:
-    'Send a phone booking to the hotel team once the caller has chosen a room from check_availability. The team confirms it and sends a secure payment link — the booking is not final until then. Never take card details by phone.',
+    'Send a phone booking to the hotel team once the caller has chosen a room from check_availability. The team confirms it and sends the guest a link to finish booking online — it is not booked until then. Never take card details by phone.',
   parameters: obj(
     {
       room_type_id: { type: 'string', description: 'id from check_availability' },
@@ -244,7 +244,7 @@ const REQUEST_BOOKING: FunctionToolSpec = {
       guests: { type: 'integer', minimum: 1, maximum: 16 },
       rooms: { type: 'integer', minimum: 1, maximum: 9 },
       name: { type: 'string', description: 'Guest’s full name' },
-      email: { type: ['string', 'null'], description: 'Email for the payment link, if the guest gives one' },
+      email: { type: ['string', 'null'], description: 'Email for the booking link, if the guest gives one' },
       phone: { type: ['string', 'null'], description: 'Callback number, only if different from the number they are calling from' },
       notes: { type: ['string', 'null'], description: 'Special requests, if any' },
     },
@@ -319,18 +319,21 @@ export function guestPrompts(p: {
   phone?: { callerNumber: string | null; canTransfer: boolean };
 }) {
   const phone = p.phone;
+  // On the phone, the hotel's number is usually the one that forwarded them here: take a message instead.
   const person = phone?.canTransfer
     ? 'If the caller asks for a person, or something urgent needs staff, say you’ll put them through and transfer the call.'
-    : p.handoffPhone
-      ? `If the guest wants a person, offer to take a message or give the hotel number ${p.handoffPhone}.`
-      : 'If the guest wants a person, offer to take a message for the team.';
+    : phone
+      ? 'If the caller wants a person, take a message so the team can call them back. Don’t give out the hotel’s phone number for that — it may lead straight back to you.'
+      : p.handoffPhone
+        ? `If the guest wants a person, offer to take a message or give the hotel number ${p.handoffPhone}.`
+        : 'If the guest wants a person, offer to take a message for the team.';
   const instructions = [
     `You are the voice of the front desk at ${p.name}${phone ? ', answering the hotel’s phone' : ''}. Warm, calm and brief — like a great hotel receptionist on the phone.`,
     p.greeting ? `Open with: "${p.greeting}"` : `Open with a short welcome to ${p.name} and ask how you can help.`,
     'Speak in short sentences. Say prices as natural amounts ("two hundred and twenty-seven dollars a night"). Repeat dates back before acting on them.',
     'Whenever the guest asks about rooms, prices, availability, policies, the hotel, or an existing booking, delegate — never answer facts from memory.',
     'If you are waiting on a result, say a brief natural filler ("let me check that for you").',
-    phone ? 'Never take card details over the phone: the team confirms phone bookings and sends a secure payment link.' : 'Never ask for card numbers. Bookings are completed on the guest’s screen.',
+    phone ? 'Never take card details over the phone: the team confirms phone bookings and sends a link to finish booking online.' : 'Never ask for card numbers. Bookings are completed on the guest’s screen.',
     person,
     phone ? 'If someone describes an emergency, tell them to hang up and call the local emergency number straight away.' : '',
     phone ? 'If asked, say you are the hotel’s virtual assistant. When the caller is done, say goodbye and end the call.' : '',
@@ -344,7 +347,7 @@ export function guestPrompts(p: {
     '- Facts come only from tools. Never invent prices, availability, amenities or policies.',
     '- Quote exact prices from check_availability. If nothing fits, say so and suggest other dates or a message to the team.',
     phone
-      ? '- To book: once the caller picks a room from check_availability, get their full name and an email for the payment link, then call request_booking. Tell them the team will confirm and send a secure link to pay — it isn’t booked until then.'
+      ? '- To book: once the caller picks a room from check_availability, get their full name and an email for the booking link, then call request_booking. Tell them the team will confirm and send a link to finish booking — it isn’t booked until then.'
       : '- To book, call start_booking with the chosen room type; tell the guest the checkout has opened on their screen.',
     '- Existing bookings: find_booking needs the confirmation code and last name. Guests can change dates or cancel free until 3 PM the day before arrival on their booking page.',
     '- Anything you cannot do (group rates, complaints, special arrangements): leave_message with their name and callback details.',

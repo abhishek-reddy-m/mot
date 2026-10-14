@@ -21,6 +21,7 @@
 import { createHash } from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { DomainError, notFound } from '../errors';
+import { publicSiteUrl } from '../public-url';
 import { GUEST_TOOLS, PHONE_TOOLS, STAFF_TOOLS, deriveVoiceKey, sameKey, type FunctionToolSpec } from './live';
 
 const DEFAULT_BASE = 'https://api.elevenlabs.io';
@@ -212,7 +213,18 @@ export const PHONE_WEBHOOK_HEADER = 'X-StayOS-Webhook';
 export const PHONE_SESSION_VARIABLE = 'stayos_session';
 const PHONE_MAX_SECONDS = 600;
 
-const phoneWebhookKey = () => deriveVoiceKey(`elevenlabs-phone|${namespace()}`);
+/**
+ * Phone lines are scoped to the API host and environment but not to the API
+ * key: numbers are pointed at these agents by hand, so rotating the key in
+ * the same ElevenLabs account must keep the same agents and webhook secret.
+ * (A different account is recovered by the 404 paths: agents are recreated.)
+ */
+function phoneNamespace(): string {
+  const host = createHash('sha256').update(BASE).digest('hex').slice(0, 10);
+  return `elevenlabs-phone:${host}:${ENVIRONMENT}`;
+}
+
+const phoneWebhookKey = () => deriveVoiceKey(`webhook|${phoneNamespace()}`);
 
 /** Is this request really from our ElevenLabs agents? */
 export function verifyPhoneWebhook(headerValue: string | null): boolean {
@@ -220,14 +232,15 @@ export function verifyPhoneWebhook(headerValue: string | null): boolean {
 }
 
 /**
- * The public address ElevenLabs calls back. Production uses the project's
- * production domain; set STAYOS_PUBLIC_URL to pin another (e.g. a custom
- * domain). Preview deployments sit behind Vercel Authentication, so their
- * webhooks would be refused — phone lines belong on production.
+ * The public address ElevenLabs calls back (see publicSiteUrl). Preview
+ * deployments sit behind Vercel Authentication, which would refuse
+ * ElevenLabs' calls, so phone lines belong on production.
  */
 export function phoneWebhookBase(): string {
-  const vercel = process.env.VERCEL_ENV === 'production' ? process.env.VERCEL_PROJECT_PRODUCTION_URL : process.env.VERCEL_URL;
-  const base = (process.env.STAYOS_PUBLIC_URL || process.env.NEXT_PUBLIC_SITE_URL || (vercel ? `https://${vercel}` : process.env.NEXTAUTH_URL) || '').replace(/\/$/, '');
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' && !process.env.STAYOS_PUBLIC_URL) {
+    throw new DomainError(503, 'PHONE_URL', 'Phone lines run on your production deployment — preview deployments can’t receive ElevenLabs’ calls.');
+  }
+  const base = publicSiteUrl() ?? '';
   // Plain http only reaches a local mock of the API, never the real one.
   if (/^https:\/\/[^/]+/.test(base) || (/^http:\/\/[^/]+/.test(base) && BASE !== DEFAULT_BASE)) return base;
   throw new DomainError(503, 'PHONE_URL', 'Phone calls need StayOS on a public https address — set STAYOS_PUBLIC_URL (for example https://your-domain.com) and redeploy.');
@@ -263,6 +276,9 @@ function phoneToolConfig(spec: FunctionToolSpec, base: string) {
 
 interface PhoneAgentInput {
   hotel: string;
+  /** Short, unique per hotel: hotel names aren't (and are chosen by each tenant). */
+  ref: string;
+  /** Only while the line is on: a paused line never puts callers through. */
   transferNumber: string | null;
   base: string;
 }
@@ -274,7 +290,7 @@ function phoneAgentConfig(input: PhoneAgentInput, toolIds: string[]) {
   const format = audio === 'auto' ? null : audio;
   const suffix = ENVIRONMENT === 'production' ? '' : ` (${ENVIRONMENT})`;
   return {
-    name: `StayOS — ${input.hotel.slice(0, 80)} phone${suffix}`,
+    name: `StayOS — ${input.hotel.slice(0, 70)} phone · ${input.ref}${suffix}`,
     tags: ['stayos', 'phone', ENVIRONMENT],
     conversation_config: {
       agent: {
@@ -289,31 +305,30 @@ function phoneAgentConfig(input: PhoneAgentInput, toolIds: string[]) {
           tool_ids: toolIds,
           built_in_tools: {
             end_call: { name: 'end_call', description: '', params: { system_tool_type: 'end_call' } },
-            ...(input.transferNumber
+            // Sent as null when off: updates merge, so leaving it out would keep an old transfer.
+            transfer_to_number: input.transferNumber
               ? {
-                  transfer_to_number: {
-                    name: 'transfer_to_number',
-                    description: '',
-                    params: {
-                      system_tool_type: 'transfer_to_number',
-                      enable_client_message: true,
-                      transfers: [
-                        {
-                          transfer_destination: { type: 'phone', phone_number: input.transferNumber },
-                          condition: 'The caller asks to speak with a person, or has an urgent problem the assistant cannot solve with its tools.',
-                          transfer_type: 'conference',
-                        },
-                      ],
-                    },
+                  name: 'transfer_to_number',
+                  description: '',
+                  params: {
+                    system_tool_type: 'transfer_to_number',
+                    enable_client_message: true,
+                    transfers: [
+                      {
+                        transfer_destination: { type: 'phone', phone_number: input.transferNumber },
+                        condition: 'The caller asks to speak with a person, or has an urgent problem the assistant cannot solve with its tools.',
+                        transfer_type: 'conference',
+                      },
+                    ],
                   },
                 }
-              : {}),
+              : null,
           },
         },
         max_conversation_duration_message: 'I need to wrap up now — please call back any time.',
       },
-      ...(format ? { asr: { user_input_audio_format: format } } : {}),
-      tts: { model_id: 'eleven_flash_v2', ...(voiceId ? { voice_id: voiceId } : {}), ...(format ? { agent_output_audio_format: format } : {}) },
+      asr: { user_input_audio_format: format },
+      tts: { model_id: 'eleven_flash_v2', ...(voiceId ? { voice_id: voiceId } : {}), agent_output_audio_format: format },
       conversation: { max_duration_seconds: PHONE_MAX_SECONDS },
       // A line left open in silence shouldn't run up minutes.
       turn: { silence_end_call_timeout: 45 },
@@ -383,12 +398,13 @@ async function syncAgent(audience: Audience): Promise<string> {
   });
 }
 
-const phoneAgentKey = (propertyId: string) => `${namespace()}:PHONE:${propertyId}`;
+const phoneAgentPrefix = () => `${phoneNamespace()}:agent:`;
+const phoneAgentKey = (propertyId: string) => `${phoneAgentPrefix()}${propertyId}`;
 
 async function phoneAgentInput(propertyId: string): Promise<PhoneAgentInput> {
-  const line = await prisma.voicePhoneLine.findUnique({ where: { propertyId }, select: { transferNumber: true, property: { select: { name: true } } } });
+  const line = await prisma.voicePhoneLine.findUnique({ where: { propertyId }, select: { enabled: true, transferNumber: true, property: { select: { name: true } } } });
   if (!line) throw notFound('Phone line');
-  return { hotel: line.property.name, transferNumber: line.transferNumber, base: phoneWebhookBase() };
+  return { hotel: line.property.name, ref: propertyId.slice(-6), transferNumber: line.enabled ? line.transferNumber : null, base: phoneWebhookBase() };
 }
 
 /** Make sure this hotel's phone agent exists at ElevenLabs and matches its settings. */
@@ -397,9 +413,9 @@ async function syncPhoneAgent(propertyId: string): Promise<string> {
   const desiredHash = hash({ tools: PHONE_TOOLS.map((s) => phoneToolConfig(s, input.base)), agent: phoneAgentConfig(input, []) });
   return provisionAgent(phoneAgentKey(propertyId), desiredHash, async (tx) => {
     // Every hotel's phone agent shares one set of phone tools: sync them one hotel at a time.
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${namespace()}:tool:phone`}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${phoneNamespace()}:tools`}))`;
     const toolIds: string[] = [];
-    for (const spec of PHONE_TOOLS) toolIds.push(await syncTool(tx, `${namespace()}:tool:phone:${spec.name}`, phoneToolConfig(spec, input.base)));
+    for (const spec of PHONE_TOOLS) toolIds.push(await syncTool(tx, `${phoneNamespace()}:tool:${spec.name}`, phoneToolConfig(spec, input.base)));
     return phoneAgentConfig(input, toolIds);
   });
 }
@@ -407,7 +423,7 @@ async function syncPhoneAgent(propertyId: string): Promise<string> {
 /** Which hotel a phone agent answers for (only agents this deployment created). */
 export async function phonePropertyForAgent(agentId: string): Promise<string | null> {
   if (!agentId) return null;
-  const prefix = `${namespace()}:PHONE:`;
+  const prefix = phoneAgentPrefix();
   const row = await prisma.voiceProviderAgent.findFirst({ where: { externalId: agentId, key: { startsWith: prefix } }, select: { key: true } });
   return row ? row.key.slice(prefix.length) : null;
 }

@@ -6,6 +6,7 @@ import { handleRoute, json, parseJson, parseQuery } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
 import { LIVE_MODEL, VOICES } from '@/server/voice/live';
 import { voiceAvailable, voiceProvider } from '@/server/voice/provider';
+import { elevenLabsConfigured } from '@/server/voice/elevenlabs';
 import { assertDemoHotelUnchanged } from '@/server/demo';
 
 const DEFAULTS = { enabled: true, voice: 'marin', greeting: null, instructions: null, faqs: [], handoffPhone: null, guestWidget: true };
@@ -32,6 +33,7 @@ export const GET = handleRoute(async (request: NextRequest) => {
     voices: VOICES,
     config: config ?? { ...DEFAULTS, propertyId },
     phoneLine: phoneLine ? { enabled: phoneLine.enabled } : null,
+    phoneReady: elevenLabsConfigured(),
     stats: {
       guestCalls: sessions.find((s) => s.audience === 'GUEST')?._count._all ?? 0,
       phoneCalls,

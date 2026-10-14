@@ -17,7 +17,7 @@ Hotels move between paths without starting over (Console → *Your PMS* → *Mov
   - **Classic**: dashboard with setup checklist and forecast, front desk (arrivals, departures, in-house, room board), housekeeping (supervisor board + phone-first *My rooms*), reservations, rate calendar (drag-select, set/adjust/reset), analytics, rooms, properties, team, activity log, settings.
   - **Agentic**: a natural-language workspace whose answers render as live UI blocks (booking lists, room options, rate grids, plans). Every change is a **signed plan** (HMAC, 10-minute expiry, single use) that a person confirms; every action is permission-checked and audited. ⌘K opens the agent from any Classic screen, and alerts hand off to it ("Fix").
 - **Voice front desk** — ElevenLabs Agents (WebSocket, StayOS provisions and syncs the agents) or OpenAI GPT-Live (`gpt-live-1`, WebRTC with Responses delegation). Guests talk from the hotel page; staff go hands-free in the agent workspace. Either way, tool calls are executed by StayOS code, never by the model directly.
-- **Phone line** (ElevenLabs) — each hotel gets its own phone agent; point a Twilio, SIP-trunk or Exotel number at it in ElevenLabs and forward the hotel's existing number to it. Calls start with a webhook to StayOS (hotel prompt + signed session) and run their tools server to server; phone bookings become requests the team confirms with a payment link. See *Voice → Phone* in the console.
+- **Phone line** (ElevenLabs) — each hotel gets its own phone agent; point a Twilio, SIP-trunk or Exotel number at it in ElevenLabs and forward the hotel's existing number to it. Calls start with a webhook to StayOS (hotel prompt + signed session) and run their tools server to server; phone bookings become requests the team confirms by sending the guest a pre-filled booking link. See *Voice → Phone* in the console.
 - **PMS bridge** — a computer-use operator that works the hotel's existing PMS in a browser, through the StayOS Connector on a hotel computer or our isolated cloud browser.
 
 ## Architecture
@@ -82,7 +82,8 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 | `NEXT_PUBLIC_SITE_URL` | | Pins Stripe return URLs to one host (default: the host the guest booked on) |
 | `ELEVENLABS_API_KEY` | voice | Voice front desk on ElevenLabs Agents (used when set). Needs Agents write access; StayOS creates and updates its two agents itself |
 | `ELEVENLABS_VOICE_ID`, `ELEVENLABS_LLM` | | ElevenLabs voice (default: the platform default) and LLM (default `gemini-2.5-flash`) |
-| `STAYOS_PUBLIC_URL` | | Public https address ElevenLabs calls back for phone lines (default: the Vercel production domain, else `NEXT_PUBLIC_SITE_URL`) |
+| `STAYOS_PUBLIC_URL` | | Public https address for phone-line webhooks and booking links (default: `NEXT_PUBLIC_SITE_URL`, else the Vercel production domain) |
+| `VOICE_PHONE_MAX_CALLS_PER_HOTEL_HOUR`, `VOICE_PHONE_MAX_CALLS_PER_HOUR` | | Phone-call ceilings per hotel and across hotels (defaults 120 / 300), separate from the booking page's |
 | `ELEVENLABS_PHONE_AUDIO_FORMAT` | | Phone agent audio (default `ulaw_8000`, right for Twilio and SIP/PCMU; `auto` leaves it to ElevenLabs) |
 | `ELEVENLABS_GUEST_AGENT_ID`, `ELEVENLABS_STAFF_AGENT_ID` | | Use your own ElevenLabs agents instead (they need the same client tools and prompt/first-message overrides enabled) |
 | `VOICE_PROVIDER` | | `elevenlabs` or `openai` to force a provider |

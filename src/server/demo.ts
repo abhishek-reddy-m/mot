@@ -9,9 +9,14 @@ import { forbidden } from './errors';
 
 const norm = (v: unknown) => (v === '' || v === undefined ? null : typeof v === 'string' ? v.trim() : JSON.stringify(v));
 
-/** Things a demo hotel can't have at all in the public demo (e.g. a real phone line). */
-export function demoHotelLocked(actor: Pick<Actor, 'role'>, isDemo: boolean): boolean {
-  return process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && isDemo && actor.role !== 'ADMIN';
+/**
+ * Things the public demo can't have at all (e.g. a real phone line): not on a
+ * demo hotel, and not with the shared demo logins (which can also create
+ * hotels of their own). Visitors set up their own hotel for that.
+ */
+export function demoHotelLocked(actor: Pick<Actor, 'role' | 'email'>, isDemo: boolean): boolean {
+  if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true' || actor.role === 'ADMIN') return false;
+  return isDemo || actor.email.toLowerCase().endsWith('@stayos.demo');
 }
 
 export function assertNotDemoHotel(actor: Actor, isDemo: boolean, message: string) {

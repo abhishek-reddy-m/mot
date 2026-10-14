@@ -4,7 +4,7 @@ import * as React from 'react';
 import Link from 'next/link';
 import useSWR from 'swr';
 import { toast } from 'sonner';
-import { AudioLines, Check, Inbox, KeyRound, Mail, Mic, MicOff, Phone, PhoneCall, PhoneOff, Plus, ShieldCheck, Trash2 } from 'lucide-react';
+import { AudioLines, Check, Copy, Inbox, KeyRound, Mail, Mic, MicOff, Phone, PhoneCall, PhoneOff, Plus, ShieldCheck, Trash2 } from 'lucide-react';
 import { api, fetcher } from '@/lib/fetcher';
 import { timeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
@@ -39,6 +39,8 @@ interface VoiceOverview {
   voices: string[];
   config: VoiceConfig;
   phoneLine: { enabled: boolean } | null;
+  /** Phone lines run on ElevenLabs, whichever provider serves the booking page. */
+  phoneReady: boolean;
   stats: { guestCalls: number; phoneCalls: number; staffSessions: number; toolCalls: number; recentMinutes: number; openRequests: number };
   recent: { id: string; audience: string; startedAt: string; endedAt: string | null; toolCalls: number }[];
 }
@@ -168,7 +170,7 @@ function Settings({ data, onSaved }: { data: VoiceOverview; onSaved: () => void 
     <fieldset disabled={!editable} className="space-y-6">
       <Card className="divide-y p-0">
         {[
-          { k: 'enabled' as const, title: 'Voice front desk', text: 'Answer guest questions by voice with live availability and prices.' },
+          { k: 'enabled' as const, title: 'Voice front desk', text: 'Answer guest questions by voice with live availability and prices — on your booking page and your phone line.' },
           { k: 'guestWidget' as const, title: '“Talk to us” on your booking page', text: 'Guests can start a voice conversation right from your hotel page.' },
         ].map((row) => (
           <div key={row.k} className="flex items-center justify-between gap-4 p-5">
@@ -258,6 +260,18 @@ function Settings({ data, onSaved }: { data: VoiceOverview; onSaved: () => void 
   );
 }
 
+/**
+ * Phone booking requests end with the pre-filled checkout link for the guest.
+ * Only the path is kept (the last match, which StayOS wrote — a caller's notes
+ * come before it), so copying always gives a link to this site.
+ */
+function bookingLink(message: string): { text: string; path: string | null } {
+  const matches = [...message.matchAll(/(?:https?:\/\/\S+?)?(\/properties\/[\w-]+\/book\?\S+)$/g)];
+  const last = matches.at(-1);
+  if (!last) return { text: message, path: null };
+  return { text: message.slice(0, last.index).replace(/:\s*$/, '.').trim(), path: last[1] };
+}
+
 function Requests() {
   const url = usePropertyUrl('/api/admin/voice/requests');
   const { data, mutate, isLoading } = useSWR<GuestRequest[]>(url, fetcher, { refreshInterval: 30_000 });
@@ -279,7 +293,7 @@ function Requests() {
             <p className="text-sm font-medium">
               {r.name} <span className="font-normal text-muted-foreground">· {timeAgo(r.createdAt)}</span>
             </p>
-            <p className="mt-1 text-sm">{r.message}</p>
+            <p className="mt-1 text-sm">{bookingLink(r.message).text}</p>
             <div className="mt-2 flex flex-wrap gap-3 text-xs">
               {r.phone && (
                 <a href={`tel:${r.phone}`} className="inline-flex items-center gap-1 text-primary hover:underline">
@@ -290,6 +304,22 @@ function Requests() {
                 <a href={`mailto:${r.email}`} className="inline-flex items-center gap-1 text-primary hover:underline">
                   <Mail className="h-3 w-3" /> {r.email}
                 </a>
+              )}
+              {bookingLink(r.message).path && (
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 text-primary hover:underline"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(new URL(bookingLink(r.message).path!, window.location.origin).toString());
+                      toast.success('Booking link copied — send it to the guest');
+                    } catch {
+                      toast.error('Couldn’t copy the link');
+                    }
+                  }}
+                >
+                  <Copy className="h-3 w-3" /> Copy booking link
+                </button>
               )}
             </div>
           </div>
@@ -372,14 +402,14 @@ export default function VoicePage() {
                     icon: PhoneCall,
                     title: 'Phone line',
                     text:
-                      data.provider !== 'elevenlabs'
+                      !data.phoneReady
                         ? 'Answer your hotel number with this voice — runs on ElevenLabs Agents.'
                         : !data.phoneLine
                           ? 'Answer your hotel number with this voice. Keep your number and forward the calls you miss.'
                           : data.phoneLine.enabled && data.config.enabled
                             ? 'On — answers every number you point at this hotel’s phone agent.'
                             : 'Paused — callers hear a short “not available” message.',
-                    ok: data.connected && data.provider === 'elevenlabs' && !!data.phoneLine?.enabled && data.config.enabled,
+                    ok: data.phoneReady && !!data.phoneLine?.enabled && data.config.enabled,
                     onClick: () => setTab('phone'),
                     cta: data.phoneLine ? 'Manage the line' : 'Set it up',
                   },
@@ -406,7 +436,7 @@ export default function VoicePage() {
             </div>
           )}
           {tab === 'settings' && <Settings data={data} onSaved={() => void mutate()} />}
-          {tab === 'phone' && <PhoneLine onChanged={() => void mutate()} />}
+          {tab === 'phone' && <PhoneLine key={propertyId} onChanged={() => void mutate()} />}
           {tab === 'requests' && <Requests />}
         </>
       )}
