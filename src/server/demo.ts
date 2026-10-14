@@ -9,6 +9,15 @@ import { forbidden } from './errors';
 
 const norm = (v: unknown) => (v === '' || v === undefined ? null : typeof v === 'string' ? v.trim() : JSON.stringify(v));
 
+/** Things a demo hotel can't have at all in the public demo (e.g. a real phone line). */
+export function demoHotelLocked(actor: Pick<Actor, 'role'>, isDemo: boolean): boolean {
+  return process.env.NEXT_PUBLIC_DEMO_MODE === 'true' && isDemo && actor.role !== 'ADMIN';
+}
+
+export function assertNotDemoHotel(actor: Actor, isDemo: boolean, message: string) {
+  if (demoHotelLocked(actor, isDemo)) throw forbidden(message);
+}
+
 export function assertDemoHotelUnchanged(
   actor: Actor,
   current: { isDemo: boolean } & Record<string, unknown>,

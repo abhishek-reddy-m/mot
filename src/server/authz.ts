@@ -54,6 +54,7 @@ export const PERMISSIONS = {
   'mode.setDefault': ['ADMIN', 'OWNER', 'MANAGER'],
   'voice.use': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
   'voice.manage': ['ADMIN', 'OWNER', 'MANAGER'],
+  'phone.manage': ['ADMIN', 'OWNER'],
   'requests.view': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
   'bridge.use': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
   'bridge.manage': ['ADMIN', 'OWNER'],

@@ -135,6 +135,8 @@ export interface VoiceTokenPayload {
   pid: string; // property
   aud: 'GUEST' | 'STAFF';
   uid: string | null;
+  /** Set for phone calls (tools run server to server, with the phone tool set). */
+  ch?: 'PHONE';
   exp: number;
 }
 
@@ -142,6 +144,18 @@ function secret(): string {
   const s = process.env.AGENT_PLAN_SECRET || process.env.NEXTAUTH_SECRET || process.env.AUTH_SECRET;
   if (!s) throw new Error('NEXTAUTH_SECRET must be set to sign voice sessions.');
   return `voice:${s}`;
+}
+
+/** A stable secret for one purpose (e.g. the header the voice provider sends on webhooks), derived from the server secret. */
+export function deriveVoiceKey(purpose: string): string {
+  return createHmac('sha256', secret()).update(`derive:${purpose}`).digest('base64url');
+}
+
+/** Constant-time comparison for derived keys. */
+export function sameKey(given: string | null | undefined, expected: string): boolean {
+  const a = Buffer.from(given ?? '');
+  const b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
 
 export function signVoiceToken(p: Omit<VoiceTokenPayload, 'exp'>, ttlMs = 30 * 60 * 1000): string {
@@ -168,29 +182,83 @@ export function verifyVoiceToken(token: string): VoiceTokenPayload {
 const obj = (properties: Record<string, unknown>, required: string[]) => ({ type: 'object', properties, required, additionalProperties: false });
 const date = (description: string) => ({ type: 'string', description: `${description} (YYYY-MM-DD)` });
 
+const PROPERTY_INFO: FunctionToolSpec = {
+  type: 'function',
+  name: 'get_property_info',
+  description: 'Hotel facts: description, amenities, address, phone, check-in/out times, cancellation policy, room types with base prices, and the hotel’s FAQ answers. Call before answering any question about the hotel.',
+  parameters: obj({}, []),
+  strict: true,
+};
+
+const CHECK_AVAILABILITY: FunctionToolSpec = {
+  type: 'function',
+  name: 'check_availability',
+  description: 'Live availability and exact prices for a stay. Always call this before quoting a price or saying a room is free.',
+  parameters: obj(
+    {
+      check_in: date('Arrival date'),
+      check_out: date('Departure date, after check_in'),
+      guests: { type: 'integer', minimum: 1, maximum: 16 },
+      rooms: { type: 'integer', minimum: 1, maximum: 9 },
+    },
+    ['check_in', 'check_out', 'guests', 'rooms']
+  ),
+  strict: true,
+};
+
+const FIND_BOOKING: FunctionToolSpec = {
+  type: 'function',
+  name: 'find_booking',
+  description: 'Look up an existing reservation. Requires the 6–8 character confirmation code and the guest’s last name; both must match.',
+  parameters: obj({ confirmation_code: { type: 'string' }, last_name: { type: 'string' } }, ['confirmation_code', 'last_name']),
+  strict: true,
+};
+
+const LEAVE_MESSAGE: FunctionToolSpec = {
+  type: 'function',
+  name: 'leave_message',
+  description: 'Pass a message or callback request to the hotel team (special requests, group bookings, anything you can’t resolve).',
+  parameters: obj(
+    {
+      name: { type: 'string' },
+      phone: { type: ['string', 'null'], description: 'Callback number if given' },
+      email: { type: ['string', 'null'] },
+      message: { type: 'string', description: 'What the guest needs, in one or two sentences' },
+    },
+    ['name', 'phone', 'email', 'message']
+  ),
+  strict: true,
+};
+
+/** Phone callers have no screen to check out on, so the team finishes phone bookings. */
+const REQUEST_BOOKING: FunctionToolSpec = {
+  type: 'function',
+  name: 'request_booking',
+  description:
+    'Send a phone booking to the hotel team once the caller has chosen a room from check_availability. The team confirms it and sends a secure payment link — the booking is not final until then. Never take card details by phone.',
+  parameters: obj(
+    {
+      room_type_id: { type: 'string', description: 'id from check_availability' },
+      check_in: date('Arrival date'),
+      check_out: date('Departure date'),
+      guests: { type: 'integer', minimum: 1, maximum: 16 },
+      rooms: { type: 'integer', minimum: 1, maximum: 9 },
+      name: { type: 'string', description: 'Guest’s full name' },
+      email: { type: ['string', 'null'], description: 'Email for the payment link, if the guest gives one' },
+      phone: { type: ['string', 'null'], description: 'Callback number, only if different from the number they are calling from' },
+      notes: { type: ['string', 'null'], description: 'Special requests, if any' },
+    },
+    ['room_type_id', 'check_in', 'check_out', 'guests', 'rooms', 'name', 'email', 'phone', 'notes']
+  ),
+  strict: true,
+};
+
+/** What the hotel's phone line can do: the guest tools, with phone booking requests instead of on-screen checkout. */
+export const PHONE_TOOLS: FunctionToolSpec[] = [PROPERTY_INFO, CHECK_AVAILABILITY, REQUEST_BOOKING, FIND_BOOKING, LEAVE_MESSAGE];
+
 export const GUEST_TOOLS: FunctionToolSpec[] = [
-  {
-    type: 'function',
-    name: 'get_property_info',
-    description: 'Hotel facts: description, amenities, address, phone, check-in/out times, cancellation policy, room types with base prices, and the hotel’s FAQ answers. Call before answering any question about the hotel.',
-    parameters: obj({}, []),
-    strict: true,
-  },
-  {
-    type: 'function',
-    name: 'check_availability',
-    description: 'Live availability and exact prices for a stay. Always call this before quoting a price or saying a room is free.',
-    parameters: obj(
-      {
-        check_in: date('Arrival date'),
-        check_out: date('Departure date, after check_in'),
-        guests: { type: 'integer', minimum: 1, maximum: 16 },
-        rooms: { type: 'integer', minimum: 1, maximum: 9 },
-      },
-      ['check_in', 'check_out', 'guests', 'rooms']
-    ),
-    strict: true,
-  },
+  PROPERTY_INFO,
+  CHECK_AVAILABILITY,
   {
     type: 'function',
     name: 'start_booking',
@@ -207,28 +275,8 @@ export const GUEST_TOOLS: FunctionToolSpec[] = [
     ),
     strict: true,
   },
-  {
-    type: 'function',
-    name: 'find_booking',
-    description: 'Look up an existing reservation. Requires the 6–8 character confirmation code and the guest’s last name; both must match.',
-    parameters: obj({ confirmation_code: { type: 'string' }, last_name: { type: 'string' } }, ['confirmation_code', 'last_name']),
-    strict: true,
-  },
-  {
-    type: 'function',
-    name: 'leave_message',
-    description: 'Pass a message or callback request to the hotel team (special requests, group bookings, anything you can’t resolve).',
-    parameters: obj(
-      {
-        name: { type: 'string' },
-        phone: { type: ['string', 'null'], description: 'Callback number if given' },
-        email: { type: ['string', 'null'] },
-        message: { type: 'string', description: 'What the guest needs, in one or two sentences' },
-      },
-      ['name', 'phone', 'email', 'message']
-    ),
-    strict: true,
-  },
+  FIND_BOOKING,
+  LEAVE_MESSAGE,
 ];
 
 export const STAFF_TOOLS: FunctionToolSpec[] = [
@@ -260,24 +308,47 @@ export const STAFF_TOOLS: FunctionToolSpec[] = [
 // Prompts
 // ---------------------------------------------------------------------------
 
-export function guestPrompts(p: { name: string; greeting?: string | null; houseRules?: string | null; today: string; timezone: string; handoffPhone?: string | null }) {
+export function guestPrompts(p: {
+  name: string;
+  greeting?: string | null;
+  houseRules?: string | null;
+  today: string;
+  timezone: string;
+  handoffPhone?: string | null;
+  /** A call to the hotel's phone line rather than the booking page. */
+  phone?: { callerNumber: string | null; canTransfer: boolean };
+}) {
+  const phone = p.phone;
+  const person = phone?.canTransfer
+    ? 'If the caller asks for a person, or something urgent needs staff, say you’ll put them through and transfer the call.'
+    : p.handoffPhone
+      ? `If the guest wants a person, offer to take a message or give the hotel number ${p.handoffPhone}.`
+      : 'If the guest wants a person, offer to take a message for the team.';
   const instructions = [
-    `You are the voice of the front desk at ${p.name}. Warm, calm and brief — like a great hotel receptionist on the phone.`,
+    `You are the voice of the front desk at ${p.name}${phone ? ', answering the hotel’s phone' : ''}. Warm, calm and brief — like a great hotel receptionist on the phone.`,
     p.greeting ? `Open with: "${p.greeting}"` : `Open with a short welcome to ${p.name} and ask how you can help.`,
     'Speak in short sentences. Say prices as natural amounts ("two hundred and twenty-seven dollars a night"). Repeat dates back before acting on them.',
     'Whenever the guest asks about rooms, prices, availability, policies, the hotel, or an existing booking, delegate — never answer facts from memory.',
     'If you are waiting on a result, say a brief natural filler ("let me check that for you").',
-    'Never ask for card numbers. Bookings are completed on the guest’s screen.',
-    p.handoffPhone ? `If the guest wants a person, offer to take a message or give the hotel number ${p.handoffPhone}.` : 'If the guest wants a person, offer to take a message for the team.',
-  ].join('\n');
+    phone ? 'Never take card details over the phone: the team confirms phone bookings and sends a secure payment link.' : 'Never ask for card numbers. Bookings are completed on the guest’s screen.',
+    person,
+    phone ? 'If someone describes an emergency, tell them to hang up and call the local emergency number straight away.' : '',
+    phone ? 'If asked, say you are the hotel’s virtual assistant. When the caller is done, say goodbye and end the call.' : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
+  const caller = phone && (phone.callerNumber ? `the number they are calling from (${phone.callerNumber}) unless they give another` : 'a number or email they give you — their caller ID is withheld');
   const backendInstructions = [
     `You handle tasks for the voice front desk of ${p.name}. Today is ${p.today} (${p.timezone}). Resolve relative dates ("this Friday", "next weekend") against today.`,
     'Rules:',
     '- Facts come only from tools. Never invent prices, availability, amenities or policies.',
     '- Quote exact prices from check_availability. If nothing fits, say so and suggest other dates or a message to the team.',
-    '- To book, call start_booking with the chosen room type; tell the guest the checkout has opened on their screen.',
+    phone
+      ? '- To book: once the caller picks a room from check_availability, get their full name and an email for the payment link, then call request_booking. Tell them the team will confirm and send a secure link to pay — it isn’t booked until then.'
+      : '- To book, call start_booking with the chosen room type; tell the guest the checkout has opened on their screen.',
     '- Existing bookings: find_booking needs the confirmation code and last name. Guests can change dates or cancel free until 3 PM the day before arrival on their booking page.',
     '- Anything you cannot do (group rates, complaints, special arrangements): leave_message with their name and callback details.',
+    caller ? `- Callback details: use ${caller}.` : '',
     '- Reply with one or two short sentences for the voice to say.',
     p.houseRules ? `House rules from the hotel:\n${p.houseRules}` : '',
   ]

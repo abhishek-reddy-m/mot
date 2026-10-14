@@ -21,6 +21,7 @@ import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider
 import { useLiveVoice } from '@/components/voice/useLiveVoice';
 import { VoiceOrb } from '@/components/voice/VoiceOrb';
 import { WelcomeBanner } from '@/components/console/WelcomeBanner';
+import { PhoneLine } from './PhoneLine';
 
 interface VoiceConfig {
   enabled: boolean;
@@ -37,7 +38,8 @@ interface VoiceOverview {
   model: string;
   voices: string[];
   config: VoiceConfig;
-  stats: { guestCalls: number; staffSessions: number; toolCalls: number; recentMinutes: number; openRequests: number };
+  phoneLine: { enabled: boolean } | null;
+  stats: { guestCalls: number; phoneCalls: number; staffSessions: number; toolCalls: number; recentMinutes: number; openRequests: number };
   recent: { id: string; audience: string; startedAt: string; endedAt: string | null; toolCalls: number }[];
 }
 interface GuestRequest {
@@ -50,7 +52,7 @@ interface GuestRequest {
   createdAt: string;
 }
 
-type Tab = 'overview' | 'settings' | 'requests';
+type Tab = 'overview' | 'settings' | 'phone' | 'requests';
 
 interface ModelCheck {
   model: string;
@@ -316,7 +318,7 @@ export default function VoicePage() {
     <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
       <PageHeader
         title="Voice front desk"
-        description={property ? `The voice that answers for ${property.name} — on your booking page today, on your phone line next.` : undefined}
+        description={property ? `The voice that answers for ${property.name} — on your booking page and your phone line.` : undefined}
         actions={
           <SegmentedControl
             layoutId="voice-tab"
@@ -326,6 +328,7 @@ export default function VoicePage() {
             options={[
               { value: 'overview', label: 'Overview' },
               { value: 'settings', label: 'Settings' },
+              { value: 'phone', label: 'Phone' },
               { value: 'requests', label: `Messages${data?.stats.openRequests ? ` · ${data.stats.openRequests}` : ''}` },
             ]}
           />
@@ -356,7 +359,7 @@ export default function VoicePage() {
             <div className="space-y-6">
               <TestCall propertyId={propertyId} connected={data.connected} />
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                <StatTile label="Guest conversations" value={data.stats.guestCalls} hint="Last 7 days" icon={AudioLines} tone="agent" />
+                <StatTile label="Guest conversations" value={data.stats.guestCalls} hint={data.stats.phoneCalls ? `Last 7 days · ${data.stats.phoneCalls} by phone` : 'Last 7 days'} icon={AudioLines} tone="agent" />
                 <StatTile label="Hands-free staff sessions" value={data.stats.staffSessions} hint="Last 7 days" icon={Mic} tone="brand" />
                 <StatTile label="Lookups & actions" value={data.stats.toolCalls} hint="Answered from live data" icon={ShieldCheck} tone="success" />
                 <StatTile label="Messages to handle" value={data.stats.openRequests} hint="Left with the voice" icon={Inbox} tone={data.stats.openRequests ? 'warning' : 'neutral'} onClick={() => setTab('requests')} />
@@ -364,27 +367,46 @@ export default function VoicePage() {
               <div className="grid gap-4 md:grid-cols-3">
                 {[
                   { icon: AudioLines, title: 'Booking page', text: !(data.config.guestWidget && data.config.enabled) ? 'Off — turn it on in Settings.' : data.connected ? 'Live — guests see “Talk to us”.' : 'Switched on — appears for guests once the voice model is connected.', ok: data.config.guestWidget && data.config.enabled && data.connected },
-                  { icon: Mic, title: 'Staff hands-free', text: 'Press Talk in the Agent workspace. Changes still need your “yes”.', ok: data.connected, href: '/admin/agent' },
-                  { icon: PhoneCall, title: 'Phone line', text: 'Point your hotel number at StayOS over SIP. Ask us to enable it for your property.', ok: false },
+                  { icon: Mic, title: 'Staff hands-free', text: 'Press Talk in the Agent workspace. Changes still need your “yes”.', ok: data.connected, href: '/admin/agent', cta: 'Open the agent' },
+                  {
+                    icon: PhoneCall,
+                    title: 'Phone line',
+                    text:
+                      data.provider !== 'elevenlabs'
+                        ? 'Answer your hotel number with this voice — runs on ElevenLabs Agents.'
+                        : !data.phoneLine
+                          ? 'Answer your hotel number with this voice. Keep your number and forward the calls you miss.'
+                          : data.phoneLine.enabled && data.config.enabled
+                            ? 'On — answers every number you point at this hotel’s phone agent.'
+                            : 'Paused — callers hear a short “not available” message.',
+                    ok: data.connected && data.provider === 'elevenlabs' && !!data.phoneLine?.enabled && data.config.enabled,
+                    onClick: () => setTab('phone'),
+                    cta: data.phoneLine ? 'Manage the line' : 'Set it up',
+                  },
                 ].map((c) => (
                   <Card key={c.title} className="p-5">
                     <div className="flex items-center justify-between">
                       <c.icon className="h-5 w-5 text-muted-foreground" />
-                      <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', c.ok ? 'bg-success-soft text-success' : 'bg-muted text-muted-foreground')}>{c.ok ? 'Ready' : c.title === 'Phone line' ? 'On request' : 'Not ready'}</span>
+                      <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-medium', c.ok ? 'bg-success-soft text-success' : 'bg-muted text-muted-foreground')}>{c.ok ? 'Ready' : 'Not ready'}</span>
                     </div>
                     <p className="mt-3 text-sm font-semibold">{c.title}</p>
                     <p className="mt-1 text-xs text-muted-foreground">{c.text}</p>
-                    {c.href && (
+                    {c.href ? (
                       <Link href={c.href} className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
-                        Open the agent
+                        {c.cta}
                       </Link>
-                    )}
+                    ) : c.onClick ? (
+                      <button type="button" onClick={c.onClick} className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
+                        {c.cta}
+                      </button>
+                    ) : null}
                   </Card>
                 ))}
               </div>
             </div>
           )}
           {tab === 'settings' && <Settings data={data} onSaved={() => void mutate()} />}
+          {tab === 'phone' && <PhoneLine onChanged={() => void mutate()} />}
           {tab === 'requests' && <Requests />}
         </>
       )}

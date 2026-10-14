@@ -12,7 +12,7 @@ import { roleLabel } from '@/lib/status';
 import { assertPropertyAccess, getActor, hasPropertyAccess, requireStaff } from '../authz';
 import { DomainError, notFound } from '../errors';
 import { guestContext } from './guestTools';
-import { GUEST_TOOLS, STAFF_TOOLS, guestPrompts, signVoiceToken, staffPrompts, type FunctionToolSpec } from './live';
+import { GUEST_TOOLS, PHONE_TOOLS, STAFF_TOOLS, guestPrompts, signVoiceToken, staffPrompts, type FunctionToolSpec } from './live';
 
 const MINUTE = 60_000;
 const since = (ms: number) => ({ gte: new Date(Date.now() - ms) });
@@ -112,14 +112,7 @@ export async function openVoiceSession<T>(
     firstMessage: cfg?.greeting?.trim() || `Hi, thanks for calling ${property.name}. How can I help?`,
     tools: GUEST_TOOLS,
   };
-  const session = await reserve(
-    { propertyId: property.id, audience: 'GUEST', clientKey },
-    [
-      { where: { clientKey, startedAt: since(10 * MINUTE) }, max: 6, message: 'Too many calls in a short time — please try again in a few minutes.' },
-      { where: { propertyId: property.id, audience: 'GUEST', startedAt: since(60 * MINUTE) }, max: 120, message: 'Our voice line is very busy — please try again shortly or call the hotel.' },
-    ],
-    () => start(ctx),
-  ).catch(async (e) => {
+  const session = await reserve({ propertyId: property.id, audience: 'GUEST', clientKey }, guestLimits(property.id, clientKey), () => start(ctx)).catch(async (e) => {
     // The provider's reason is for the hotel's team (e.g. a test call from the console), not for guests.
     if (!(e instanceof DomainError) || e.code !== 'VOICE_UPSTREAM') throw e;
     const viewer = await getActor().catch(() => null);
@@ -127,4 +120,54 @@ export async function openVoiceSession<T>(
     throw new DomainError(502, 'VOICE_UPSTREAM', `${property.name}’s voice line isn’t available right now — please try again later${cfg?.handoffPhone ? ` or call ${cfg.handoffPhone}` : ''}.`);
   });
   return { result: session.result, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null }) };
+}
+
+/** Per caller (a browser's IP, or a phone's caller ID) and per hotel; phone and web share the hotel's budget. */
+function guestLimits(propertyId: string, clientKey: string | null): Limit[] {
+  return [
+    ...(clientKey ? [{ where: { clientKey, startedAt: since(10 * MINUTE) }, max: 6, message: 'Too many calls in a short time — please try again in a few minutes.' }] : []),
+    { where: { propertyId, audience: 'GUEST', startedAt: since(60 * MINUTE) }, max: 120, message: 'Our voice line is very busy — please try again shortly or call the hotel.' },
+  ];
+}
+
+/**
+ * A call to a hotel's phone line (the provider asked us how to answer it).
+ * Same checks and limits as the booking page, with the phone prompt and
+ * tools; the token goes back to the provider, which sends it on every tool
+ * call. Throws DomainError (VOICE_OFF, RATE_LIMITED, NOT_FOUND) when the
+ * call shouldn't be taken.
+ */
+export async function openPhoneSession(input: { propertyId: string; callerNumber: string | null; externalId: string | null }): Promise<{ token: string; ctx: VoiceSessionContext }> {
+  const property = await prisma.property.findFirst({
+    where: { id: input.propertyId, isActive: true },
+    select: { id: true, name: true, voiceAgent: true, phoneLine: true },
+  });
+  if (!property) throw notFound('Property');
+  const cfg = property.voiceAgent;
+  const line = property.phoneLine;
+  if (!line?.enabled || (cfg && !cfg.enabled)) throw new DomainError(403, 'VOICE_OFF', `${property.name} isn’t taking calls on this line right now.`);
+  const ctx: VoiceSessionContext = {
+    audience: 'guest',
+    property: { id: property.id, name: property.name },
+    voice: cfg?.voice ?? 'marin',
+    prompts: guestPrompts({
+      name: property.name,
+      greeting: cfg?.greeting,
+      houseRules: cfg?.instructions,
+      handoffPhone: cfg?.handoffPhone,
+      phone: { callerNumber: input.callerNumber, canTransfer: !!line.transferNumber },
+      ...guestContext(),
+    }),
+    firstMessage: cfg?.greeting?.trim() || `Thanks for calling ${property.name} — this is the hotel’s virtual assistant. How can I help?`,
+    tools: PHONE_TOOLS,
+  };
+  // Withheld numbers share no per-caller budget; the hotel's hourly limit still applies.
+  const clientKey = input.callerNumber ? createHash('sha256').update(`phone:${input.callerNumber}|${property.id}`).digest('hex').slice(0, 32) : null;
+  const session = await reserve(
+    { propertyId: property.id, audience: 'GUEST', channel: 'PHONE', clientKey, callerNumber: input.callerNumber },
+    guestLimits(property.id, clientKey),
+    async () => ({ externalId: input.externalId, result: null }),
+  );
+  // Outlives the longest call (10 minutes) with room to spare.
+  return { ctx, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null, ch: 'PHONE' }, 20 * MINUTE) };
 }

@@ -68,6 +68,7 @@ model Property {
   // Agentic-mode audit trail
   agentAuditLogs AgentAuditLog[]
   voiceAgent     VoiceAgentConfig?
+  phoneLine      VoicePhoneLine?
   voiceSessions  VoiceSession[]
   guestRequests  GuestRequest[]
   pmsConnection  PmsConnection?
@@ -223,7 +224,7 @@ enum InterfaceMode {
 /// Agents StayOS created at a voice provider (e.g. ElevenLabs), one per audience.
 /// configHash lets the server update the agent when its tools or settings change.
 model VoiceProviderAgent {
-  key        String   @id // "elevenlabs:GUEST" | "elevenlabs:STAFF"
+  key        String   @id // "elevenlabs:<account>:<env>:GUEST" | ":STAFF" | ":PHONE:<propertyId>" | ":tool:…"
   externalId String
   configHash String
   updatedAt  DateTime @updatedAt
@@ -366,7 +367,10 @@ model VoiceSession {
   propertyId      String
   userId          String?
   audience        String // GUEST | STAFF
-  clientKey       String? // hashed caller (IP + property) for guest rate limits
+  channel         String    @default("WEB") // WEB | PHONE
+  clientKey       String? // hashed caller (IP or caller ID + property) for guest rate limits
+  /// Phone calls: the caller's number as the carrier passed it (callback default).
+  callerNumber    String?
   liveSessionId   String?
   toolCalls       Int       @default(0)
   summary         String?
@@ -377,6 +381,20 @@ model VoiceSession {
   @@index([propertyId, startedAt])
   @@index([clientKey, startedAt])
   @@map("voice_sessions")
+}
+
+/// A hotel's phone line. StayOS keeps one phone agent per hotel at the voice
+/// provider; whoever runs the provider account points numbers at it there.
+model VoicePhoneLine {
+  propertyId     String   @id
+  enabled        Boolean  @default(true)
+  /// Where callers who ask for a person are put through (E.164). Must not forward back to the line.
+  transferNumber String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  property       Property @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("voice_phone_lines")
 }
 
 /// Callback / message requests captured by the voice agent for the team.

@@ -5,7 +5,7 @@
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
 import { HOTEL_TIMEZONE, diffDays, formatDay, hotelToday, isISODate, toISODate } from '../dates';
-import { badRequest } from '../errors';
+import { DomainError, badRequest } from '../errors';
 import { propertyAvailability } from '../services/inventory';
 import { policyFor } from '../services/guest';
 
@@ -34,7 +34,13 @@ export async function propertyFacts(propertyId: string) {
   };
 }
 
-export async function runGuestTool(propertyId: string, name: string, rawArgs: unknown): Promise<unknown> {
+/** Where a guest conversation is happening: the booking page, or the hotel's phone line (with the caller ID, if any). */
+export type GuestChannel = { kind: 'WEB' } | { kind: 'PHONE'; callerNumber: string | null };
+
+const optionalText = (max: number) => z.string().trim().max(max).nullable().optional();
+
+export async function runGuestTool(propertyId: string, name: string, rawArgs: unknown, channel: GuestChannel = { kind: 'WEB' }): Promise<unknown> {
+  const phone = channel.kind === 'PHONE';
   switch (name) {
     case 'get_property_info':
       return propertyFacts(propertyId);
@@ -63,6 +69,7 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
     }
 
     case 'start_booking': {
+      if (phone) return { error: 'There’s no screen on a phone call — use request_booking instead.' };
       const a = z.object({ room_type_id: z.string().min(1), check_in: isoDate, check_out: isoDate, guests: z.number().int().min(1).max(16), rooms: z.number().int().min(1).max(9) }).parse(rawArgs);
       const rt = await prisma.roomType.findFirst({ where: { id: a.room_type_id, propertyId, isActive: true }, select: { id: true, name: true } });
       if (!rt) return { error: 'That room type isn’t available here — check availability again.' };
@@ -93,12 +100,56 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
       };
     }
 
-    case 'leave_message': {
+    case 'request_booking': {
+      if (!phone) return { error: 'Use start_booking to open the checkout on the guest’s screen.' };
       const a = z
-        .object({ name: z.string().trim().min(1).max(120), phone: z.string().trim().max(40).nullable().optional(), email: z.string().trim().max(200).nullable().optional(), message: z.string().trim().min(1).max(1000) })
+        .object({
+          room_type_id: z.string().min(1),
+          check_in: isoDate,
+          check_out: isoDate,
+          guests: z.number().int().min(1).max(16),
+          rooms: z.number().int().min(1).max(9),
+          name: z.string().trim().min(1).max(120),
+          email: optionalText(200),
+          phone: optionalText(40),
+          notes: optionalText(500),
+        })
         .parse(rawArgs);
-      if (!a.phone && !a.email) return { error: 'Ask for a phone number or email so the team can reply.' };
-      const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: a.phone || null, email: a.email || null, message: a.message } });
+      const callback = a.phone || channel.callerNumber;
+      if (!callback && !a.email) return { error: 'Ask for an email or a callback number so the team can confirm the booking.' };
+      const today = hotelToday();
+      if (a.check_in < today) return { error: `Check-in can’t be in the past — today is ${formatDay(today, 'weekday')}.` };
+      if (a.check_out <= a.check_in) return { error: 'Check-out must be after check-in.' };
+      if (diffDays(a.check_in, a.check_out) > 30) return { error: 'Stays over 30 nights go through the team — take a message instead.' };
+      const rt = await prisma.roomType.findFirst({ where: { id: a.room_type_id, propertyId, isActive: true }, select: { id: true, name: true } });
+      if (!rt) return { error: 'That room type isn’t available here — check availability again.' };
+      const option = (await propertyAvailability({ propertyId, checkIn: a.check_in, checkOut: a.check_out, guests: a.guests, rooms: a.rooms })).find((t) => t.id === rt.id);
+      if (!option || option.available < a.rooms) return { error: `The ${rt.name} is no longer free for those dates — check availability again.` };
+      const nights = diffDays(a.check_in, a.check_out);
+      const total = option.quote?.total ?? null;
+      const message = [
+        `Phone booking request: ${rt.name}, ${formatDay(a.check_in, 'weekday')} to ${formatDay(a.check_out, 'weekday')} (${nights} night${nights > 1 ? 's' : ''}), ${a.guests} guest${a.guests > 1 ? 's' : ''}${a.rooms > 1 ? `, ${a.rooms} rooms` : ''}.`,
+        total !== null ? `Quoted total: $${total}.` : '',
+        a.notes ? `Notes: ${a.notes}` : '',
+        'Confirm with the guest and send a secure payment link.',
+      ]
+        .filter(Boolean)
+        .join(' ');
+      const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: callback || null, email: a.email || null, message, source: 'PHONE' } });
+      return {
+        saved: true,
+        reference: r.id.slice(-6).toUpperCase(),
+        quoted_total: total,
+        say: `I’ve sent your request to the team — they’ll confirm and send ${a.email ? 'a secure payment link by email' : 'you a secure payment link'}. It isn’t booked until then.`,
+      };
+    }
+
+    case 'leave_message': {
+      const a = z.object({ name: z.string().trim().min(1).max(120), phone: optionalText(40), email: optionalText(200), message: z.string().trim().min(1).max(1000) }).parse(rawArgs);
+      // On the phone, the caller ID is the callback number unless they gave another.
+      const callback = a.phone || (phone ? channel.callerNumber : null);
+      if (!callback && !a.email) return { error: 'Ask for a phone number or email so the team can reply.' };
+      const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: callback || null, email: a.email || null, message: a.message, ...(phone ? { source: 'PHONE' } : {}) } });
       return { saved: true, reference: r.id.slice(-6).toUpperCase(), say: 'I’ve passed that to the team — they’ll get back to you.' };
     }
 
@@ -108,3 +159,24 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
 }
 
 export const guestContext = () => ({ today: hotelToday(), timezone: HOTEL_TIMEZONE });
+
+/**
+ * Run a tool and always return something the model can use: validation
+ * problems go back so it can correct itself, domain errors are written for
+ * people, and anything else stays in the logs.
+ */
+export async function guestToolOutput(propertyId: string, name: string, args: unknown, channel?: GuestChannel): Promise<unknown> {
+  try {
+    return await runGuestTool(propertyId, name, args, channel);
+  } catch (e) {
+    if (!(e instanceof z.ZodError) && !(e instanceof DomainError)) console.error('voice tool failed', name, e);
+    return {
+      error:
+        e instanceof z.ZodError
+          ? `Invalid arguments: ${e.issues.map((i) => `${i.path.join('.')} ${i.message}`).join('; ')}`
+          : e instanceof DomainError
+            ? e.message
+            : 'That lookup failed — offer to take a message for the team instead.',
+    };
+  }
+}

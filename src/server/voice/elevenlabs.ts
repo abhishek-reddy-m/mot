@@ -9,13 +9,22 @@
  * specifics (name, today's date, house rules, greeting) are sent per
  * conversation as prompt overrides. Agents and tools are re-synced whenever
  * their configuration in this file changes (tracked by a hash).
+ *
+ * Phone lines: each hotel that turns one on gets its own phone agent, which
+ * the account owner points phone numbers at in ElevenLabs (Twilio, SIP trunk
+ * or Exotel numbers). There is no browser on a phone call, so ElevenLabs
+ * calls StayOS directly: a conversation-initiation webhook when a call comes
+ * in (we answer with the hotel's prompt and a signed session token) and
+ * webhook tools during the call. Both carry a header secret derived from
+ * the server secret.
  */
 import { createHash } from 'crypto';
 import { prisma } from '@/lib/prisma';
-import { DomainError } from '../errors';
-import { GUEST_TOOLS, STAFF_TOOLS, type FunctionToolSpec } from './live';
+import { DomainError, notFound } from '../errors';
+import { GUEST_TOOLS, PHONE_TOOLS, STAFF_TOOLS, deriveVoiceKey, sameKey, type FunctionToolSpec } from './live';
 
-const BASE = (process.env.ELEVENLABS_API_BASE || 'https://api.elevenlabs.io').replace(/\/$/, '');
+const DEFAULT_BASE = 'https://api.elevenlabs.io';
+const BASE = (process.env.ELEVENLABS_API_BASE || DEFAULT_BASE).replace(/\/$/, '');
 const LLM = process.env.ELEVENLABS_LLM || 'gemini-2.5-flash';
 const CONFIG_VERSION = 2;
 
@@ -195,20 +204,149 @@ function agentConfig(audience: Audience, toolIds: string[]) {
   };
 }
 
+// --- Phone lines -------------------------------------------------------------
+
+/** Header ElevenLabs sends on our phone webhooks; the value is derived from the server secret. */
+export const PHONE_WEBHOOK_HEADER = 'X-StayOS-Webhook';
+/** The signed session token for one call, handed to ElevenLabs by the initiation webhook. */
+export const PHONE_SESSION_VARIABLE = 'stayos_session';
+const PHONE_MAX_SECONDS = 600;
+
+const phoneWebhookKey = () => deriveVoiceKey(`elevenlabs-phone|${namespace()}`);
+
+/** Is this request really from our ElevenLabs agents? */
+export function verifyPhoneWebhook(headerValue: string | null): boolean {
+  return elevenLabsConfigured() && sameKey(headerValue, phoneWebhookKey());
+}
+
+/**
+ * The public address ElevenLabs calls back. Production uses the project's
+ * production domain; set STAYOS_PUBLIC_URL to pin another (e.g. a custom
+ * domain). Preview deployments sit behind Vercel Authentication, so their
+ * webhooks would be refused — phone lines belong on production.
+ */
+export function phoneWebhookBase(): string {
+  const vercel = process.env.VERCEL_ENV === 'production' ? process.env.VERCEL_PROJECT_PRODUCTION_URL : process.env.VERCEL_URL;
+  const base = (process.env.STAYOS_PUBLIC_URL || process.env.NEXT_PUBLIC_SITE_URL || (vercel ? `https://${vercel}` : process.env.NEXTAUTH_URL) || '').replace(/\/$/, '');
+  // Plain http only reaches a local mock of the API, never the real one.
+  if (/^https:\/\/[^/]+/.test(base) || (/^http:\/\/[^/]+/.test(base) && BASE !== DEFAULT_BASE)) return base;
+  throw new DomainError(503, 'PHONE_URL', 'Phone calls need StayOS on a public https address — set STAYOS_PUBLIC_URL (for example https://your-domain.com) and redeploy.');
+}
+
+/** A phone tool runs on our server: ElevenLabs POSTs the model's arguments plus the call's session token. */
+function phoneToolConfig(spec: FunctionToolSpec, base: string) {
+  const params = toElevenLabsSchema(spec.parameters as Schema) as { properties?: Record<string, Schema>; required?: string[] };
+  return {
+    type: 'webhook' as const,
+    name: spec.name,
+    description: spec.description,
+    response_timeout_secs: 20,
+    api_schema: {
+      url: `${base}/api/voice/phone/tool`,
+      method: 'POST',
+      content_type: 'application/json',
+      request_headers: { [PHONE_WEBHOOK_HEADER]: phoneWebhookKey() },
+      request_body_schema: {
+        type: 'object',
+        description: `Arguments for ${spec.name}`,
+        properties: {
+          ...(params.properties ?? {}),
+          // Filled by ElevenLabs, never by the model.
+          stayos_tool: { type: 'string', constant_value: spec.name },
+          stayos_session: { type: 'string', dynamic_variable: PHONE_SESSION_VARIABLE },
+        },
+        ...(params.required?.length ? { required: params.required } : {}),
+      },
+    },
+  };
+}
+
+interface PhoneAgentInput {
+  hotel: string;
+  transferNumber: string | null;
+  base: string;
+}
+
+function phoneAgentConfig(input: PhoneAgentInput, toolIds: string[]) {
+  const voiceId = process.env.ELEVENLABS_VOICE_ID;
+  // Phone audio is 8 kHz μ-law (Twilio, SIP/PCMU); "auto" leaves it to ElevenLabs.
+  const audio = process.env.ELEVENLABS_PHONE_AUDIO_FORMAT || 'ulaw_8000';
+  const format = audio === 'auto' ? null : audio;
+  const suffix = ENVIRONMENT === 'production' ? '' : ` (${ENVIRONMENT})`;
+  return {
+    name: `StayOS — ${input.hotel.slice(0, 80)} phone${suffix}`,
+    tags: ['stayos', 'phone', ENVIRONMENT],
+    conversation_config: {
+      agent: {
+        // Replaced per call by the initiation webhook; this only plays if StayOS couldn't be reached.
+        first_message: 'Thanks for calling. I’m sorry — our assistant can’t take calls right now. Please try again in a few minutes.',
+        language: 'en',
+        dynamic_variables: { dynamic_variable_placeholders: { [PHONE_SESSION_VARIABLE]: '' } },
+        prompt: {
+          prompt: 'This hotel phone call could not load its details. Apologise briefly, ask the caller to try again in a few minutes, then end the call.',
+          llm: LLM,
+          temperature: 0.3,
+          tool_ids: toolIds,
+          built_in_tools: {
+            end_call: { name: 'end_call', description: '', params: { system_tool_type: 'end_call' } },
+            ...(input.transferNumber
+              ? {
+                  transfer_to_number: {
+                    name: 'transfer_to_number',
+                    description: '',
+                    params: {
+                      system_tool_type: 'transfer_to_number',
+                      enable_client_message: true,
+                      transfers: [
+                        {
+                          transfer_destination: { type: 'phone', phone_number: input.transferNumber },
+                          condition: 'The caller asks to speak with a person, or has an urgent problem the assistant cannot solve with its tools.',
+                          transfer_type: 'conference',
+                        },
+                      ],
+                    },
+                  },
+                }
+              : {}),
+          },
+        },
+        max_conversation_duration_message: 'I need to wrap up now — please call back any time.',
+      },
+      ...(format ? { asr: { user_input_audio_format: format } } : {}),
+      tts: { model_id: 'eleven_flash_v2', ...(voiceId ? { voice_id: voiceId } : {}), ...(format ? { agent_output_audio_format: format } : {}) },
+      conversation: { max_duration_seconds: PHONE_MAX_SECONDS },
+      // A line left open in silence shouldn't run up minutes.
+      turn: { silence_end_call_timeout: 45 },
+    },
+    platform_settings: {
+      auth: { enable_auth: true },
+      overrides: {
+        enable_conversation_initiation_client_data_from_webhook: true,
+        conversation_config_override: { agent: { first_message: true, prompt: { prompt: true } } },
+      },
+      workspace_overrides: {
+        conversation_initiation_client_data_webhook: { url: `${input.base}/api/voice/phone/start`, request_headers: { [PHONE_WEBHOOK_HEADER]: phoneWebhookKey() } },
+      },
+      call_limits: {
+        agent_concurrency_limit: Number(process.env.ELEVENLABS_MAX_CONCURRENT || 20),
+        daily_limit: Number(process.env.ELEVENLABS_MAX_DAILY || 1000),
+      },
+    },
+  };
+}
+
 const hash = (v: unknown) => createHash('sha256').update(JSON.stringify({ v: CONFIG_VERSION, ...((v as object) ?? {}) })).digest('hex');
 
 // ---------------------------------------------------------------------------
 // Provisioning (create once, update on change)
 // ---------------------------------------------------------------------------
 
-type Db = Pick<typeof prisma, 'voiceProviderAgent'>;
+type Db = Pick<typeof prisma, 'voiceProviderAgent' | '$executeRaw'>;
 
 const saveRow = (db: Db, key: string, externalId: string, configHash: string) =>
   db.voiceProviderAgent.upsert({ where: { key }, create: { key, externalId, configHash }, update: { externalId, configHash } });
 
-async function syncTool(db: Db, spec: FunctionToolSpec, audience: Audience): Promise<string> {
-  const config = toolConfig(spec, audience);
-  const key = `${namespace()}:tool:${audience}:${spec.name}`;
+async function syncTool(db: Db, key: string, config: object): Promise<string> {
   const configHash = hash(config);
   const row = await db.voiceProviderAgent.findUnique({ where: { key } });
   if (row?.configHash === configHash) return row.externalId;
@@ -236,10 +374,86 @@ async function syncAgent(audience: Audience): Promise<string> {
   const own = ownAgent(audience);
   if (own) return own; // bring-your-own agent: managed in ElevenLabs
 
-  const key = agentKey(audience);
   const specs = audience === 'guest' ? GUEST_TOOLS : STAFF_TOOLS;
-  // Fast path without the lock: nothing changed since the last sync.
   const desiredHash = hash({ tools: specs.map((s) => toolConfig(s, audience)), agent: agentConfig(audience, []) });
+  return provisionAgent(agentKey(audience), desiredHash, async (tx) => {
+    const toolIds: string[] = [];
+    for (const spec of specs) toolIds.push(await syncTool(tx, `${namespace()}:tool:${audience}:${spec.name}`, toolConfig(spec, audience)));
+    return agentConfig(audience, toolIds);
+  });
+}
+
+const phoneAgentKey = (propertyId: string) => `${namespace()}:PHONE:${propertyId}`;
+
+async function phoneAgentInput(propertyId: string): Promise<PhoneAgentInput> {
+  const line = await prisma.voicePhoneLine.findUnique({ where: { propertyId }, select: { transferNumber: true, property: { select: { name: true } } } });
+  if (!line) throw notFound('Phone line');
+  return { hotel: line.property.name, transferNumber: line.transferNumber, base: phoneWebhookBase() };
+}
+
+/** Make sure this hotel's phone agent exists at ElevenLabs and matches its settings. */
+async function syncPhoneAgent(propertyId: string): Promise<string> {
+  const input = await phoneAgentInput(propertyId);
+  const desiredHash = hash({ tools: PHONE_TOOLS.map((s) => phoneToolConfig(s, input.base)), agent: phoneAgentConfig(input, []) });
+  return provisionAgent(phoneAgentKey(propertyId), desiredHash, async (tx) => {
+    // Every hotel's phone agent shares one set of phone tools: sync them one hotel at a time.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`${namespace()}:tool:phone`}))`;
+    const toolIds: string[] = [];
+    for (const spec of PHONE_TOOLS) toolIds.push(await syncTool(tx, `${namespace()}:tool:phone:${spec.name}`, phoneToolConfig(spec, input.base)));
+    return phoneAgentConfig(input, toolIds);
+  });
+}
+
+/** Which hotel a phone agent answers for (only agents this deployment created). */
+export async function phonePropertyForAgent(agentId: string): Promise<string | null> {
+  if (!agentId) return null;
+  const prefix = `${namespace()}:PHONE:`;
+  const row = await prisma.voiceProviderAgent.findFirst({ where: { externalId: agentId, key: { startsWith: prefix } }, select: { key: true } });
+  return row ? row.key.slice(prefix.length) : null;
+}
+
+export interface PhoneNumberInfo {
+  phoneNumber: string;
+  label: string | null;
+  provider: string;
+}
+
+/**
+ * Sync this hotel's phone agent (recreating it if it was deleted in
+ * ElevenLabs) and list the numbers in the account that ring it.
+ */
+export async function phoneLineStatus(propertyId: string): Promise<{ agentId: string; agentName: string; numbers: PhoneNumberInfo[] }> {
+  try {
+    let agentId = await syncPhoneAgent(propertyId);
+    let agent: { name?: string };
+    try {
+      agent = await call<{ name?: string }>('GET', `/v1/convai/agents/${encodeURIComponent(agentId)}`);
+    } catch (e) {
+      if (!(e instanceof ElevenLabsError) || e.status !== 404) throw e;
+      await prisma.voiceProviderAgent.updateMany({ where: { key: phoneAgentKey(propertyId) }, data: { configHash: '' } });
+      agentId = await syncPhoneAgent(propertyId);
+      agent = await call<{ name?: string }>('GET', `/v1/convai/agents/${encodeURIComponent(agentId)}`);
+    }
+    type Listed = { phone_number?: string; label?: string | null; provider?: string; assigned_agent?: { agent_id?: string } | null };
+    const listed = await call<Listed[] | { phone_numbers?: Listed[] }>('GET', `/v1/convai/phone-numbers?agent_id=${encodeURIComponent(agentId)}`);
+    const all = Array.isArray(listed) ? listed : (listed.phone_numbers ?? []);
+    const numbers = all
+      .filter((n) => n.assigned_agent?.agent_id === agentId && n.phone_number)
+      .map((n) => ({ phoneNumber: n.phone_number!, label: n.label ?? null, provider: n.provider ?? 'phone' }));
+    return { agentId, agentName: agent.name ?? phoneAgentConfig(await phoneAgentInput(propertyId), []).name, numbers };
+  } catch (e) {
+    if (e instanceof DomainError) throw e;
+    console.error('ElevenLabs phone line sync failed:', e instanceof ElevenLabsError ? `${e.status} ${e.detail}` : e);
+    throw new DomainError(502, 'VOICE_UPSTREAM', describeElevenLabsError(e));
+  }
+}
+
+/**
+ * Create or update one agent (and, through `build`, its tools) so it matches
+ * `desiredHash`. `build` syncs the tools and returns the agent body.
+ */
+async function provisionAgent(key: string, desiredHash: string, build: (tx: Db) => Promise<object>): Promise<string> {
+  // Fast path without the lock: nothing changed since the last sync.
   const cached = await prisma.voiceProviderAgent.findUnique({ where: { key } });
   if (cached?.configHash === desiredHash) return cached.externalId;
 
@@ -252,9 +466,7 @@ async function syncAgent(audience: Audience): Promise<string> {
       try {
         const row = await tx.voiceProviderAgent.findUnique({ where: { key } });
         if (row?.configHash === desiredHash) return { id: row.externalId };
-        const toolIds: string[] = [];
-        for (const spec of specs) toolIds.push(await syncTool(tx, spec, audience));
-        const body = agentConfig(audience, toolIds);
+        const body = await build(tx);
         let id: string | null = null;
         if (row) {
           try {
@@ -330,7 +542,7 @@ export async function startElevenLabsConversation(input: {
 }
 
 /** GPT-Live splits voice and task prompts; an ElevenLabs agent is one model doing both. */
-function singleModelPrompt(p: { instructions: string; backendInstructions: string }) {
+export function singleModelPrompt(p: { instructions: string; backendInstructions: string }) {
   return [
     'You talk with people by voice and you can call tools directly. Wherever these instructions say "delegate", call the right tool yourself, then answer from its result.',
     '',

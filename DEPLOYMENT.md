@@ -29,6 +29,19 @@ The repo deploys as-is: `vercel.json` runs `scripts/vercel-build.mjs`, which
 4. **Deploy** → *Deployments* → *Redeploy* (env and database changes only apply to new builds).
 5. **Check** → `https://<your-domain>/api/health` should return `{"ok":true,"database":"up","seeded":true}`.
 
+## Phone line (ElevenLabs)
+
+Answer a hotel's phone with the voice front desk. Production only: preview deployments sit behind Vercel Authentication, which would refuse ElevenLabs' webhooks.
+
+1. **Hotel in StayOS** → the hotel's own property (demo hotels can't take a real line in the public demo), with its rooms and rates set up — that's what the voice quotes.
+2. **Turn it on** → Console → *Voice* → *Phone* → **Turn on phone line** (owner or platform admin). StayOS creates the hotel's phone agent in ElevenLabs, named `StayOS — <hotel> phone`.
+3. **A number for the assistant** → most countries: buy a local number at Twilio. India: an Exotel number (Indian rules keep call audio in India). A hotel phone system with SIP: a SIP trunk.
+4. **Point it at the agent** → ElevenLabs → *Agents* → *Phone numbers* → *Import number* (Twilio: Account SID + Auth Token; SIP trunk: the provider's details) → choose the agent `StayOS — <hotel> phone`.
+5. **Keep the hotel's number** → forward calls to the new number: on a mobile, `**61*<number>*11*20#` (no answer after 20 s) and `**67*<number>#` (busy), `##002#` to undo; US landlines `*72<number>` (all calls). Or the phone system's "forward on no answer".
+6. **Test** → call the hotel number and let it ring through; *Voice → Phone → Refresh* lists the connected number.
+
+How it works: ElevenLabs calls `POST /api/voice/phone/start` when a call comes in (StayOS answers with the hotel's prompt, greeting and a signed session token, or a polite "not available" when the line is paused or busy), then `POST /api/voice/phone/tool` for each lookup. Both carry an `X-StayOS-Webhook` header derived from `NEXTAUTH_SECRET` (or `AGENT_PLAN_SECRET`) — rotating that secret means pressing *Refresh* on each line so the agents pick up the new value. Phone calls share the hotel's voice limits (6 per caller per 10 minutes, 120 per hotel per hour), end after 10 minutes or 45 seconds of silence, and phone bookings arrive in *Messages* for the team to confirm with a payment link. If a caller asks for a person, the agent transfers to the hotel's *Put callers through to* number — use a direct line that doesn't forward back to the assistant.
+
 ## Notes
 
 - Migrations run on every build that has a database (`prisma migrate deploy` only applies pending ones). Set `SKIP_MIGRATIONS=true` to opt out, e.g. for preview branches sharing the production database.
