@@ -8,6 +8,10 @@ import { cn } from '@/lib/utils';
  * An <img> that fades in when loaded and falls back to a soft branded
  * placeholder when the URL is missing or fails (offline, blocked host,
  * deleted upload) — never a broken-image icon.
+ *
+ * The box never changes size: give it a height or aspect ratio through
+ * `className` (e.g. "aspect-[4/3]") or the `aspectRatio` prop, and the image
+ * is absolutely positioned inside it.
  */
 export function SmartImage({
   src,
@@ -16,6 +20,9 @@ export function SmartImage({
   imgClassName,
   icon: Icon = BedDouble,
   loading = 'lazy',
+  aspectRatio,
+  sizes,
+  priority,
 }: {
   src?: string | null;
   alt?: string;
@@ -23,6 +30,11 @@ export function SmartImage({
   imgClassName?: string;
   icon?: LucideIcon;
   loading?: 'lazy' | 'eager';
+  /** CSS aspect-ratio for the box, e.g. "4 / 3" or 1.5. */
+  aspectRatio?: string | number;
+  sizes?: string;
+  /** Above-the-fold hero image: load eagerly with high fetch priority. */
+  priority?: boolean;
 }) {
   const [state, setState] = React.useState<'loading' | 'ok' | 'error'>(src ? 'loading' : 'error');
   const ref = React.useRef<HTMLImageElement>(null);
@@ -36,10 +48,21 @@ export function SmartImage({
   }, [src]);
 
   return (
-    <div className={cn('relative overflow-hidden bg-muted', className)}>
+    <div
+      className={cn('relative overflow-hidden bg-muted', className)}
+      style={aspectRatio !== undefined ? { aspectRatio: String(aspectRatio) } : undefined}
+      // Keep the description available when the photo itself fails.
+      {...(state === 'error' && alt ? { role: 'img', 'aria-label': alt } : {})}
+    >
       {state !== 'ok' && (
-        <div className={cn('absolute inset-0 flex items-center justify-center bg-gradient-to-br from-primary-soft via-muted to-agent-soft', state === 'loading' && 'animate-pulse')}>
-          {state === 'error' && <Icon className="h-1/4 max-h-12 w-1/4 max-w-12 text-primary/40" aria-hidden />}
+        <div
+          aria-hidden
+          className={cn(
+            'absolute inset-0 flex items-center justify-center bg-gradient-to-br from-brand-soft via-muted to-surface-sunken',
+            state === 'loading' && 'animate-pulse'
+          )}
+        >
+          {state === 'error' && <Icon className="size-1/4 max-h-12 max-w-12 text-muted-foreground/60" aria-hidden />}
         </div>
       )}
       {src && state !== 'error' && (
@@ -48,10 +71,17 @@ export function SmartImage({
           ref={ref}
           src={src}
           alt={alt}
-          loading={loading}
+          sizes={sizes}
+          loading={priority ? 'eager' : loading}
+          fetchPriority={priority ? 'high' : undefined}
+          decoding="async"
           onLoad={() => setState('ok')}
           onError={() => setState('error')}
-          className={cn('h-full w-full object-cover transition-opacity duration-500', state === 'ok' ? 'opacity-100' : 'opacity-0', imgClassName)}
+          className={cn(
+            'absolute inset-0 h-full w-full object-cover transition-opacity duration-500',
+            state === 'ok' ? 'opacity-100' : 'opacity-0',
+            imgClassName
+          )}
         />
       )}
     </div>

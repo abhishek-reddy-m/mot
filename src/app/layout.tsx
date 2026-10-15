@@ -2,7 +2,9 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Fraunces } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
-import { PRODUCT_NAME, PRODUCT_TAGLINE, PRODUCT_DESCRIPTION } from "@/config/product";
+import { PRODUCT_NAME, PRODUCT_DESCRIPTION } from "@/config/product";
+import { BRAND_HEX } from "@/components/brand/colors";
+import { siteUrl } from "@/components/brand/site-url";
 
 const sans = Inter({
   subsets: ["latin"],
@@ -10,7 +12,7 @@ const sans = Inter({
   display: "swap",
 });
 
-// Display serif for guest-facing headlines (booking sites, confirmations).
+// Display serif for headlines (marketing, booking sites, confirmations) and the wordmark.
 const display = Fraunces({
   subsets: ["latin"],
   variable: "--font-display",
@@ -18,19 +20,41 @@ const display = Fraunces({
   axes: ["opsz", "SOFT"],
 });
 
+const DEFAULT_TITLE = `${PRODUCT_NAME} — Direct booking and an AI front desk for hotels`;
+
 export const metadata: Metadata = {
+  metadataBase: new URL(siteUrl()),
   title: {
-    default: `${PRODUCT_NAME} — ${PRODUCT_TAGLINE}`,
+    default: DEFAULT_TITLE,
     template: `%s · ${PRODUCT_NAME}`,
   },
   description: PRODUCT_DESCRIPTION,
+  applicationName: PRODUCT_NAME,
+  keywords: ["hotel booking website", "direct booking", "AI front desk", "hotel voice agent", "channel manager", "independent hotels"],
+  creator: PRODUCT_NAME,
+  publisher: PRODUCT_NAME,
+  // Title and description are left out on purpose: Next fills og:/twitter:
+  // title and description from each page's own metadata.
+  openGraph: {
+    type: "website",
+    siteName: PRODUCT_NAME,
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+  },
+  appleWebApp: {
+    title: PRODUCT_NAME,
+    statusBarStyle: "default",
+  },
 };
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#f8fafc" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b0f17" },
+    { media: "(prefers-color-scheme: light)", color: BRAND_HEX.background },
+    { media: "(prefers-color-scheme: dark)", color: BRAND_HEX.backgroundDark },
   ],
+  colorScheme: "light dark",
 };
 
 export default function RootLayout({
@@ -40,7 +64,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${sans.variable} ${display.variable} font-sans antialiased`}>
+      <body className={`${sans.variable} ${display.variable} bg-background font-sans text-foreground antialiased`}>
+        {/* Pages put id="main" on their <main> landmark. */}
+        <a
+          href="#main"
+          className="sr-only z-[100] rounded-lg bg-primary text-sm font-medium text-primary-foreground shadow-lifted focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:px-4 focus:py-2.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+          Skip to content
+        </a>
         <Providers>{children}</Providers>
       </body>
     </html>
