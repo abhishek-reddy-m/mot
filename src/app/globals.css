@@ -3,107 +3,155 @@
 @tailwind utilities;
 
 /*
- * StayOS design tokens.
+ * HotelOne design tokens.
  * Colors are HSL channel triplets so Tailwind can apply opacity
  * (e.g. bg-primary/10). Semantic names only — never raw palette values
- * in components.
+ * in components. Every text pairing below meets WCAG AA (4.5:1) and every
+ * control boundary (border-strong, ring) meets 3:1, in light and dark.
+ *
+ * Palette: Lagoon (primary, deep teal-blue), Brass (highlight), ivory
+ * neutrals with navy ink. Violet belongs to the AI agent only.
  */
 @layer base {
   :root {
     --radius: 0.75rem;
 
-    --background: 210 25% 98%;
-    --foreground: 222 47% 11%;
+    --background: 40 30% 98%;
+    --foreground: 222 40% 11%;
     --surface: 0 0% 100%;
     --surface-raised: 0 0% 100%;
-    --surface-sunken: 210 30% 96%;
+    --surface-sunken: 40 22% 95.5%;
     --card: 0 0% 100%;
-    --card-foreground: 222 47% 11%;
+    --card-foreground: 222 40% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 222 47% 11%;
+    --popover-foreground: 222 40% 11%;
 
-    --primary: 192 82% 31%;
+    --primary: 197 88% 27%;
+    --primary-hover: 197 88% 22%;
     --primary-foreground: 0 0% 100%;
-    --primary-soft: 190 70% 95%;
+    --primary-soft: 195 70% 95%;
+    --primary-soft-foreground: 197 88% 23%;
 
-    --secondary: 210 30% 95%;
-    --secondary-foreground: 222 47% 15%;
-    --muted: 210 30% 95%;
-    --muted-foreground: 215 16% 44%;
-    --accent: 210 30% 94%;
-    --accent-foreground: 222 47% 11%;
+    --secondary: 40 18% 94.5%;
+    --secondary-foreground: 222 40% 11%;
+    --muted: 40 18% 94.5%;
+    --muted-foreground: 222 10% 38%;
+    --accent: 40 18% 92.5%;
+    --accent-foreground: 222 40% 11%;
 
-    --success: 155 64% 32%;
+    /* Brass: premium touches (most popular, ratings, guest highlights). */
+    --highlight: 38 70% 47%;
+    --highlight-foreground: 222 40% 11%;
+    --highlight-soft: 40 75% 93%;
+    --highlight-soft-foreground: 30 85% 26%;
+
+    --success: 153 70% 27%;
     --success-foreground: 0 0% 100%;
-    --success-soft: 150 60% 94%;
-    --warning: 32 95% 42%;
-    --warning-foreground: 0 0% 100%;
-    --warning-soft: 42 100% 93%;
-    --destructive: 0 72% 50%;
+    --success-soft: 150 50% 94%;
+    --success-soft-foreground: 153 75% 22%;
+    --warning: 38 92% 50%;
+    --warning-foreground: 222 40% 11%;
+    --warning-soft: 44 100% 93%;
+    --warning-soft-foreground: 28 90% 27%;
+    --destructive: 0 72% 45%;
     --destructive-foreground: 0 0% 100%;
     --destructive-soft: 0 86% 96%;
-    --info: 208 88% 45%;
+    --destructive-soft-foreground: 0 72% 37%;
+    --info: 211 85% 41%;
     --info-foreground: 0 0% 100%;
-    --info-soft: 208 100% 96%;
+    --info-soft: 210 100% 96%;
+    --info-soft-foreground: 213 80% 33%;
 
-    /* Agentic mode accent: an indigo-violet that pairs with the teal brand. */
-    --agent: 252 78% 60%;
+    /* The AI agent, and only the agent. */
+    --agent: 258 60% 52%;
     --agent-foreground: 0 0% 100%;
-    --agent-soft: 250 100% 97%;
+    --agent-soft: 255 90% 97%;
+    --agent-soft-foreground: 258 58% 42%;
+    --agent-gradient-from: 258 60% 50%;
+    --agent-gradient-to: 224 76% 46%;
+    --agent-gradient-foreground: 0 0% 100%;
+
+    /* Dark bands on marketing pages, and the scrim behind dialogs. */
+    --inverse: 222 38% 12%;
+    --inverse-foreground: 40 30% 96%;
+    --overlay: 222 47% 6%;
 
     /* White-label: overridden per property via inline style. */
     --brand: var(--primary);
-    --brand-foreground: 0 0% 100%;
+    --brand-foreground: var(--primary-foreground);
     --brand-soft: var(--primary-soft);
+    --brand-soft-foreground: var(--primary-soft-foreground);
 
-    --border: 214 30% 90%;
-    --input: 214 28% 86%;
-    --ring: 192 82% 36%;
-    --shadow: 222 47% 11%;
+    --border: 40 14% 88%;
+    /* Control boundaries (inputs, switches, checkboxes): 3:1 against surfaces. */
+    --border-strong: 222 8% 55%;
+    --input: 222 8% 55%;
+    --ring: 197 88% 32%;
+    --shadow: 222 40% 11%;
   }
 
   .dark {
-    --background: 224 32% 6%;
-    --foreground: 210 40% 97%;
-    --surface: 224 28% 9%;
-    --surface-raised: 224 25% 12%;
-    --surface-sunken: 224 32% 5%;
-    --card: 224 28% 9%;
-    --card-foreground: 210 40% 97%;
-    --popover: 224 25% 11%;
-    --popover-foreground: 210 40% 97%;
+    --background: 222 30% 7%;
+    --foreground: 40 20% 95%;
+    --surface: 222 26% 10%;
+    --surface-raised: 222 24% 13%;
+    --surface-sunken: 222 32% 5%;
+    --card: 222 26% 10%;
+    --card-foreground: 40 20% 95%;
+    --popover: 222 24% 12%;
+    --popover-foreground: 40 20% 95%;
 
-    --primary: 188 72% 46%;
-    --primary-foreground: 224 40% 8%;
-    --primary-soft: 190 60% 14%;
+    --primary: 195 62% 50%;
+    --primary-hover: 195 62% 58%;
+    --primary-foreground: 222 40% 8%;
+    --primary-soft: 196 50% 15%;
+    --primary-soft-foreground: 193 70% 74%;
 
-    --secondary: 222 22% 16%;
-    --secondary-foreground: 210 40% 96%;
-    --muted: 222 22% 15%;
-    --muted-foreground: 215 18% 66%;
-    --accent: 222 22% 16%;
-    --accent-foreground: 210 40% 97%;
+    --secondary: 222 20% 15%;
+    --secondary-foreground: 40 20% 95%;
+    --muted: 222 20% 15%;
+    --muted-foreground: 220 12% 68%;
+    --accent: 222 20% 18%;
+    --accent-foreground: 40 20% 95%;
 
-    --success: 152 58% 46%;
-    --success-foreground: 224 40% 8%;
-    --success-soft: 152 50% 13%;
-    --warning: 38 92% 56%;
-    --warning-foreground: 224 40% 8%;
-    --warning-soft: 38 70% 14%;
-    --destructive: 0 78% 62%;
-    --destructive-foreground: 224 40% 8%;
-    --destructive-soft: 0 60% 16%;
-    --info: 205 90% 62%;
-    --info-foreground: 224 40% 8%;
-    --info-soft: 208 60% 15%;
+    --highlight: 40 72% 58%;
+    --highlight-foreground: 222 40% 8%;
+    --highlight-soft: 38 45% 15%;
+    --highlight-soft-foreground: 42 85% 72%;
 
-    --agent: 250 92% 72%;
-    --agent-foreground: 224 40% 8%;
-    --agent-soft: 252 50% 16%;
+    --success: 152 55% 46%;
+    --success-foreground: 222 40% 8%;
+    --success-soft: 152 40% 13%;
+    --success-soft-foreground: 150 60% 66%;
+    --warning: 40 90% 56%;
+    --warning-foreground: 222 40% 8%;
+    --warning-soft: 38 50% 14%;
+    --warning-soft-foreground: 42 95% 68%;
+    --destructive: 0 78% 64%;
+    --destructive-foreground: 222 40% 8%;
+    --destructive-soft: 0 45% 16%;
+    --destructive-soft-foreground: 0 90% 80%;
+    --info: 205 88% 62%;
+    --info-foreground: 222 40% 8%;
+    --info-soft: 208 50% 15%;
+    --info-soft-foreground: 205 95% 78%;
 
-    --border: 222 20% 18%;
-    --input: 222 20% 22%;
-    --ring: 188 72% 50%;
+    --agent: 255 85% 74%;
+    --agent-foreground: 222 40% 8%;
+    --agent-soft: 255 40% 18%;
+    --agent-soft-foreground: 255 95% 84%;
+    --agent-gradient-from: 258 55% 46%;
+    --agent-gradient-to: 224 70% 42%;
+    --agent-gradient-foreground: 0 0% 100%;
+
+    --inverse: 222 32% 4%;
+    --inverse-foreground: 40 20% 95%;
+    --overlay: 222 47% 2%;
+
+    --border: 222 16% 20%;
+    --border-strong: 220 10% 46%;
+    --input: 220 10% 46%;
+    --ring: 195 70% 58%;
     --shadow: 224 60% 2%;
   }
 
@@ -132,19 +180,15 @@
 }
 
 @layer components {
-  /* Animated gradient used to signal "the agent is on". */
+  /* The agent's gradient (violet to royal blue). Text on it: agent-gradient-foreground. */
   .bg-aurora {
     background-image: linear-gradient(
       120deg,
-      hsl(var(--primary)) 0%,
-      hsl(var(--agent)) 50%,
-      hsl(var(--primary)) 100%
+      hsl(var(--agent-gradient-from)) 0%,
+      hsl(var(--agent-gradient-to)) 50%,
+      hsl(var(--agent-gradient-from)) 100%
     );
     background-size: 200% 200%;
-  }
-
-  .text-aurora {
-    @apply bg-aurora bg-clip-text text-transparent;
   }
 
   .ring-aurora {
@@ -156,7 +200,7 @@
     inset: -1px;
     border-radius: inherit;
     padding: 1px;
-    background: linear-gradient(120deg, hsl(var(--primary) / 0.7), hsl(var(--agent) / 0.8), hsl(var(--primary) / 0.7));
+    background: linear-gradient(120deg, hsl(var(--agent-gradient-from) / 0.75), hsl(var(--agent-gradient-to) / 0.75), hsl(var(--agent-gradient-from) / 0.75));
     -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
     -webkit-mask-composite: xor;
     mask-composite: exclude;

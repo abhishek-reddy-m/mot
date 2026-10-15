@@ -10,8 +10,8 @@
  * ALLOW_SEED_WIPE=true, and never creates an admin without ADMIN_SEED_PASSWORD.
  *
  * Demo logins (password: demo1234 unless overridden by DEMO_PASSWORD):
- *   owner@stayos.demo · manager@stayos.demo · frontdesk@stayos.demo
- *   housekeeping@stayos.demo · guest@stayos.demo
+ *   owner@hotelone.demo · manager@hotelone.demo · frontdesk@hotelone.demo
+ *   housekeeping@hotelone.demo · guest@hotelone.demo
  */
 const { PrismaClient } = require('@prisma/client');
 const bcrypt = require('bcryptjs');
@@ -90,16 +90,16 @@ async function main() {
     prisma.user.upsert({
       where: { email },
       // Re-running repairs the shared demo logins (password, role, active).
-      update: email.endsWith('@stayos.demo') ? { password: demoHash, role, isActive: true } : {},
+      update: /@(hotelone|stayos)\.demo$/.test(email) ? { password: demoHash, role, isActive: true } : {},
       create: { email, password: demoHash, firstName, lastName, role, phone: phone || null },
     });
 
-  const owner = await mkUser('owner@stayos.demo', 'Maya', 'Chen', 'OWNER', '+1 831 555 0101');
-  const manager = await mkUser('manager@stayos.demo', 'Diego', 'Alvarez', 'MANAGER', '+1 831 555 0102');
-  const desk = await mkUser('frontdesk@stayos.demo', 'Priya', 'Patel', 'FRONT_DESK', '+1 831 555 0103');
-  const hk1 = await mkUser('housekeeping@stayos.demo', 'Rosa', 'Martinez', 'HOUSEKEEPER', '+1 831 555 0104');
-  const hk2 = await mkUser('housekeeping2@stayos.demo', 'Tom', 'Becker', 'HOUSEKEEPER', '+1 831 555 0105');
-  const guestUser = await mkUser('guest@stayos.demo', 'Alex', 'Rivera', 'CUSTOMER', '+1 415 555 0199');
+  const owner = await mkUser('owner@hotelone.demo', 'Maya', 'Chen', 'OWNER', '+1 831 555 0101');
+  const manager = await mkUser('manager@hotelone.demo', 'Diego', 'Alvarez', 'MANAGER', '+1 831 555 0102');
+  const desk = await mkUser('frontdesk@hotelone.demo', 'Priya', 'Patel', 'FRONT_DESK', '+1 831 555 0103');
+  const hk1 = await mkUser('housekeeping@hotelone.demo', 'Rosa', 'Martinez', 'HOUSEKEEPER', '+1 831 555 0104');
+  const hk2 = await mkUser('housekeeping2@hotelone.demo', 'Tom', 'Becker', 'HOUSEKEEPER', '+1 831 555 0105');
+  const guestUser = await mkUser('guest@hotelone.demo', 'Alex', 'Rivera', 'CUSTOMER', '+1 415 555 0199');
   await prisma.user.upsert({
     where: { email: 'customer@example.com' },
     update: {},
@@ -477,7 +477,7 @@ async function main() {
 
   const counts = await Promise.all([prisma.booking.count(), prisma.room.count(), prisma.user.count()]);
   console.log(`Seeded: ${counts[0]} bookings, ${counts[1]} rooms, ${counts[2]} users. Hotel "today" = ${today} (${TZ}).`);
-  console.log('Demo logins (password demo1234): owner@ / manager@ / frontdesk@ / housekeeping@ / guest@stayos.demo');
+  console.log('Demo logins (password demo1234): owner@ / manager@ / frontdesk@ / housekeeping@ / guest@hotelone.demo');
   console.log('Owner, manager and front desk also see Harbor Motel — a hotel that keeps Cloudbeds (bridge path).');
 }
 

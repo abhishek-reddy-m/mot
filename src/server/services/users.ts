@@ -1,6 +1,7 @@
 /**
  * Team/user management rules: visibility and what an actor may grant.
  */
+import { isDemoEmail } from '@/config/product';
 import type { Prisma } from '@prisma/client';
 import type { Actor } from '../authz';
 import { forbidden } from '../errors';
@@ -41,7 +42,7 @@ export function assertCanGrant(actor: Actor, role: Role) {
 }
 
 /**
- * Public demo: the shared @stayos.demo logins are listed on /login, so their
+ * Public demo: the shared @hotelone.demo logins are listed on /login, so their
  * sign-in (email, password), role and active status can't be changed there —
  * otherwise one visitor could lock everyone else out.
  */
@@ -49,7 +50,7 @@ export function assertDemoLoginUnchanged(
   user: { email: string; role: string; isActive: boolean; assignedProperties?: { property: { id: string } }[] },
   change: { email?: string; password?: string; role?: string; isActive?: boolean; assignedPropertyIds?: string[]; remove?: boolean },
 ) {
-  if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true' || !user.email.toLowerCase().endsWith('@stayos.demo')) return;
+  if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true' || !isDemoEmail(user.email)) return;
   const current = (user.assignedProperties ?? []).map((a) => a.property.id).sort().join();
   const touches =
     change.remove ||

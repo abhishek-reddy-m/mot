@@ -1,10 +1,14 @@
 import type { Config } from "tailwindcss";
 import animate from "tailwindcss-animate";
 
+const c = (v: string) => `hsl(var(--${v}) / <alpha-value>)`;
+
+/** A tone: solid fill + its text, and a soft fill + its text (both AA). */
 const tone = (name: string) => ({
-  DEFAULT: `hsl(var(--${name}) / <alpha-value>)`,
-  foreground: `hsl(var(--${name}-foreground) / <alpha-value>)`,
-  soft: `hsl(var(--${name}-soft) / <alpha-value>)`,
+  DEFAULT: c(name),
+  foreground: c(`${name}-foreground`),
+  soft: c(`${name}-soft`),
+  "soft-foreground": c(`${name}-soft-foreground`),
 });
 
 export default {
@@ -17,20 +21,18 @@ export default {
       screens: { "2xl": "1280px" },
     },
     extend: {
-      // Dynamic viewport units (core utilities only arrive in Tailwind 3.4).
-      height: { dvh: "100dvh" },
-      minHeight: { dvh: "100dvh" },
-      maxHeight: { dvh: "100dvh" },
-      // Finer opacity steps (core in 3.4) so modifiers like ring-primary/15 resolve.
-      opacity: { 15: "0.15", 35: "0.35", 45: "0.45", 55: "0.55", 65: "0.65", 85: "0.85" },
+      fontSize: {
+        // Eyebrows and tiny labels only; body text never goes below text-xs (12px).
+        "2xs": ["0.6875rem", { lineHeight: "1rem", letterSpacing: "0.02em" }],
+      },
       fontFamily: {
         sans: ["var(--font-sans)", "ui-sans-serif", "system-ui", "sans-serif"],
         display: ["var(--font-display)", "ui-serif", "Georgia", "serif"],
         mono: ["ui-monospace", "SFMono-Regular", "Menlo", "monospace"],
       },
       colors: {
-        border: "hsl(var(--border) / <alpha-value>)",
-        input: "hsl(var(--input) / <alpha-value>)",
+        border: { DEFAULT: c("border"), strong: c("border-strong") },
+        input: c("input"),
         ring: "hsl(var(--ring) / <alpha-value>)",
         background: "hsl(var(--background) / <alpha-value>)",
         foreground: "hsl(var(--foreground) / <alpha-value>)",
@@ -39,7 +41,10 @@ export default {
           raised: "hsl(var(--surface-raised) / <alpha-value>)",
           sunken: "hsl(var(--surface-sunken) / <alpha-value>)",
         },
-        primary: tone("primary"),
+        primary: { ...tone("primary"), hover: c("primary-hover") },
+        highlight: tone("highlight"),
+        inverse: { DEFAULT: c("inverse"), foreground: c("inverse-foreground") },
+        overlay: c("overlay"),
         secondary: {
           DEFAULT: "hsl(var(--secondary) / <alpha-value>)",
           foreground: "hsl(var(--secondary-foreground) / <alpha-value>)",
@@ -65,12 +70,18 @@ export default {
         warning: tone("warning"),
         danger: tone("destructive"),
         info: tone("info"),
-        agent: tone("agent"),
+        agent: {
+          ...tone("agent"),
+          "gradient-from": c("agent-gradient-from"),
+          "gradient-to": c("agent-gradient-to"),
+          "gradient-foreground": c("agent-gradient-foreground"),
+        },
         // Per-property brand color for white-labeled guest pages.
         brand: {
           DEFAULT: "hsl(var(--brand) / <alpha-value>)",
           foreground: "hsl(var(--brand-foreground) / <alpha-value>)",
           soft: "hsl(var(--brand-soft) / <alpha-value>)",
+          "soft-foreground": "hsl(var(--brand-soft-foreground) / <alpha-value>)",
         },
       },
       borderRadius: {

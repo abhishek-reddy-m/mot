@@ -4,6 +4,7 @@
  * whether it's listed, the voice agent's words — stays as seeded. Everything
  * operational (bookings, rooms, rates, housekeeping) stays hands-on.
  */
+import { isDemoEmail } from '@/config/product';
 import type { Actor } from './authz';
 import { forbidden } from './errors';
 
@@ -16,7 +17,7 @@ const norm = (v: unknown) => (v === '' || v === undefined ? null : typeof v === 
  */
 export function demoHotelLocked(actor: Pick<Actor, 'role' | 'email'>, isDemo: boolean): boolean {
   if (process.env.NEXT_PUBLIC_DEMO_MODE !== 'true' || actor.role === 'ADMIN') return false;
-  return isDemo || actor.email.toLowerCase().endsWith('@stayos.demo');
+  return isDemo || isDemoEmail(actor.email);
 }
 
 export function assertNotDemoHotel(actor: Actor, isDemo: boolean, message: string) {

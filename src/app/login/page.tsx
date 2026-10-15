@@ -14,10 +14,10 @@ import { canAccessConsolePath, homeForRole, isStaffRole } from '@/lib/routes';
 const DEMO_ENABLED = process.env.NEXT_PUBLIC_DEMO_MODE === 'true' || (process.env.NODE_ENV !== 'production' && process.env.NEXT_PUBLIC_DEMO_MODE !== 'false');
 
 const DEMO_ACCOUNTS = [
-  { label: 'Owner', email: 'owner@stayos.demo', hint: 'Everything, incl. rates & team' },
-  { label: 'Front desk', email: 'frontdesk@stayos.demo', hint: 'Arrivals, check-in, the agent' },
-  { label: 'Housekeeping', email: 'housekeeping@stayos.demo', hint: 'Mobile room list' },
-  { label: 'Guest', email: 'guest@stayos.demo', hint: 'Trips & booking flow' },
+  { label: 'Owner', email: 'owner@hotelone.demo', hint: 'Everything, incl. rates & team' },
+  { label: 'Front desk', email: 'frontdesk@hotelone.demo', hint: 'Arrivals, check-in, the agent' },
+  { label: 'Housekeeping', email: 'housekeeping@hotelone.demo', hint: 'Mobile room list' },
+  { label: 'Guest', email: 'guest@hotelone.demo', hint: 'Trips & booking flow' },
 ];
 
 /** Only same-site relative paths are accepted as a post-login destination. */
