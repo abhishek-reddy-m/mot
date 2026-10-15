@@ -36,7 +36,7 @@ const schema = z.object({
 
 /**
  * POST /api/onboarding — create the owner, their property and the setup for
- * the path they chose (run on StayOS, keep their PMS, or voice only) in one
+ * the path they chose (run on HotelOne, keep their PMS, or voice only) in one
  * transaction. No payment data is collected here.
  */
 export const POST = handleRoute(async (request: NextRequest) => {
