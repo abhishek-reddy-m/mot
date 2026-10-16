@@ -12,5 +12,9 @@ export default function ConsoleHome() {
     if (!ctx || !property) return;
     router.replace(property?.setupPath === 'FULL' && preferredMode === 'AGENTIC' ? '/admin/agent' : homeHref);
   }, [ctx, property, preferredMode, homeHref, router]);
-  return null;
+  return (
+    <p className="sr-only" role="status">
+      Opening your console…
+    </p>
+  );
 }

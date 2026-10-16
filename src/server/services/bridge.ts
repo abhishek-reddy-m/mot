@@ -1,8 +1,8 @@
 /**
- * The PMS bridge: StayOS operates a hotel's existing PMS for them, so they
+ * The PMS bridge: HotelOne operates a hotel's existing PMS for them, so they
  * get the agent (and voice) without migrating.
  *
- *  • DESKTOP — the StayOS Connector runs on a front-desk computer and drives
+ *  • DESKTOP — the HotelOne Connector runs on a front-desk computer and drives
  *    a browser that is already signed in to their PMS. Logins never leave
  *    the hotel.
  *  • CLOUD — our isolated cloud browser signs in with credentials sealed in
@@ -13,6 +13,7 @@
  * changes go through the usual signed plan → confirm before being queued.
  */
 import { randomInt } from 'crypto';
+import { PRODUCT_NAME } from '@/config/product';
 import { prisma } from '@/lib/prisma';
 import { Prisma, type PmsConnection } from '@prisma/client';
 import { requirePermission, type Actor } from '../authz';
@@ -77,7 +78,7 @@ export async function upsertConnection(ctx: OpContext, propertyId: string, input
 
 export async function setCredentials(ctx: OpContext, propertyId: string, creds: Credentials) {
   requirePermission(ctx.actor, 'bridge.manage');
-  if (!vaultAvailable()) throw new DomainError(503, 'VAULT_DISABLED', 'Secure credential storage isn’t configured on this server (STAYOS_VAULT_KEY).');
+  if (!vaultAvailable()) throw new DomainError(503, 'VAULT_DISABLED', 'Secure login storage isn’t set up on this server yet (platform admin: set HOTELONE_VAULT_KEY; the older STAYOS_VAULT_KEY also works).');
   const c = await getConnection(propertyId);
   if (!c) throw notFound('PMS connection');
   if (c.mode !== 'CLOUD') throw badRequest('Logins are only stored for the cloud browser. The desktop connector uses the browser already signed in on your computer.');
@@ -126,7 +127,7 @@ export async function revokeDevice(ctx: OpContext, propertyId: string) {
 export async function pairDevice(pairingCode: string, deviceName: string) {
   const normalized = pairingCode.toUpperCase().replace(/[^A-Z0-9]/g, '');
   const c = await prisma.pmsConnection.findUnique({ where: { pairingCode: normalized }, include: { property: { select: { name: true } } } });
-  if (!c || !c.pairingExpiresAt || c.pairingExpiresAt < new Date()) throw forbidden('That pairing code is wrong or has expired. Create a new one in the StayOS console.');
+  if (!c || !c.pairingExpiresAt || c.pairingExpiresAt < new Date()) throw forbidden(`That pairing code is wrong or has expired. Create a new one in the ${PRODUCT_NAME} console.`);
   const token = `sco_${randomToken(32)}`;
   await prisma.pmsConnection.update({
     where: { id: c.id },
@@ -147,7 +148,7 @@ export async function authenticateBridge(header: string | null): Promise<BridgeC
     return { kind: 'worker' };
   }
   const c = await prisma.pmsConnection.findUnique({ where: { deviceTokenHash: sha256(raw) } });
-  if (!c) throw forbidden('This connector has been disconnected. Pair it again from the StayOS console.');
+  if (!c) throw forbidden(`This connector has been disconnected. Pair it again from the ${PRODUCT_NAME} console.`);
   await prisma.pmsConnection.update({ where: { id: c.id }, data: { lastSeenAt: new Date() } });
   return { kind: 'device', connection: c };
 }

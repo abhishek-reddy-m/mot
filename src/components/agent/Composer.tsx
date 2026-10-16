@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { ArrowUp, CornerDownLeft, Mic, Square, WifiOff } from 'lucide-react';
+import { ArrowUp, Mic, Square, WifiOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { IconButton } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/primitives';
 
 export const COMMAND_EXAMPLES = [
@@ -173,32 +173,51 @@ export const Composer = React.forwardRef<
     rec.start();
   }
 
+  const listId = React.useId();
+  const hintId = React.useId();
+  const showMatches = matches.length > 0;
+
   return (
     <div className="relative">
-      {matches.length > 0 && (
-        <div className="absolute inset-x-0 bottom-full mb-2 overflow-hidden rounded-xl border bg-popover p-1 shadow-lifted animate-scale-in">
+      {showMatches && (
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label="Suggested commands"
+          className="absolute inset-x-0 bottom-full z-10 mb-2 overflow-hidden rounded-xl border bg-popover p-1 text-popover-foreground shadow-lifted animate-scale-in"
+        >
           {matches.map((m, i) => (
-            <button
+            <li
               key={m}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={i === highlight}
               onMouseDown={(e) => {
                 e.preventDefault();
                 submit(m);
               }}
               onMouseEnter={() => setHighlight(i)}
-              className={cn('flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm', i === highlight ? 'bg-accent' : '')}
+              className={cn('flex min-h-10 cursor-pointer items-center justify-between gap-3 rounded-lg px-3 py-2 text-left text-sm', i === highlight && 'bg-accent text-accent-foreground')}
             >
-              <span>{m}</span>
-              {i === highlight && <Kbd>Tab</Kbd>}
-            </button>
+              <span className="min-w-0 truncate">{m}</span>
+              {i === highlight && (
+                <span className="hidden shrink-0 items-center gap-1 text-xs text-muted-foreground sm:inline-flex" aria-hidden>
+                  <Kbd>Tab</Kbd> to fill
+                </span>
+              )}
+            </li>
           ))}
-        </div>
+        </ul>
       )}
       <div
         className={cn(
-          'group relative rounded-2xl border bg-card shadow-lifted transition-shadow focus-within:shadow-glow',
-          !online && 'border-warning/50'
+          'group relative rounded-2xl border border-border-strong/40 bg-card shadow-lifted transition-[border-color,box-shadow] focus-within:border-agent/60 focus-within:shadow-glow',
+          !online && 'border-warning/60'
         )}
       >
+        <label htmlFor="agent-composer" className="sr-only">
+          Message the agent
+        </label>
         <textarea
           id="agent-composer"
           ref={taRef}
@@ -212,53 +231,76 @@ export const Composer = React.forwardRef<
           }}
           onKeyDown={onKeyDown}
           placeholder={listening ? 'Listening…' : placeholder ?? 'Ask or tell the agent what to do…'}
-          aria-label="Message the agent"
+          aria-describedby={hintId}
+          aria-controls={showMatches ? listId : undefined}
+          aria-activedescendant={showMatches ? `${listId}-${highlight}` : undefined}
+          aria-autocomplete="list"
+          enterKeyHint="send"
           className={cn(
-            'block w-full resize-none bg-transparent px-4 pb-12 pt-3.5 text-[15px] leading-relaxed placeholder:text-muted-foreground/70 focus:outline-none',
-            compact && 'text-sm'
+            'block w-full resize-none rounded-2xl bg-transparent px-4 pb-14 pt-3.5 text-base leading-relaxed placeholder:text-muted-foreground focus:outline-none md:text-[15px]',
+            compact && 'md:text-sm'
           )}
         />
+        <p id={hintId} className="sr-only">
+          Press Enter to send and Shift+Enter for a new line. The up arrow brings back earlier commands.
+        </p>
         <div className="absolute inset-x-2 bottom-2 flex items-center gap-1">
           {extra}
           {speechOk && !extra && (
-            <Button
+            <IconButton
               type="button"
-              variant="ghost"
-              size="icon-sm"
+              label={listening ? 'Stop listening' : 'Speak a command'}
+              aria-pressed={listening}
               onClick={toggleMic}
-              aria-label={listening ? 'Stop listening' : 'Speak a command'}
-              className={cn(listening && 'animate-pulse-ring rounded-full bg-agent-soft text-agent')}
+              className={cn('rounded-full', listening && 'bg-agent-soft text-agent-soft-foreground hover:bg-agent-soft motion-safe:animate-pulse-ring')}
             >
-              <Mic />
-            </Button>
+              <Mic aria-hidden />
+            </IconButton>
           )}
-          <div className="ml-1 hidden items-center gap-1.5 text-[11px] text-muted-foreground sm:flex">
+          <div className="ml-1 hidden min-w-0 items-center gap-1.5 text-xs text-muted-foreground sm:flex" aria-hidden>
             {!online ? (
-              <span className="inline-flex items-center gap-1 text-warning">
-                <WifiOff className="h-3 w-3" /> Offline
+              <span className="inline-flex items-center gap-1.5 font-medium text-warning-soft-foreground">
+                <WifiOff className="size-3.5" /> Offline
               </span>
+            ) : listening ? (
+              <span className="font-medium text-agent-soft-foreground">Listening… speak now</span>
             ) : (
               !compact && (
                 <>
-                  <CornerDownLeft className="h-3 w-3" /> send · <Kbd>⇧</Kbd>
-                  <CornerDownLeft className="h-3 w-3" /> new line · <Kbd>↑</Kbd> history
+                  <Kbd>Enter</Kbd> send
+                  <span className="text-border-strong">·</span>
+                  <Kbd>Shift</Kbd>+<Kbd>Enter</Kbd> new line
+                  <span className="hidden text-border-strong lg:inline">·</span>
+                  <span className="hidden items-center gap-1.5 lg:inline-flex">
+                    <Kbd>↑</Kbd> earlier
+                  </span>
                 </>
               )
             )}
           </div>
-          <div className="ml-auto">
+          <div className="ml-auto flex items-center">
             {busy ? (
-              <Button type="button" size="icon-sm" variant="secondary" onClick={onStop} aria-label="Stop">
-                <Square className="h-3.5 w-3.5 fill-current" />
-              </Button>
+              <IconButton type="button" label="Stop answering" variant="secondary" onClick={onStop} className="rounded-xl">
+                <Square className="size-3.5 fill-current" aria-hidden />
+              </IconButton>
             ) : (
-              <Button type="button" size="icon-sm" variant="agent" onClick={() => submit()} disabled={!value.trim()} aria-label="Send" className="rounded-lg">
-                <ArrowUp />
-              </Button>
+              <IconButton
+                type="button"
+                label="Send"
+                variant={value.trim() ? 'agent' : 'secondary'}
+                onClick={() => submit()}
+                disabled={!value.trim()}
+                className="rounded-xl"
+              >
+                <ArrowUp aria-hidden />
+              </IconButton>
             )}
           </div>
         </div>
       </div>
+      <span className="sr-only" role="status">
+        {listening ? 'Listening. Speak your command.' : ''}
+      </span>
     </div>
   );
 });

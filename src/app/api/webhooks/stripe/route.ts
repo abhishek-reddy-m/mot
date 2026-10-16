@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getStripe, isStripeConfigured } from '@/lib/stripe';
 import { prisma } from '@/lib/prisma';
-import { sendBookingConfirmation } from '@/lib/email';
+import { sendBookingConfirmation } from '@/server/email';
 import { toDateString } from '@/lib/date-utils';
 
 /**
@@ -87,7 +87,8 @@ export async function POST(request: NextRequest) {
         guests: booking.guests,
         rooms: booking.rooms,
         totalPrice: booking.totalPrice.toString(),
-        bookingId: booking.id,
+        // The short code guests can say out loud, like the pay-at-hotel confirmation.
+        bookingId: booking.code ?? booking.id,
         paymentStatus: 'PAID',
       });
     }

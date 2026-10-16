@@ -79,7 +79,7 @@ const schema = z.object({
  * PUT — turn the phone line on or off and set where callers are put through
  * (owners and platform admins). The hotel's agent is synced right away; if
  * ElevenLabs can't take a change that turns the line on or moves transfers,
- * nothing is changed. Pausing always sticks — StayOS declines the calls itself.
+ * nothing is changed. Pausing always sticks — HotelOne declines the calls itself.
  */
 export const PUT = handleRoute(async (request: NextRequest) => {
   const actor = await requireStaff('phone.manage');

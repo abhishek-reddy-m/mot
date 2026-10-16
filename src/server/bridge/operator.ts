@@ -8,6 +8,7 @@
 import OpenAI from 'openai';
 import { createHmac } from 'crypto';
 import type { BridgeTask, PmsConnection } from '@prisma/client';
+import { PRODUCT_NAME } from '@/config/product';
 import { DomainError } from '../errors';
 
 export const OPERATOR_MODEL = process.env.BRIDGE_OPERATOR_MODEL || 'computer-use-preview';
@@ -21,7 +22,7 @@ export function operatorConfigured(): boolean {
 
 let client: OpenAI | null = null;
 const openai = () => {
-  if (!operatorConfigured()) throw new DomainError(503, 'OPERATOR_DISABLED', 'The PMS operator needs OPENAI_API_KEY on the StayOS server.');
+  if (!operatorConfigured()) throw new DomainError(503, 'OPERATOR_DISABLED', `The PMS operator isn’t switched on for this ${PRODUCT_NAME} server yet (platform admin: add OPENAI_API_KEY).`);
   // Fail fast enough to report a clean error inside the serverless function's time limit.
   client ??= new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 60_000, maxRetries: 1 });
   return client;
@@ -48,7 +49,7 @@ function instructionsFor(task: BridgeTask, c: PmsConnection & { property?: { nam
     'Never delete reservations, issue refunds, change passwords or user permissions, or export guest data.',
     canLogIn
       ? 'If a login screen appears, click the username field and call fill_credential("username"), then the password field and fill_credential("password"); use fill_credential("totp") for a one-time code.'
-      : 'If you see a login screen, stop and reply NEEDS_HELP asking the staff to sign in to the StayOS browser window.',
+      : `If you see a login screen, stop and reply NEEDS_HELP asking the staff to sign in to the ${PRODUCT_NAME} browser window.`,
     'If anything is ambiguous (two guests with the same name, a missing room, an unexpected warning), stop and reply NEEDS_HELP with the question.',
     'When finished, reply with ONE short paragraph that starts with "DONE:", "NEEDS_HELP:" or "FAILED:" and states exactly what you saw or changed (names, dates, room numbers, amounts).',
   ].join('\n');

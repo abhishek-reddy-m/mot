@@ -6,6 +6,7 @@
  * command is audit-logged. A language-model engine can be plugged in via
  * llm.ts; it must use the same tools and the same plan/confirm contract.
  */
+import { PRODUCT_NAME } from '@/config/product';
 import { prisma } from '@/lib/prisma';
 import type { AgentBlock, AgentContextState, AgentEvent } from '@/lib/agent/blocks';
 import type { Actor } from '../authz';
@@ -160,7 +161,7 @@ async function* runBridged(input: AgentRunInput, message: string, today: string)
         token,
         title: `Do this in ${connection.system}`,
         steps: steps.map((s) => ({ summary: s.summary, detail: s.detail })),
-        warnings: [`This changes data in ${connection.system}, not in StayOS.`],
+        warnings: [`This changes data in ${connection.system}, not in ${PRODUCT_NAME}.`],
         risk: 'medium',
         confirmLabel: 'Send to PMS',
         expiresAt,

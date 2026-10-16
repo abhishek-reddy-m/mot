@@ -1,8 +1,11 @@
 /**
  * Small authenticated-encryption vault for secrets we must keep (a hotel's
  * PMS login for the cloud bridge). AES-256-GCM with a random IV; the key
- * comes from STAYOS_VAULT_KEY (32 bytes, base64). In development only, a key
- * is derived from NEXTAUTH_SECRET so the demo works out of the box.
+ * comes from HOTELONE_VAULT_KEY (32 bytes, base64) — or STAYOS_VAULT_KEY, the
+ * name from before the rename, which is still accepted. Moving to the new
+ * name means copying the exact same value: a different key can't open the
+ * logins already stored. In development only, a key is derived from
+ * NEXTAUTH_SECRET so the demo works out of the box.
  */
 import { createCipheriv, createDecipheriv, createHash, hkdfSync, randomBytes, timingSafeEqual } from 'crypto';
 
@@ -10,16 +13,24 @@ let cached: Buffer | null = null;
 
 function key(): Buffer {
   if (cached) return cached;
-  const raw = process.env.STAYOS_VAULT_KEY;
+  const current = process.env.HOTELONE_VAULT_KEY;
+  const legacy = process.env.STAYOS_VAULT_KEY;
+  const raw = current || legacy;
   if (raw) {
+    const name = current ? 'HOTELONE_VAULT_KEY' : 'STAYOS_VAULT_KEY';
     const k = Buffer.from(raw, 'base64');
-    if (k.length !== 32) throw new Error('STAYOS_VAULT_KEY must be 32 bytes, base64-encoded (openssl rand -base64 32).');
+    if (k.length !== 32) throw new Error(`${name} must be 32 bytes, base64-encoded (openssl rand -base64 32).`);
+    if (current && legacy && current !== legacy) {
+      console.warn('HOTELONE_VAULT_KEY and STAYOS_VAULT_KEY differ — using HOTELONE_VAULT_KEY. Logins sealed with the other key can’t be opened; give both the same value.');
+    }
     cached = k;
     return k;
   }
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('STAYOS_VAULT_KEY is not set — stored credentials are disabled until it is configured.');
+    throw new Error('HOTELONE_VAULT_KEY is not set (STAYOS_VAULT_KEY is also accepted) — stored credentials are disabled until it is configured.');
   }
+  // Never change these labels or the fallback secret: they derive the key that
+  // opens logins already sealed in development databases.
   const secret = process.env.NEXTAUTH_SECRET || 'stayos-dev-secret';
   cached = Buffer.from(hkdfSync('sha256', secret, 'stayos-vault', 'credentials-v1', 32));
   return cached;

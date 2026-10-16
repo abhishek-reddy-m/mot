@@ -50,10 +50,8 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: [
-    { media: "(prefers-color-scheme: light)", color: BRAND_HEX.background },
-    { media: "(prefers-color-scheme: dark)", color: BRAND_HEX.backgroundDark },
-  ],
+  // Public pages always render light (only the console follows the theme), so one colour.
+  themeColor: BRAND_HEX.background,
   colorScheme: "light dark",
 };
 

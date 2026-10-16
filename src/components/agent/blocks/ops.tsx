@@ -1,22 +1,26 @@
 'use client';
 
 import * as React from 'react';
-import { AlertTriangle, Bot, Info, Siren, UserRound } from 'lucide-react';
+import { AlertTriangle, Info, Siren, UserRound } from 'lucide-react';
 import type { AgentBlock } from '@/lib/agent/blocks';
 import { timeAgo } from '@/lib/format';
-import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Avatar } from '@/components/ui/primitives';
+import { Avatar, Callout } from '@/components/ui/primitives';
 import { RoomGrid, RoomLegend } from '@/components/hotel/RoomGrid';
-import { TaskStatusBadge } from '@/components/hotel/badges';
+import { SourceBadge, TaskStatusBadge } from '@/components/hotel/badges';
 import { useAgentUI } from '../AgentUI';
+import { BlockCard, BlockHeader, CountPill } from './core';
 
 export function RoomsBlock({ block }: { block: Extract<AgentBlock, { type: 'rooms' }> }) {
   const { send, compact } = useAgentUI();
+  const id = React.useId();
   return (
-    <div className="rounded-2xl border bg-card p-4 shadow-xs">
+    <BlockCard aria-labelledby={id} className="p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm font-medium">{block.title}</p>
+        <h2 id={id} className="text-sm font-semibold">
+          {block.title}
+        </h2>
         {!compact && <RoomLegend />}
       </div>
       <RoomGrid
@@ -25,109 +29,179 @@ export function RoomsBlock({ block }: { block: Extract<AgentBlock, { type: 'room
         dense={compact}
         onRoomClick={(r) => send(r.current ? `show reservation ${r.current.code}` : r.arriving ? `show reservation ${r.arriving.code}` : `rooms on floor ${r.floor ?? ''}`)}
       />
-    </div>
+    </BlockCard>
   );
 }
 
 export function HousekeepingBlock({ block }: { block: Extract<AgentBlock, { type: 'housekeeping' }> }) {
   const { send, busy } = useAgentUI();
+  const id = React.useId();
   const open = block.tasks.filter((t) => t.status === 'PENDING' || t.status === 'IN_PROGRESS');
   const done = block.tasks.length - open.length;
   const byPerson = new Map<string, number>();
   for (const t of open) byPerson.set(t.assignee?.name ?? 'Unassigned', (byPerson.get(t.assignee?.name ?? 'Unassigned') ?? 0) + 1);
+  const shown = block.tasks.slice(0, 10);
   return (
-    <div className="rounded-2xl border bg-card shadow-xs">
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-4 py-3">
-        <div>
-          <p className="text-sm font-medium">{block.title}</p>
-          <p className="text-xs text-muted-foreground">
-            {open.length} open · {done} done today
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {[...byPerson.entries()].map(([name, n]) => (
-            <span key={name} className={cn('inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs', name === 'Unassigned' && 'border-dashed text-warning')}>
-              {name !== 'Unassigned' ? <Avatar name={name} size="sm" className="h-4 w-4 text-[8px]" /> : <UserRound className="h-3 w-3" />}
-              {name.split(' ')[0]} · {n}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="divide-y">
-        {block.tasks.slice(0, 10).map((t) => (
-          <div key={t.id} className="flex items-center gap-3 px-4 py-2.5 text-sm">
-            <span className="w-12 font-semibold tabular">{t.room.number}</span>
-            <span className="min-w-0 flex-1 truncate text-muted-foreground">
-              {t.room.roomTypeName}
-              {t.priority >= 3 && <span className="ml-2 rounded bg-warning-soft px-1.5 text-[11px] font-medium text-warning">Needed for arrival</span>}
-            </span>
-            <span className="hidden w-28 truncate text-xs text-muted-foreground sm:block">{t.assignee?.name ?? 'Unassigned'}</span>
-            <TaskStatusBadge status={t.status} />
-          </div>
-        ))}
-      </div>
-      {open.some((t) => !t.assignee) && (
-        <div className="border-t p-3">
-          <Button size="sm" variant="soft" disabled={busy} onClick={() => send('auto-assign housekeeping')}>
-            Auto-assign unassigned rooms
-          </Button>
+    <BlockCard aria-labelledby={id}>
+      <BlockHeader
+        id={id}
+        title={block.title}
+        description={`${open.length} open · ${done} done today`}
+        meta={
+          byPerson.size > 0 && (
+            <ul className="flex flex-wrap gap-1.5" aria-label="Open rooms per person">
+              {[...byPerson.entries()].map(([name, n]) => (
+                <li key={name}>
+                  {name === 'Unassigned' ? (
+                    <Badge variant="warning" size="sm" icon={UserRound}>
+                      Unassigned · {n}
+                    </Badge>
+                  ) : (
+                    <span className="inline-flex h-6 items-center gap-1.5 rounded-full border bg-surface pl-0.5 pr-2 text-xs">
+                      <Avatar name={name} size="xs" />
+                      {name.split(' ')[0]} · {n}
+                    </span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )
+        }
+      />
+      {shown.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">No cleaning tasks right now.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-surface-sunken/60 text-left text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th scope="col" className="w-16 px-4 py-2 font-semibold">
+                  Room
+                </th>
+                <th scope="col" className="px-2 py-2 font-semibold">
+                  Type
+                </th>
+                <th scope="col" className="hidden px-2 py-2 font-semibold sm:table-cell">
+                  Assigned to
+                </th>
+                <th scope="col" className="px-4 py-2 text-right font-semibold">
+                  Status
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {shown.map((t) => (
+                <tr key={t.id}>
+                  <th scope="row" className="px-4 py-2.5 text-left font-semibold tabular">
+                    {t.room.number}
+                  </th>
+                  <td className="min-w-0 px-2 py-2.5 text-muted-foreground">
+                    <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="truncate">{t.room.roomTypeName}</span>
+                      {t.priority >= 3 && (
+                        <Badge variant="warning" size="sm">
+                          Needed for arrival
+                        </Badge>
+                      )}
+                    </span>
+                  </td>
+                  <td className="hidden max-w-[10rem] truncate px-2 py-2.5 text-xs text-muted-foreground sm:table-cell">{t.assignee?.name ?? 'Unassigned'}</td>
+                  <td className="px-4 py-2.5 text-right">
+                    <TaskStatusBadge status={t.status} size="sm" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
-    </div>
+      {(block.tasks.length > shown.length || open.some((t) => !t.assignee)) && (
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t p-3">
+          {block.tasks.length > shown.length ? (
+            <p className="text-xs text-muted-foreground">
+              Showing {shown.length} of {block.tasks.length}
+            </p>
+          ) : (
+            <span />
+          )}
+          {open.some((t) => !t.assignee) && (
+            <Button type="button" size="sm" variant="soft" disabled={busy} onClick={() => send('auto-assign housekeeping')}>
+              Auto-assign unassigned rooms
+            </Button>
+          )}
+        </div>
+      )}
+    </BlockCard>
   );
 }
 
-const ALERT_ICON = { danger: Siren, warning: AlertTriangle, info: Info } as const;
-const ALERT_STYLE = {
-  danger: 'border-destructive/30 bg-destructive-soft/50 [&_svg]:text-destructive',
-  warning: 'border-warning/30 bg-warning-soft/60 [&_svg]:text-warning',
-  info: 'border-info/25 bg-info-soft/60 [&_svg]:text-info',
+const ALERT = {
+  danger: { icon: Siren, tone: 'danger', sr: 'Urgent' },
+  warning: { icon: AlertTriangle, tone: 'warning', sr: 'Needs a look' },
+  info: { icon: Info, tone: 'info', sr: 'Heads-up' },
 } as const;
 
 export function AlertsBlock({ block }: { block: Extract<AgentBlock, { type: 'alerts' }> }) {
   const { send, busy } = useAgentUI();
+  if (block.items.length === 0) return null;
   return (
-    <div className="space-y-2">
+    <ul className="space-y-2" aria-label="Needs attention">
       {block.items.map((a) => {
-        const Icon = ALERT_ICON[a.tone];
+        const t = ALERT[a.tone];
         return (
-          <div key={a.id} className={cn('flex items-start gap-3 rounded-xl border px-3.5 py-3', ALERT_STYLE[a.tone])}>
-            <Icon className="mt-0.5 h-4 w-4 shrink-0" />
-            <div className="min-w-0 flex-1">
-              <p className="text-sm font-medium text-foreground">{a.title}</p>
-              {a.detail && <p className="mt-0.5 text-xs text-muted-foreground">{a.detail}</p>}
-            </div>
-            {a.command && (
-              <Button size="sm" variant="outline" className="shrink-0 bg-surface" disabled={busy} onClick={() => send(a.command!)}>
-                Handle
-              </Button>
-            )}
-          </div>
+          <li key={a.id}>
+            <Callout
+              tone={t.tone}
+              icon={t.icon}
+              title={
+                <>
+                  <span className="sr-only">{t.sr}: </span>
+                  {a.title}
+                </>
+              }
+              action={
+                a.command && (
+                  <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => send(a.command!)}>
+                    Handle
+                  </Button>
+                )
+              }
+            >
+              {a.detail && <span className="block text-xs opacity-90">{a.detail}</span>}
+            </Callout>
+          </li>
         );
       })}
-    </div>
+    </ul>
   );
 }
 
 export function ActivityBlock({ block }: { block: Extract<AgentBlock, { type: 'activity' }> }) {
   return (
-    <div className="rounded-2xl border bg-card shadow-xs">
-      <ol className="divide-y">
-        {block.items.map((a) => (
-          <li key={a.id} className="flex items-start gap-3 px-4 py-2.5">
-            <span className={cn('mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full', a.source === 'agent' ? 'bg-agent-soft text-agent' : 'bg-muted text-muted-foreground')}>
-              {a.source === 'agent' ? <Bot className="h-3.5 w-3.5" /> : <UserRound className="h-3.5 w-3.5" />}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="text-sm">{a.summary}</p>
-              <p className="text-xs text-muted-foreground">
-                {a.user.name} · {a.source === 'agent' ? 'via agent' : 'classic'} · {timeAgo(a.at)}
-              </p>
-            </div>
-          </li>
-        ))}
-      </ol>
-      {block.items.length === 0 && <p className="px-4 py-6 text-center text-sm text-muted-foreground">No activity yet.</p>}
-    </div>
+    <BlockCard>
+      {block.items.length === 0 ? (
+        <p className="px-4 py-8 text-center text-sm text-muted-foreground">Nothing has happened yet today. Changes made here or in the classic screens will show up.</p>
+      ) : (
+        <>
+          <BlockHeader title="Activity" meta={<CountPill n={block.items.length} label="entries" />} className="py-2.5" />
+          <ol className="divide-y">
+            {block.items.map((a) => (
+              <li key={a.id} className="flex items-start gap-3 px-4 py-2.5">
+                <Avatar name={a.user.name} size="sm" className="mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm">{a.summary}</p>
+                  <p className="mt-0.5 flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-muted-foreground">
+                    <span>{a.user.name}</span>
+                    <span aria-hidden>·</span>
+                    <time dateTime={a.at}>{timeAgo(a.at)}</time>
+                    <SourceBadge source={a.source} quiet className="ml-0.5" />
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </>
+      )}
+    </BlockCard>
   );
 }

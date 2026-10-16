@@ -3,18 +3,33 @@
 import * as React from 'react';
 import useSWR from 'swr';
 import { toast } from 'sonner';
-import { motion, AnimatePresence } from 'framer-motion';
-import { ArrowDownToLine, CheckCircle2, Hand, Play, RefreshCw, Sparkles, SprayCan, UserRound, Wand2 } from 'lucide-react';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
+import {
+  ArrowDownToLine,
+  BadgeCheck,
+  BrushCleaning,
+  CheckCircle2,
+  DoorClosed,
+  Hand,
+  Play,
+  RefreshCw,
+  UserRound,
+  Wand2,
+} from 'lucide-react';
 import type { HousekeepingTaskDTO, RoomSummary, TeamMember } from '@/lib/dto';
 import { api, fetcher } from '@/lib/fetcher';
 import { fmtDay } from '@/lib/format';
+import { formatNumber } from '@/lib/status';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Button, IconButton } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Avatar, EmptyState, PageHeader, Skeleton } from '@/components/ui/primitives';
+import { Avatar, EmptyState, Skeleton } from '@/components/ui/primitives';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { TaskStatusBadge } from '@/components/hotel/badges';
 import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider';
+import { AskAgentButton } from '@/components/console/AskAgentButton';
+import { PageShell, SectionHeader } from '@/components/console/PageShell';
 
 function useHousekeepingData() {
   const tasksUrl = usePropertyUrl('/api/admin/housekeeping', { includeDone: '1' });
@@ -26,6 +41,11 @@ async function updateTask(id: string, body: object) {
   return api(`/api/admin/housekeeping/${id}`, { method: 'PATCH', json: body });
 }
 
+const rooms = (n: number) => `${formatNumber(n)} room${n === 1 ? '' : 's'}`;
+
+/** Board actions: 44px tall on phones, compact on desktop. */
+const TASK_BUTTON = 'h-11 flex-1 text-sm md:h-9 md:text-[13px]';
+
 /* ------------------------------------------------------------------ */
 /* Housekeeper: my rooms (phone-first)                                 */
 /* ------------------------------------------------------------------ */
@@ -35,21 +55,21 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
   const r = 26;
   const c = 2 * Math.PI * r;
   return (
-    <div className="relative h-16 w-16">
-      <svg viewBox="0 0 64 64" className="h-16 w-16 -rotate-90">
+    <div className="relative size-16 shrink-0" role="img" aria-label={`${done} of ${total} rooms done`}>
+      <svg viewBox="0 0 64 64" className="size-16 -rotate-90" aria-hidden>
         <circle cx="32" cy="32" r={r} className="fill-none stroke-muted" strokeWidth="6" />
         <circle
           cx="32"
           cy="32"
           r={r}
-          className="fill-none stroke-success transition-[stroke-dashoffset] duration-700"
+          className="fill-none stroke-success motion-safe:transition-[stroke-dashoffset] motion-safe:duration-700"
           strokeWidth="6"
           strokeLinecap="round"
           strokeDasharray={c}
           strokeDashoffset={c * (1 - pct)}
         />
       </svg>
-      <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular">
+      <span className="absolute inset-0 flex items-center justify-center text-sm font-semibold tabular" aria-hidden>
         {done}/{total}
       </span>
     </div>
@@ -58,8 +78,9 @@ function ProgressRing({ done, total }: { done: number; total: number }) {
 
 function MyRooms() {
   const { ctx, refresh } = useConsole();
-  const { data, isLoading, mutate } = useHousekeepingData();
+  const { data, isLoading, mutate, isValidating } = useHousekeepingData();
   const [busy, setBusy] = React.useState<string | null>(null);
+  const reduce = useReducedMotion();
   const me = ctx?.user.id;
   const mine = (data ?? []).filter((t) => t.assignee?.id === me);
   const open = mine.filter((t) => t.status === 'PENDING' || t.status === 'IN_PROGRESS');
@@ -81,98 +102,158 @@ function MyRooms() {
   }
 
   return (
-    <div className="mx-auto max-w-lg space-y-6 p-4 sm:p-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <p className="text-xs text-muted-foreground">{ctx ? fmtDay(ctx.today, 'long') : ''}</p>
-          <h1 className="text-2xl font-semibold tracking-tight">My rooms</h1>
-          <p className="text-sm text-muted-foreground">{open.length ? `${open.length} to go — rooms needed for arrivals first.` : 'All caught up. Nice work! ✨'}</p>
+    <PageShell size="narrow" className="max-w-xl">
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-xs font-medium text-muted-foreground">{ctx ? fmtDay(ctx.today, 'long') : ' '}</p>
+          <h1 className="mt-1 text-2xl font-semibold tracking-tight sm:text-3xl">My rooms</h1>
+          <p className="mt-1 text-sm text-muted-foreground" aria-live="polite">
+            {isLoading ? ' ' : open.length ? `${rooms(open.length)} to go — rooms for arriving guests first.` : 'All caught up. Nice work!'}
+          </p>
         </div>
         <ProgressRing done={done.length} total={mine.length} />
       </div>
 
       {isLoading ? (
-        <div className="space-y-3">
-          <Skeleton className="h-28 rounded-2xl" />
-          <Skeleton className="h-28 rounded-2xl" />
+        <div className="space-y-3" role="status">
+          <span className="sr-only">Loading your rooms…</span>
+          <Skeleton className="h-[188px] rounded-2xl" />
+          <Skeleton className="h-[188px] rounded-2xl" />
         </div>
       ) : (
         <>
-          <ul className="space-y-3">
-            <AnimatePresence initial={false}>
-              {open.map((t) => (
-                <motion.li key={t.id} layout initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, x: 40 }}>
-                  <Card className={cn('p-4', t.status === 'IN_PROGRESS' && 'border-info/40 ring-2 ring-info/15')}>
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <p className="text-3xl font-semibold tabular">{t.room.number}</p>
-                        <p className="text-sm text-muted-foreground">
-                          {t.room.roomTypeName} · Floor {t.room.floor ?? '—'}
-                        </p>
+          {open.length > 0 && (
+            <ul className="space-y-3" aria-label="Rooms to clean">
+              <AnimatePresence initial={false}>
+                {open.map((t) => (
+                  <motion.li
+                    key={t.id}
+                    layout={!reduce}
+                    initial={reduce ? false : { opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={reduce ? { opacity: 0 } : { opacity: 0, x: 40 }}
+                  >
+                    <Card className={cn('p-4', t.status === 'IN_PROGRESS' && 'border-info/50 ring-2 ring-info/20')}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h2 className="text-3xl font-semibold leading-none tabular">
+                            <span className="sr-only">Room </span>
+                            {t.room.number}
+                          </h2>
+                          <p className="mt-1.5 text-sm text-muted-foreground">
+                            {t.room.roomTypeName}
+                            {t.room.floor ? ` · Floor ${t.room.floor}` : ''}
+                          </p>
+                        </div>
+                        <div className="flex flex-col items-end gap-1.5">
+                          <TaskStatusBadge status={t.status} />
+                          {t.priority >= 3 && (
+                            <Badge variant="warning" icon={ArrowDownToLine}>
+                              Guest arriving
+                            </Badge>
+                          )}
+                          {t.room.occupancy === 'OCCUPIED' && (
+                            <Badge variant="neutral" icon={DoorClosed}>
+                              Guest staying — knock first
+                            </Badge>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex flex-col items-end gap-1.5">
-                        <TaskStatusBadge status={t.status} />
-                        {t.priority >= 3 && (
-                          <span className="inline-flex items-center gap-1 rounded-full bg-warning-soft px-2 py-0.5 text-[11px] font-medium text-warning">
-                            <ArrowDownToLine className="h-3 w-3" /> Guest arriving
-                          </span>
+                      {t.notes && <p className="mt-3 rounded-lg bg-muted px-3 py-2 text-sm">{t.notes}</p>}
+                      <div className="mt-4">
+                        {t.status === 'PENDING' ? (
+                          <Button
+                            size="lg"
+                            className="w-full"
+                            variant="outline"
+                            loading={busy === t.id}
+                            loadingText="Starting…"
+                            onClick={() => act(t, 'IN_PROGRESS', `Started room ${t.room.number}`)}
+                          >
+                            <Play aria-hidden /> Start cleaning
+                          </Button>
+                        ) : (
+                          <Button
+                            size="lg"
+                            className="w-full"
+                            loading={busy === t.id}
+                            loadingText="Saving…"
+                            onClick={() => act(t, 'COMPLETED', `Room ${t.room.number} is clean`)}
+                          >
+                            <CheckCircle2 aria-hidden /> Mark clean
+                          </Button>
                         )}
-                        {t.room.occupancy === 'OCCUPIED' && <span className="text-[11px] text-muted-foreground">Guest staying — knock first</span>}
                       </div>
-                    </div>
-                    {t.notes && <p className="mt-2 rounded-lg bg-muted px-2.5 py-1.5 text-xs">{t.notes}</p>}
-                    <div className="mt-4">
-                      {t.status === 'PENDING' ? (
-                        <Button size="lg" className="w-full" variant="outline" loading={busy === t.id} onClick={() => act(t, 'IN_PROGRESS', `Started room ${t.room.number}`)}>
-                          <Play className="h-4 w-4" /> Start cleaning
-                        </Button>
-                      ) : (
-                        <Button size="lg" className="w-full bg-success text-success-foreground hover:bg-success/90" loading={busy === t.id} onClick={() => act(t, 'COMPLETED', `Room ${t.room.number} is clean`)}>
-                          <CheckCircle2 className="h-4 w-4" /> Mark clean
-                        </Button>
-                      )}
-                    </div>
-                  </Card>
-                </motion.li>
-              ))}
-            </AnimatePresence>
-          </ul>
+                    </Card>
+                  </motion.li>
+                ))}
+              </AnimatePresence>
+            </ul>
+          )}
 
           {available.length > 0 && (
-            <div>
-              <p className="mb-2 text-sm font-medium">Available to pick up</p>
-              <ul className="space-y-2">
+            <section aria-labelledby="hk-available">
+              <SectionHeader id="hk-available" title="Available to pick up" description="Nobody has these yet — take one when you’re free." />
+              <ul className="mt-3 space-y-2">
                 {available.map((t) => (
-                  <li key={t.id} className="flex items-center justify-between rounded-xl border bg-card px-4 py-3">
-                    <div>
-                      <span className="text-lg font-semibold tabular">{t.room.number}</span>
+                  <li key={t.id} className="flex items-center justify-between gap-3 rounded-xl border bg-card px-4 py-3 shadow-xs">
+                    <div className="min-w-0">
+                      <span className="text-lg font-semibold tabular">
+                        <span className="sr-only">Room </span>
+                        {t.room.number}
+                      </span>
                       <span className="ml-2 text-sm text-muted-foreground">{t.room.roomTypeName}</span>
                     </div>
-                    <Button size="sm" variant="soft" loading={busy === t.id} onClick={() => act(t, 'IN_PROGRESS', `Room ${t.room.number} is yours`)}>
-                      <Hand className="h-4 w-4" /> Take it
+                    <Button
+                      variant="soft"
+                      className="h-11 shrink-0"
+                      loading={busy === t.id}
+                      aria-label={`Take room ${t.room.number}`}
+                      onClick={() => act(t, 'IN_PROGRESS', `Room ${t.room.number} is yours`)}
+                    >
+                      <Hand aria-hidden /> Take it
                     </Button>
                   </li>
                 ))}
               </ul>
-            </div>
+            </section>
           )}
 
           {done.length > 0 && (
-            <div>
-              <p className="mb-2 text-sm font-medium text-muted-foreground">Done today · {done.length}</p>
-              <div className="flex flex-wrap gap-2">
+            <section aria-labelledby="hk-done">
+              <h2 id="hk-done" className="text-sm font-medium text-muted-foreground">
+                Done today · {formatNumber(done.length)}
+              </h2>
+              <ul className="mt-2 flex flex-wrap gap-2">
                 {done.map((t) => (
-                  <span key={t.id} className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2.5 py-1 text-xs font-medium text-success">
-                    <CheckCircle2 className="h-3 w-3" /> {t.room.number}
-                  </span>
+                  <li key={t.id}>
+                    <Badge variant="success" icon={CheckCircle2}>
+                      <span className="sr-only">Room </span>
+                      {t.room.number}
+                    </Badge>
+                  </li>
                 ))}
-              </div>
-            </div>
+              </ul>
+            </section>
           )}
-          {mine.length === 0 && available.length === 0 && <EmptyState icon={SprayCan} title="Nothing assigned yet" description="Your supervisor will assign rooms here. Pull down to refresh." />}
+
+          {mine.length === 0 && available.length === 0 && (
+            <Card>
+              <EmptyState
+                icon={BrushCleaning}
+                title="Nothing assigned yet"
+                description="Your supervisor will assign rooms here. This list updates by itself every half minute."
+                action={
+                  <Button variant="outline" onClick={() => mutate()} loading={isValidating}>
+                    <RefreshCw aria-hidden /> Check now
+                  </Button>
+                }
+              />
+            </Card>
+          )}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
 
@@ -180,8 +261,44 @@ function MyRooms() {
 /* Supervisor board                                                    */
 /* ------------------------------------------------------------------ */
 
+function AssignSelect({
+  value,
+  team,
+  onChange,
+  label,
+  placeholder = 'Unassigned',
+  className,
+}: {
+  value?: string;
+  team: TeamMember[];
+  onChange: (id: string) => void;
+  label: string;
+  placeholder?: string;
+  className?: string;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      {/* 44px on phones (thumb use), compact on desktop boards. */}
+      <SelectTrigger aria-label={label} className={cn('h-11 md:h-9 md:text-xs', className)}>
+        <SelectValue placeholder={placeholder} />
+      </SelectTrigger>
+      <SelectContent>
+        {team.length === 0 && (
+          <div className="px-2.5 py-2 text-sm text-muted-foreground">No housekeepers on this property yet</div>
+        )}
+        {team.map((m) => (
+          <SelectItem key={m.id} value={m.id}>
+            {m.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
 function TaskCard({ task, team, onChange }: { task: HousekeepingTaskDTO; team: TeamMember[]; onChange: () => void }) {
   const { can } = useConsole();
+  const reduce = useReducedMotion();
   const [busy, setBusy] = React.useState(false);
   async function run(body: object, msg: string) {
     setBusy(true);
@@ -196,66 +313,75 @@ function TaskCard({ task, team, onChange }: { task: HousekeepingTaskDTO; team: T
     }
   }
   const done = task.status === 'COMPLETED' || task.status === 'INSPECTED';
+  const urgent = task.priority >= 3 && !done;
   return (
-    <motion.div layout className={cn('rounded-xl border bg-card p-3 shadow-xs', task.priority >= 3 && !done && 'border-warning/40')}>
-      <div className="flex items-start justify-between">
-        <div>
-          <p className="text-lg font-semibold leading-none tabular">{task.room.number}</p>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {task.room.roomTypeName} · Fl {task.room.floor ?? '—'}
+    <motion.li layout={!reduce} className={cn('rounded-xl border bg-card p-3 shadow-xs', urgent && 'border-warning/60')}>
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold leading-none tabular">
+            <span className="sr-only">Room </span>
+            {task.room.number}
+          </h3>
+          <p className="mt-1 truncate text-xs text-muted-foreground">
+            {task.room.roomTypeName}
+            {task.room.floor ? ` · Floor ${task.room.floor}` : ''}
           </p>
         </div>
-        {task.priority >= 3 && !done && <span className="rounded-full bg-warning-soft px-1.5 py-0.5 text-[10px] font-semibold text-warning">ARRIVAL</span>}
+        {urgent && (
+          <Badge variant="warning" size="sm" icon={ArrowDownToLine}>
+            Arrival
+          </Badge>
+        )}
+        {task.status === 'INSPECTED' && (
+          <Badge variant="success" size="sm" icon={BadgeCheck}>
+            Ready to sell
+          </Badge>
+        )}
       </div>
       {!done && can('housekeeping.assign') ? (
-        <Select value={task.assignee?.id ?? ''} onValueChange={(v) => run({ assignedTo: v }, `Room ${task.room.number} assigned`)}>
-          <SelectTrigger className="mt-3 h-8 text-xs">
-            <SelectValue placeholder="Unassigned" />
-          </SelectTrigger>
-          <SelectContent>
-            {team.map((m) => (
-              <SelectItem key={m.id} value={m.id}>
-                {m.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <AssignSelect
+          className="mt-3"
+          value={task.assignee?.id ?? ''}
+          team={team}
+          label={`Assign a housekeeper to room ${task.room.number}`}
+          onChange={(v) => run({ assignedTo: v }, `Room ${task.room.number} assigned`)}
+        />
       ) : (
         <p className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <UserRound className="h-3 w-3" /> {task.assignee?.name ?? 'Unassigned'}
+          <UserRound className="size-3.5" aria-hidden /> {task.assignee?.name ?? 'Unassigned'}
         </p>
       )}
-      <div className="mt-2 flex gap-1.5">
-        {task.status === 'PENDING' && (
-          <Button size="sm" variant="outline" className="h-7 flex-1 text-xs" loading={busy} onClick={() => run({ status: 'IN_PROGRESS' }, `Room ${task.room.number} started`)}>
-            Start
-          </Button>
-        )}
-        {task.status === 'IN_PROGRESS' && (
-          <Button size="sm" className="h-7 flex-1 text-xs" loading={busy} onClick={() => run({ status: 'COMPLETED' }, `Room ${task.room.number} is clean`)}>
-            Mark clean
-          </Button>
-        )}
-        {task.status === 'COMPLETED' && (
-          <Button size="sm" variant="soft" className="h-7 flex-1 text-xs" loading={busy} onClick={() => run({ status: 'INSPECTED' }, `Room ${task.room.number} inspected`)}>
-            <Sparkles className="h-3 w-3" /> Inspect
-          </Button>
-        )}
-        {task.status === 'INSPECTED' && <span className="text-xs font-medium text-success">Ready to sell</span>}
-      </div>
-    </motion.div>
+      {task.status !== 'INSPECTED' && (
+        <div className="mt-2 flex gap-2">
+          {task.status === 'PENDING' && (
+            <Button size="sm" variant="outline" className={TASK_BUTTON} loading={busy} onClick={() => run({ status: 'IN_PROGRESS' }, `Room ${task.room.number} started`)}>
+              <Play aria-hidden /> Start
+            </Button>
+          )}
+          {task.status === 'IN_PROGRESS' && (
+            <Button size="sm" className={TASK_BUTTON} loading={busy} onClick={() => run({ status: 'COMPLETED' }, `Room ${task.room.number} is clean`)}>
+              <CheckCircle2 aria-hidden /> Mark clean
+            </Button>
+          )}
+          {task.status === 'COMPLETED' && (
+            <Button size="sm" variant="soft" className={TASK_BUTTON} loading={busy} onClick={() => run({ status: 'INSPECTED' }, `Room ${task.room.number} inspected`)}>
+              <BadgeCheck aria-hidden /> Inspect
+            </Button>
+          )}
+        </div>
+      )}
+    </motion.li>
   );
 }
 
 function SupervisorBoard() {
-  const { refresh, askAgent, can } = useConsole();
+  const { ctx, refresh, can, propertyId } = useConsole();
   const { data: tasks, isLoading, mutate, isValidating } = useHousekeepingData();
   const teamUrl = usePropertyUrl('/api/admin/team', { role: 'HOUSEKEEPER' });
   const boardUrl = usePropertyUrl('/api/admin/room-board');
   const { data: team } = useSWR<TeamMember[]>(teamUrl, fetcher);
-  const { data: rooms, mutate: mutateRooms } = useSWR<RoomSummary[]>(boardUrl, fetcher, { refreshInterval: 30_000 });
+  const { data: roomBoard, mutate: mutateRooms } = useSWR<RoomSummary[]>(boardUrl, fetcher, { refreshInterval: 30_000 });
   const [autoBusy, setAutoBusy] = React.useState(false);
-  const { propertyId } = useConsole();
 
   const onChange = () => {
     void mutate();
@@ -263,7 +389,7 @@ function SupervisorBoard() {
     refresh();
   };
 
-  const unqueued = (rooms ?? []).filter((r) => r.status === 'DIRTY' && !r.task && !r.isOutOfOrder);
+  const unqueued = (roomBoard ?? []).filter((r) => r.status === 'DIRTY' && !r.task && !r.isOutOfOrder);
   const todo = (tasks ?? []).filter((t) => t.status === 'PENDING');
   const doing = (tasks ?? []).filter((t) => t.status === 'IN_PROGRESS');
   const done = (tasks ?? []).filter((t) => t.status === 'COMPLETED' || t.status === 'INSPECTED');
@@ -272,7 +398,7 @@ function SupervisorBoard() {
   async function queueRoom(roomId: string, assignedTo: string) {
     try {
       await api('/api/admin/housekeeping', { method: 'POST', json: { roomId, assignedTo } });
-      toast.success('Room queued');
+      toast.success('Room added to the cleaning list');
       onChange();
     } catch (e) {
       toast.error((e as Error).message);
@@ -283,7 +409,7 @@ function SupervisorBoard() {
     setAutoBusy(true);
     try {
       const r = await api<{ assigned: number }>('/api/admin/housekeeping/auto-assign', { method: 'POST', json: { propertyId } });
-      toast.success(r.assigned ? `Assigned ${r.assigned} room${r.assigned > 1 ? 's' : ''}` : 'Everything already has someone on it');
+      toast.success(r.assigned ? `Assigned ${rooms(r.assigned)}` : 'Everything already has someone on it');
       onChange();
     } catch (e) {
       toast.error((e as Error).message);
@@ -293,100 +419,114 @@ function SupervisorBoard() {
   }
 
   const columns = [
-    { key: 'todo', title: 'To clean', items: todo, tone: 'bg-warning' },
-    { key: 'doing', title: 'Cleaning', items: doing, tone: 'bg-info' },
-    { key: 'done', title: 'Done today', items: done, tone: 'bg-success' },
+    { key: 'todo', title: 'To clean', items: todo, dot: 'bg-warning', empty: 'No rooms waiting to be cleaned.' },
+    { key: 'doing', title: 'Cleaning now', items: doing, dot: 'bg-info', empty: 'Nobody is cleaning a room right now.' },
+    { key: 'done', title: 'Done today', items: done, dot: 'bg-success', empty: 'Finished rooms collect here.' },
   ];
+  const toTurn = todo.length + doing.length + unqueued.length;
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 p-4 sm:p-6 lg:p-8">
-      <PageHeader
-        title="Housekeeping"
-        description={tasks ? `${todo.length + doing.length + unqueued.length} rooms to turn · ${done.length} done today` : 'Loading…'}
-        actions={
-          <>
-            {can('agent.use') && (
-              <Button variant="ghost" size="sm" className="text-agent hover:bg-agent-soft" onClick={() => askAgent('show the housekeeping board')}>
-                <Sparkles className="h-4 w-4" /> Ask
-              </Button>
-            )}
-            <Button variant="outline" size="sm" onClick={onChange} aria-label="Refresh">
-              <RefreshCw className={cn('h-4 w-4', isValidating && 'animate-spin')} />
+    <PageShell
+      eyebrow={ctx ? fmtDay(ctx.today, 'long') : ' '}
+      title="Housekeeping"
+      description={tasks ? `${rooms(toTurn)} to turn · ${formatNumber(done.length)} done today` : ' '}
+      actions={
+        <>
+          <AskAgentButton command="show the housekeeping board">Ask the agent</AskAgentButton>
+          <IconButton label="Refresh" variant="outline" size="icon-sm" onClick={onChange} aria-busy={isValidating || undefined}>
+            <RefreshCw className={cn(isValidating && 'motion-safe:animate-spin')} />
+          </IconButton>
+          {can('housekeeping.assign') && (
+            <Button size="sm" onClick={autoAssign} loading={autoBusy} loadingText="Assigning…" disabled={!unassigned}>
+              <Wand2 aria-hidden /> Auto-assign{unassigned ? ` ${formatNumber(unassigned)}` : ''}
             </Button>
-            {can('housekeeping.assign') && (
-              <Button size="sm" onClick={autoAssign} loading={autoBusy} disabled={!unassigned}>
-                <Wand2 className="h-4 w-4" /> Auto-assign {unassigned ? `(${unassigned})` : ''}
-              </Button>
-            )}
-          </>
-        }
-      />
-
+          )}
+        </>
+      }
+    >
       {team && team.length > 0 && (
-        <div className="flex flex-wrap gap-2">
-          {team.map((m) => (
-            <div key={m.id} className="flex items-center gap-2.5 rounded-xl border bg-card px-3 py-2 shadow-xs">
-              <Avatar name={m.name} size="sm" />
-              <div>
-                <p className="text-sm font-medium leading-tight">{m.name}</p>
-                <p className="text-[11px] text-muted-foreground">{m.openTasks ?? 0} open</p>
-              </div>
-            </div>
-          ))}
-        </div>
+        <section aria-labelledby="hk-team">
+          <h2 id="hk-team" className="mb-2 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Housekeepers on this property
+          </h2>
+          <ul className="flex flex-wrap gap-2">
+            {team.map((m) => (
+              <li key={m.id} className="flex items-center gap-2.5 rounded-xl border bg-card py-2 pl-2.5 pr-3.5 shadow-xs">
+                <Avatar name={m.name} size="sm" />
+                <div>
+                  <p className="text-sm font-medium leading-tight">{m.name}</p>
+                  <p className="text-xs text-muted-foreground">{rooms(m.openTasks ?? 0)} open</p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {unqueued.length > 0 && (
-        <Card className="p-4">
-          <p className="text-sm font-medium">Dirty, not yet queued · {unqueued.length}</p>
-          <div className="mt-3 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        <Card className="p-4 sm:p-5">
+          <SectionHeader
+            title={`Dirty, not on the cleaning list · ${formatNumber(unqueued.length)}`}
+            description={can('housekeeping.assign') ? 'Pick a housekeeper to add a room to their list, or use Auto-assign.' : 'A supervisor will add these to someone’s list.'}
+          />
+          <ul className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
             {unqueued.map((r) => (
-              <div key={r.id} className="flex items-center gap-2 rounded-xl border border-dashed p-2.5">
-                <span className="w-12 text-lg font-semibold tabular">{r.number}</span>
-                <Select onValueChange={(v) => queueRoom(r.id, v)}>
-                  <SelectTrigger className="h-8 text-xs">
-                    <SelectValue placeholder="Assign…" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {(team ?? []).map((m) => (
-                      <SelectItem key={m.id} value={m.id}>
-                        {m.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <li key={r.id} className="flex items-center gap-3 rounded-xl border bg-surface-sunken p-2.5">
+                <span className="w-12 shrink-0 text-lg font-semibold tabular">
+                  <span className="sr-only">Room </span>
+                  {r.number}
+                </span>
+                {can('housekeeping.assign') ? (
+                  <AssignSelect
+                    team={team ?? []}
+                    placeholder="Assign…"
+                    label={`Assign a housekeeper to room ${r.number}`}
+                    onChange={(v) => queueRoom(r.id, v)}
+                  />
+                ) : (
+                  <span className="text-xs text-muted-foreground">{r.roomType.name}</span>
+                )}
+              </li>
             ))}
-          </div>
+          </ul>
         </Card>
       )}
 
       {isLoading ? (
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid gap-4 md:grid-cols-3" role="status">
+          <span className="sr-only">Loading the housekeeping board…</span>
           {Array.from({ length: 3 }).map((_, i) => (
             <Skeleton key={i} className="h-72 rounded-2xl" />
           ))}
         </div>
       ) : (
-        <div className="grid gap-4 md:grid-cols-3">
+        <div className="grid items-start gap-4 md:grid-cols-3">
           {columns.map((col) => (
-            <div key={col.key} className="rounded-2xl border bg-surface-sunken/50 p-3">
+            <section key={col.key} aria-labelledby={`hk-col-${col.key}`} className="rounded-2xl border bg-surface-sunken p-3">
               <div className="mb-3 flex items-center gap-2 px-1">
-                <span className={cn('h-2 w-2 rounded-full', col.tone)} />
-                <p className="text-sm font-medium">{col.title}</p>
-                <span className="ml-auto text-xs text-muted-foreground tabular">{col.items.length}</span>
+                <span className={cn('size-2 rounded-full', col.dot)} aria-hidden />
+                <h2 id={`hk-col-${col.key}`} className="text-sm font-semibold">
+                  {col.title}
+                </h2>
+                <span className="ml-auto text-xs font-medium text-muted-foreground tabular">
+                  <span aria-hidden>{formatNumber(col.items.length)}</span>
+                  <span className="sr-only">{rooms(col.items.length)}</span>
+                </span>
               </div>
-              <div className="space-y-2">
-                {col.items.map((t) => (
-                  <TaskCard key={t.id} task={t} team={team ?? []} onChange={onChange} />
-                ))}
-                {col.items.length === 0 && <p className="py-8 text-center text-xs text-muted-foreground">Nothing here</p>}
-              </div>
-            </div>
+              {col.items.length === 0 ? (
+                <p className="rounded-xl border border-dashed border-border-strong/40 px-3 py-8 text-center text-sm text-muted-foreground">{col.empty}</p>
+              ) : (
+                <ul className="space-y-2">
+                  {col.items.map((t) => (
+                    <TaskCard key={t.id} task={t} team={team ?? []} onChange={onChange} />
+                  ))}
+                </ul>
+              )}
+            </section>
           ))}
         </div>
       )}
-    </div>
+    </PageShell>
   );
 }
 

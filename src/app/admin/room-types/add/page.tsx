@@ -11,27 +11,44 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
-import { PageHeader } from '@/components/ui/primitives';
-import { EMPTY_ROOM_TYPE, RoomTypeFields, validateRoomType, type RoomTypeDraft } from '@/components/setup/RoomTypeFields';
+import { Callout, PageHeader } from '@/components/ui/primitives';
+import { errorSummary } from '@/components/setup/PropertyFields';
+import { EMPTY_ROOM_TYPE, RoomTypeFields, roomTypeErrors, type RoomTypeDraft } from '@/components/setup/RoomTypeFields';
 import { useConsole } from '@/components/console/ConsoleProvider';
+
+const FRAME = 'mx-auto w-full max-w-7xl px-4 pb-12 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pt-8';
 
 export default function AddRoomTypePage() {
   const router = useRouter();
   const { property, propertyId, refresh } = useConsole();
   const [draft, setDraft] = React.useState<RoomTypeDraft>(EMPTY_ROOM_TYPE);
   const [numbers, setNumbers] = React.useState('');
-  const [error, setError] = React.useState<string | null>(null);
+  // Field errors show once someone has tried to save, then update as they type.
+  const [tried, setTried] = React.useState(false);
+  const [serverError, setServerError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const formRef = React.useRef<HTMLFormElement>(null);
 
   const parsed = numbers.trim() ? parseRoomNumbers(numbers) : null;
   const roomNumbers = parsed && 'numbers' in parsed ? parsed.numbers : [];
   const numbersError = parsed && 'error' in parsed ? parsed.error : null;
+  const errors = tried ? roomTypeErrors(draft) : {};
+  const summary = errorSummary({ ...errors, numbers: tried ? (numbersError ?? undefined) : undefined });
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const problem = validateRoomType(draft) ?? numbersError;
-    setError(problem);
-    if (problem || !propertyId) return;
+    setTried(true);
+    setServerError(null);
+    if (Object.keys(roomTypeErrors(draft)).length || numbersError) {
+      // Take people to the first field that needs fixing.
+      requestAnimationFrame(() => {
+        const first = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+        first?.focus();
+        first?.scrollIntoView({ block: 'center' });
+      });
+      return;
+    }
+    if (!propertyId) return;
     setSaving(true);
     try {
       const totalRooms = Math.max(Number(draft.totalRooms || 0), roomNumbers.length);
@@ -58,49 +75,60 @@ export default function AddRoomTypePage() {
       refresh();
       router.push(`/admin/room-types/${created.id}`);
     } catch (err) {
-      setError((err as Error).message);
+      setServerError((err as Error).message);
     } finally {
       setSaving(false);
     }
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6 lg:p-8">
-      <Link href="/admin/room-types" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Rooms
-      </Link>
-      <PageHeader title="New room type" description={property ? `For ${property.name}. You can add photos and adjust rates right after.` : undefined} />
+    <div className={FRAME}>
+      <div className="max-w-4xl space-y-6">
+        <Link
+          href="/admin/room-types"
+          className="-ml-2 inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ArrowLeft className="size-4" aria-hidden /> Rooms
+        </Link>
+        <PageHeader title="New room type" description={property ? `For ${property.name}. You can add photos and adjust rates right after.` : 'You can add photos and adjust rates right after.'} />
 
-      <form onSubmit={save} className="space-y-6">
-        <Card className="p-5 sm:p-6">
-          <RoomTypeFields value={draft} onChange={setDraft} />
-        </Card>
+        <form ref={formRef} onSubmit={save} className="space-y-6" noValidate>
+          <Card className="p-5 sm:p-6">
+            <h2 className="mb-5 text-base font-semibold tracking-tight">Details</h2>
+            <RoomTypeFields value={draft} onChange={setDraft} errors={errors} />
+          </Card>
 
-        <Card className="p-5 sm:p-6">
-          <Field
-            label="Room numbers (optional)"
-            htmlFor="rt-numbers"
-            hint={numbersError ?? (roomNumbers.length ? `${roomNumbers.length} rooms: ${roomNumbers.slice(0, 10).join(', ')}${roomNumbers.length > 10 ? '…' : ''}` : 'Ranges and lists both work, like “101-110, 201”. Floors are read from the number.')}
-            error={numbersError ?? undefined}
-          >
-            <Input id="rt-numbers" value={numbers} onChange={(e) => setNumbers(e.target.value)} placeholder="101-110" />
-          </Field>
-        </Card>
+          <Card className="p-5 sm:p-6">
+            <h2 className="mb-4 text-base font-semibold tracking-tight">Room numbers</h2>
+            <Field
+              label="Room numbers"
+              optional
+              hint={
+                roomNumbers.length
+                  ? `${roomNumbers.length} room${roomNumbers.length === 1 ? '' : 's'}: ${roomNumbers.slice(0, 10).join(', ')}${roomNumbers.length > 10 ? '…' : ''}`
+                  : 'Ranges and lists both work, like “101-110, 201”. Floors are read from the number. You can add them later too.'
+              }
+              error={numbersError ?? undefined}
+            >
+              <Input value={numbers} onChange={(e) => setNumbers(e.target.value)} placeholder="101-110" autoComplete="off" />
+            </Field>
+          </Card>
 
-        {error && (
-          <p className="rounded-lg border border-destructive/25 bg-destructive-soft px-3 py-2 text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={() => router.back()}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={saving}>
-            Create room type
-          </Button>
-        </div>
-      </form>
+          {(serverError || summary) && (
+            <Callout tone="danger" title={serverError ? 'We couldn’t create the room type' : 'Please check the form'} role="alert">
+              {serverError ?? summary}
+            </Callout>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="ghost" onClick={() => router.back()}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving} loadingText="Creating the room type…">
+              Create room type
+            </Button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

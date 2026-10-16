@@ -17,7 +17,8 @@ const reply = (output: unknown) => NextResponse.json(output);
  * POST /api/voice/phone/tool — a phone agent's webhook tool (phone calls and WhatsApp). ElevenLabs
  * sends the model's arguments plus `stayos_tool` and the call's
  * `stayos_session` token; the header secret proves the request is from our
- * agents, the token pins it to one hotel and one call.
+ * agents, the token pins it to one hotel and one call. The field names are
+ * configured in every phone tool at ElevenLabs: keep them as they are.
  */
 export async function POST(request: NextRequest) {
   if (!verifyPhoneWebhook(request.headers.get(PHONE_WEBHOOK_HEADER))) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });

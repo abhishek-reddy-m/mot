@@ -647,13 +647,8 @@ function PropertyPage() {
                   <p className="text-sm font-semibold">Questions before you book?</p>
                   <p className="mt-0.5 text-sm text-muted-foreground">Talk to the front desk — an AI voice that knows today’s rooms and prices.</p>
                   {/* Same voice front desk as the phone button; here it's an inline button so it never covers the card. */}
-                  <div className="mt-3 h-11">
-                    <GuestVoice
-                      propertyId={p.id}
-                      propertyName={p.name}
-                      onStay={onVoiceStay}
-                      className="static hidden h-11 w-full justify-center rounded-xl border border-border-strong/50 bg-surface py-0 text-foreground shadow-xs hover:scale-100 hover:border-border-strong hover:bg-accent lg:inline-flex"
-                    />
+                  <div className="mt-3">
+                    <GuestVoice propertyId={p.id} propertyName={p.name} onStay={onVoiceStay} variant="inline" className="hidden lg:inline-flex" />
                   </div>
                 </div>
               )}

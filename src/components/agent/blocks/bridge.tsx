@@ -2,12 +2,14 @@
 
 import * as React from 'react';
 import useSWR from 'swr';
-import { CheckCircle2, CircleAlert, Cable, Loader2, RotateCcw, XCircle } from 'lucide-react';
+import { CheckCircle2, CircleAlert, Cable, Loader2, RotateCcw, XCircle, type LucideIcon } from 'lucide-react';
 import type { AgentBlock } from '@/lib/agent/blocks';
 import { api, fetcher } from '@/lib/fetcher';
 import { timeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { BlockCard } from './core';
 
 interface TaskView {
   id: string;
@@ -18,13 +20,13 @@ interface TaskView {
   finishedAt: string | null;
 }
 
-const LABEL: Record<TaskView['status'], string> = {
-  QUEUED: 'Waiting for the operator',
-  RUNNING: 'Working in your PMS',
-  DONE: 'Done',
-  FAILED: 'Couldn’t finish',
-  NEEDS_HELP: 'Needs you',
-  CANCELLED: 'Cancelled',
+const STATUS: Record<TaskView['status'], { label: string; variant: 'info' | 'success' | 'warning' | 'neutral'; icon: LucideIcon }> = {
+  QUEUED: { label: 'Waiting for the operator', variant: 'neutral', icon: Loader2 },
+  RUNNING: { label: 'Working in your PMS', variant: 'info', icon: Loader2 },
+  DONE: { label: 'Done', variant: 'success', icon: CheckCircle2 },
+  FAILED: { label: 'Couldn’t finish', variant: 'warning', icon: CircleAlert },
+  NEEDS_HELP: { label: 'Needs you', variant: 'warning', icon: CircleAlert },
+  CANCELLED: { label: 'Cancelled', variant: 'neutral', icon: XCircle },
 };
 
 /** Follows one bridge task live until the operator reports back. */
@@ -34,29 +36,34 @@ export function BridgeTaskBlock({ block }: { block: Extract<AgentBlock, { type: 
   });
   const status = data?.status ?? 'QUEUED';
   const active = status === 'QUEUED' || status === 'RUNNING';
-  const [busy, setBusy] = React.useState(false);
+  const st = STATUS[status];
+  const [busy, setBusy] = React.useState<'cancel' | 'retry' | null>(null);
+  const id = React.useId();
   const act = async (action: 'cancel' | 'retry') => {
-    setBusy(true);
+    setBusy(action);
     try {
       await mutate(await api<TaskView>(`/api/admin/bridge/tasks/${block.taskId}`, { method: 'PATCH', json: { action } }), { revalidate: false });
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   };
   return (
-    <div className={cn('overflow-hidden rounded-2xl border bg-card', status === 'DONE' && 'border-success/30', (status === 'FAILED' || status === 'NEEDS_HELP') && 'border-warning/40')}>
-      <div className="flex items-center gap-3 border-b bg-surface-sunken/50 px-4 py-2.5">
-        <Cable className="h-4 w-4 text-muted-foreground" />
-        <p className="flex-1 text-sm font-medium">
+    <BlockCard aria-labelledby={id} className={cn(status === 'DONE' && 'border-success/30', (status === 'FAILED' || status === 'NEEDS_HELP') && 'border-warning/40')}>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b bg-surface-sunken/50 px-4 py-2.5">
+        <Cable className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+        <h2 id={id} className="min-w-0 flex-1 text-sm font-semibold">
           {block.system} · {block.kind === 'LOOKUP' ? 'look-up' : 'change'}
-        </p>
-        <span className={cn('inline-flex items-center gap-1.5 text-xs font-medium', status === 'DONE' ? 'text-success' : active ? 'text-agent' : 'text-warning')}>
-          {active ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : status === 'DONE' ? <CheckCircle2 className="h-3.5 w-3.5" /> : status === 'CANCELLED' ? <XCircle className="h-3.5 w-3.5" /> : <CircleAlert className="h-3.5 w-3.5" />}
-          {LABEL[status]}
+        </h2>
+        <span role="status">
+          <Badge variant={st.variant} size="sm" icon={st.icon} className={cn(active && '[&_svg]:motion-safe:animate-spin')}>
+            {st.label}
+          </Badge>
         </span>
       </div>
       <div className="space-y-2 px-4 py-3">
-        <p className="text-sm text-muted-foreground">“{block.instruction}”</p>
+        <p className="text-sm text-muted-foreground">
+          <span className="sr-only">Instruction: </span>“{block.instruction}”
+        </p>
         {data?.summary && <p className="whitespace-pre-line text-sm">{data.summary}</p>}
         {data?.error && <p className="text-sm text-destructive">{data.error}</p>}
         {active && (
@@ -64,22 +71,22 @@ export function BridgeTaskBlock({ block }: { block: Extract<AgentBlock, { type: 
             {status === 'QUEUED' ? 'Your connector picks this up within a few seconds when it’s online.' : 'Reading the screen and working step by step — usually under a minute.'}
           </p>
         )}
-        <div className="flex items-center justify-between pt-1">
-          <span className="text-[11px] text-muted-foreground">{data ? `Sent ${timeAgo(data.createdAt)}` : ''}</span>
-          <div className="flex gap-1.5">
+        <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 pt-1">
+          <span className="text-xs text-muted-foreground">{data ? `Sent ${timeAgo(data.createdAt)}` : ''}</span>
+          <div className="flex gap-2">
             {status === 'QUEUED' && (
-              <Button size="sm" variant="ghost" className="h-7 text-xs" loading={busy} onClick={() => act('cancel')}>
+              <Button type="button" size="sm" variant="ghost" loading={busy === 'cancel'} disabled={!!busy} onClick={() => act('cancel')}>
                 Cancel
               </Button>
             )}
             {(status === 'FAILED' || status === 'NEEDS_HELP') && (
-              <Button size="sm" variant="outline" className="h-7 text-xs" loading={busy} onClick={() => act('retry')}>
-                <RotateCcw className="h-3 w-3" /> Try again
+              <Button type="button" size="sm" variant="outline" loading={busy === 'retry'} disabled={!!busy} onClick={() => act('retry')}>
+                <RotateCcw aria-hidden /> Try again
               </Button>
             )}
           </div>
         </div>
       </div>
-    </div>
+    </BlockCard>
   );
 }

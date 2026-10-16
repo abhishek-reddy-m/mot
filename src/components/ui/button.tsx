@@ -16,7 +16,7 @@ const buttonVariants = cva(
         /** The one main action in a region. */
         default: "bg-primary text-primary-foreground shadow-xs hover:bg-primary-hover",
         /** The hotel's own colour on guest pages (falls back to primary). */
-        brand: "bg-brand text-brand-foreground shadow-xs hover:brightness-[0.92]",
+        brand: "bg-brand text-brand-foreground shadow-xs hover:brightness-[0.92] dark:hover:brightness-110",
         /** AI features only: the agent, the voice agent, "Ask the agent". */
         agent:
           "bg-aurora bg-[position:0%_50%] text-agent-gradient-foreground shadow-glow hover:bg-[position:100%_50%]",

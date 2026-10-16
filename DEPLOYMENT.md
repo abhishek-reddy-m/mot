@@ -1,4 +1,4 @@
-# Deploying StayOS on Vercel
+# Deploying HotelOne on Vercel
 
 The repo deploys as-is: `vercel.json` runs `scripts/vercel-build.mjs`, which
 
@@ -17,30 +17,46 @@ The repo deploys as-is: `vercel.json` runs `scripts/vercel-build.mjs`, which
    | --- | --- |
    | `NEXTAUTH_SECRET` | `openssl rand -base64 32` (sensitive) |
    | `AGENT_PLAN_SECRET` | `openssl rand -base64 32` (sensitive) |
-   | `STAYOS_VAULT_KEY` | `openssl rand -base64 32` (sensitive) — seals stored PMS logins; never rotate without re-entering them |
+   | `HOTELONE_VAULT_KEY` | `openssl rand -base64 32` (sensitive) — seals stored PMS logins; never rotate without re-entering them. A project that already has `STAYOS_VAULT_KEY` can keep it (still accepted); to switch names, give `HOTELONE_VAULT_KEY` the **exact same value** |
    | `NEXT_PUBLIC_DEMO_MODE` | `true` for a public demo (one-click logins on `/login`) |
    | `SEED_DEMO` | `true` to create the demo hotels on the first build with a database |
    | `HOTEL_TIMEZONE` | e.g. `America/Los_Angeles` |
    | `ELEVENLABS_API_KEY` | voice front desk on ElevenLabs (preferred when set); then Console → Voice → *Check connection* creates the agents |
    | `OPENAI_API_KEY` | voice on GPT-Live (when ElevenLabs isn't set) and the PMS bridge operator |
-   | `STRIPE_*`, `RESEND_API_KEY`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_CLIENT_*` | optional |
+   | `STRIPE_*`, `RESEND_API_KEY`, `EMAIL_FROM`, `BLOB_READ_WRITE_TOKEN`, `GOOGLE_CLIENT_*` | optional — confirmation emails come from `HotelOne <bookings@hotelone.site>` unless `EMAIL_FROM` says otherwise, so verify that domain in Resend first |
 
-   Leave `NEXTAUTH_URL` unset: auth trusts the request host, which keeps preview URLs working. Set `NEXT_PUBLIC_SITE_URL` only to pin Stripe return URLs to a custom domain.
+   Leave `NEXTAUTH_URL` unset: auth trusts the request host, which keeps preview URLs working. `NEXT_PUBLIC_SITE_URL` and `HOTELONE_PUBLIC_URL` are covered under *Custom domain* below.
 4. **Deploy** → *Deployments* → *Redeploy* (env and database changes only apply to new builds).
-5. **Check** → `https://<your-domain>/api/health` should return `{"ok":true,"database":"up","seeded":true}`.
+5. **Check** → `https://hotelone.site/api/health` (or the project's `*.vercel.app` address) should return `{"ok":true,"database":"up","seeded":true}`.
+
+## Custom domain (hotelone.site)
+
+1. **Vercel** → project → *Settings* → *Domains*: `hotelone.site` and `www.hotelone.site` are added. Keep one as the primary and let the other redirect to it (Vercel offers this when the domains are added).
+2. **Registrar (GoDaddy)** → *My Products* → `hotelone.site` → *DNS*:
+
+   | Type | Name | Value |
+   | --- | --- | --- |
+   | `A` | `@` | `76.76.21.21` |
+   | `CNAME` | `www` | `cname.vercel-dns.com` |
+
+   Remove the old `A` records for `@` (GoDaddy's parking/forwarding ones) and any other `www` record — leftovers send part of the traffic elsewhere. Vercel shows *Valid Configuration* and issues the HTTPS certificate once DNS has propagated (minutes, sometimes a few hours).
+3. **Optional, then redeploy**: set `NEXT_PUBLIC_SITE_URL` and `HOTELONE_PUBLIC_URL` to `https://hotelone.site`. The first pins Stripe return URLs (and the canonical address for metadata and the sitemap); the second is the address phone-line webhooks and booking links use. Without them the app uses the Vercel production domain, which Vercel switches to the custom domain from the first deployment after the domain is added. `NEXT_PUBLIC_*` values are baked in at build time, so redeploy after changing them.
+4. **Sign-in and payments**: if `NEXTAUTH_DOMAIN` is set, update it to `hotelone.site` or remove it (an old value breaks sign-in on the new address). With Google sign-in, add `https://hotelone.site/api/auth/callback/google` to the OAuth client's redirect URIs. With Stripe, point the webhook endpoint at `https://hotelone.site/api/webhooks/stripe`.
+5. **Phone lines last**: ElevenLabs calls the public address, so finish DNS (*Valid Configuration* in Vercel) before turning on a phone line or opening the *Phone* tab. Lines that already exist keep calling the old address until their agent is re-synced: open each hotel's *Voice* → *Phone* tab as the owner, a manager or a platform admin (or press *Refresh* there) — that re-syncs the agent and its tools with the new webhook address; saving the line does the same. Until every line has been re-synced, keep the old `*.vercel.app` address publicly reachable — open `https://<project>.vercel.app/api/health` in a private window; if Vercel asks you to sign in, *Settings* → *Deployment Protection* is now covering it.
+6. **PMS connectors**: desktop connectors remember the address they were paired with, so they keep using the old `*.vercel.app` address while it stays reachable; re-pair one to move it to `https://hotelone.site`. Set `HOTELONE_SERVER=https://hotelone.site` (or keep `STAYOS_SERVER`) on the cloud worker.
 
 ## Phone line (ElevenLabs)
 
 Answer a hotel's phone with the voice front desk. Production only: preview deployments sit behind Vercel Authentication, which would refuse ElevenLabs' webhooks (the console says so on previews).
 
-1. **Hotel in StayOS** → the hotel's own property with its rooms and rates (that's what the voice quotes). In the public demo, demo hotels and the shared demo logins can't take a real line — sign up through *Get started*.
-2. **Turn it on** → Console → *Voice* → *Phone* → **Turn on phone line** (owner or platform admin). StayOS creates the hotel's phone agent in ElevenLabs, named `StayOS — <hotel> phone · <ref>`; the Phone tab shows its agent ID.
+1. **Hotel in HotelOne** → the hotel's own property with its rooms and rates (that's what the voice quotes). In the public demo, demo hotels and the shared demo logins can't take a real line — sign up through *Get started*.
+2. **Turn it on** → Console → *Voice* → *Phone* → **Turn on phone line** (owner or platform admin). HotelOne creates the hotel's phone agent in ElevenLabs, named `HotelOne — <hotel> phone · <ref>`; the Phone tab shows its agent ID. (Agents created before the rename keep their `StayOS — …` name until the next sync — opening the Phone tab renames the same agent in place; numbers stay assigned.)
 3. **A number for the assistant** → most countries: a local Twilio number. India: an Indian provider such as Exotel — ask ElevenLabs about India data residency first. A hotel phone system with SIP: a SIP trunk.
 4. **Point it at the agent** (whoever runs the ElevenLabs account — never give hotel owners access to it, it holds every hotel's agents and calls) → ElevenLabs → *Agents* → *Phone numbers* → *Import number* (Twilio: Account SID + Auth Token; SIP trunk: the provider's details) → choose the agent whose ID the hotel's Phone tab shows.
 5. **Keep the hotel's number** → forward calls to the new number. Most mobiles: `**61*<number>*11*20#` (no answer after 20 s) and `**67*<number>#` (busy); `##61#` / `##67#` undo them. US landlines: `*72<number>` forwards everything, `*73` stops. Codes vary by carrier; phone systems have "forward on no answer".
 6. **Test** → *Voice → Phone → Refresh* lists the number once it points at the agent; then call the hotel number and let it ring through.
 
-How it works: ElevenLabs calls `POST /api/voice/phone/start` when a call comes in. StayOS answers with the hotel's prompt and greeting (which always says it's a virtual assistant) and a signed session token — or a polite "not available" when the line is paused, the voice is off in *Settings*, or limits are hit. Then ElevenLabs calls `POST /api/voice/phone/tool` for each lookup. Both carry an `X-StayOS-Webhook` header derived from `AGENT_PLAN_SECRET` (or `NEXTAUTH_SECRET` when that isn't set): after rotating it, press *Refresh* on each hotel's Phone tab so its agent picks up the new value. Rotating `ELEVENLABS_API_KEY` within the same ElevenLabs account keeps every line working; moving to another account needs each number re-pointed.
+How it works: ElevenLabs calls `POST /api/voice/phone/start` when a call comes in. HotelOne answers with the hotel's prompt and greeting (which always says it's a virtual assistant) and a signed session token — or a polite "not available" when the line is paused, the voice is off in *Settings*, or limits are hit. Then ElevenLabs calls `POST /api/voice/phone/tool` for each lookup. Both carry an `X-StayOS-Webhook` header (the name predates the rename and stays — it's stored in every phone agent) derived from `AGENT_PLAN_SECRET` (or `NEXTAUTH_SECRET` when that isn't set): after rotating it, press *Refresh* on each hotel's Phone tab so its agent picks up the new value. Rotating `ELEVENLABS_API_KEY` within the same ElevenLabs account keeps every line working; moving to another account needs each number re-pointed.
 
 - **Limits** (in the database, across all instances): 6 calls per caller per 10 minutes (withheld numbers share 12 per hotel), `VOICE_PHONE_MAX_CALLS_PER_HOTEL_HOUR` (default 120) per hotel and `VOICE_PHONE_MAX_CALLS_PER_HOUR` (default 300) across hotels — separate from the booking page's budgets. ElevenLabs' own per-agent caps (`ELEVENLABS_MAX_CONCURRENT`, `ELEVENLABS_MAX_DAILY`) apply per hotel. Calls end after 10 minutes or 45 seconds of silence.
 - **Bookings by phone** arrive in *Messages* with the quote and a **Copy booking link** button: the team confirms with the guest and sends the pre-filled link to finish booking online.
@@ -51,6 +67,7 @@ How it works: ElevenLabs calls `POST /api/voice/phone/start` when a call comes i
 
 - Migrations run on every build that has a database (`prisma migrate deploy` only applies pending ones). Set `SKIP_MIGRATIONS=true` to opt out, e.g. for preview branches sharing the production database.
 - Serverless-safe by design: plan single-use, voice and bridge budgets, and sign-up limits live in Postgres, so they hold across every function instance. Photo uploads are downscaled in the browser and sent one per request (Vercel caps request bodies at 4.5 MB).
-- Public demo (`NEXT_PUBLIC_DEMO_MODE=true`): the shared `@stayos.demo` logins can't be re-passworded, deactivated or deleted, demo hotels keep their public details, and every deploy re-checks the demo logins. Sign-up forms tell visitors not to enter real details.
+- Public demo (`NEXT_PUBLIC_DEMO_MODE=true`): the shared `@hotelone.demo` logins (owner@, manager@, frontdesk@, housekeeping@, guest@ — password `demo1234`; older `@stayos.demo` ones count too) can't be re-passworded, deactivated or deleted, demo hotels keep their public details, and every deploy re-checks the demo logins. Sign-up forms tell visitors not to enter real details.
 - Deployment Protection (Vercel Authentication) protects preview and per-deployment URLs by default; the production domain stays public.
-- The cloud PMS bridge worker (`node stayos-connector.mjs worker`) is a long-running process: run it on a small VM or container with `BRIDGE_WORKER_SECRET` set on both sides — not on Vercel Functions.
+- The cloud PMS bridge worker (`HOTELONE_SERVER=https://hotelone.site node hotelone-connector.mjs worker`) is a long-running process: run it on a small VM or container with `BRIDGE_WORKER_SECRET` set on both sides — not on Vercel Functions. `stayos-connector.mjs` and `STAYOS_SERVER` still work for existing installs.
+- Renamed from StayOS: the `STAYOS_*` environment variables still work (each `HOTELONE_*` name is read first), so nothing has to change in Vercel for the rename itself. The ElevenLabs agents get their `HotelOne — …` names on their next sync (guest and staff agents on the next conversation or *Check connection*; phone agents when their *Phone* tab is opened) — the same agents, renamed in place.

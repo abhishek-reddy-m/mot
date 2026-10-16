@@ -40,7 +40,7 @@ const GUEST_LINKS = [
 ];
 
 const linkClass =
-  'rounded-sm text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken';
+  'inline-flex min-h-10 items-center rounded-sm text-sm text-muted-foreground md:min-h-0 transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken';
 
 /**
  * Site footer. `platform` (default) is the full product footer; `guest` is a

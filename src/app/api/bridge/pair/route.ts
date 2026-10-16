@@ -15,7 +15,7 @@ function limited(ip: string) {
 }
 
 /**
- * POST /api/bridge/pair { code, deviceName } — called by the StayOS Connector
+ * POST /api/bridge/pair { code, deviceName } — called by the HotelOne Connector
  * on the hotel's computer. Returns the device token exactly once.
  */
 export const POST = handleRoute(async (request: NextRequest) => {

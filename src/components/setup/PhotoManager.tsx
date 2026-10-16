@@ -3,11 +3,15 @@
 import * as React from 'react';
 import useSWR from 'swr';
 import { toast } from 'sonner';
-import { ImageIcon, ImagePlus, Star, Trash2 } from 'lucide-react';
+import { ImageIcon, ImagePlus, Loader2, Star, Trash2 } from 'lucide-react';
 import { api, fetcher } from '@/lib/fetcher';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { PRODUCT_NAME } from '@/config/product';
+import { IconButton } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/primitives';
 import { SmartImage } from '@/components/ui/smart-image';
+import { ConfirmDialog } from '@/components/frontdesk/dialogs';
+import { DeveloperNote } from './DeveloperNote';
 
 interface Photo {
   id: string;
@@ -38,6 +42,7 @@ async function toUploadDataUrl(file: File): Promise<string> {
     canvas.width = Math.round(bitmap.width * scale);
     canvas.height = Math.round(bitmap.height * scale);
     const ctx = canvas.getContext('2d')!;
+    // JPEG has no transparency: flatten onto white.
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
     ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
@@ -50,19 +55,27 @@ async function toUploadDataUrl(file: File): Promise<string> {
 }
 
 /**
- * Upload, reorder (cover photo) and delete photos for a property or room
+ * Upload, choose the cover photo and delete photos for a property or room
  * type. Works against `/api/admin/{properties|room-types}/{id}/photos`.
+ * Every tile is 4:3, so the grid never shifts while photos load.
  */
 export function PhotoManager({ endpoint, editable = true }: { endpoint: string; editable?: boolean }) {
   const { data: photos, mutate } = useSWR<Photo[]>(endpoint, fetcher);
   const { data: config } = useSWR<{ uploadsEnabled: boolean }>('/api/config', fetcher);
   const [busy, setBusy] = React.useState<string | null>(null);
+  const [progress, setProgress] = React.useState('');
+  const [confirmDelete, setConfirmDelete] = React.useState<Photo | null>(null);
+  const [dragging, setDragging] = React.useState(false);
   const input = React.useRef<HTMLInputElement>(null);
   const uploads = !!config?.uploadsEnabled;
 
-  async function upload(files: FileList | null) {
+  async function upload(files: FileList | File[] | null) {
     if (!files?.length) return;
     const list = [...files].filter((f) => f.type.startsWith('image/'));
+    if (!list.length) {
+      toast.error('Those files aren’t photos — use JPEG, PNG, WebP or HEIC.');
+      return;
+    }
     const tooBig = list.find((f) => f.size > MAX_SOURCE_BYTES);
     if (tooBig) {
       toast.error(`${tooBig.name} is larger than 25 MB.`);
@@ -73,6 +86,7 @@ export function PhotoManager({ endpoint, editable = true }: { endpoint: string; 
       // One photo per request keeps every upload under the body limit.
       let done = 0;
       for (const file of list) {
+        setProgress(list.length > 1 ? `Uploading ${done + 1} of ${list.length}…` : 'Uploading…');
         const image = await toUploadDataUrl(file);
         if (image.length > MAX_UPLOAD_CHARS) throw new Error(`${file.name} is too large to upload — try a JPEG or a smaller photo.`);
         await api(endpoint, { method: 'POST', json: { images: [image] } });
@@ -84,6 +98,7 @@ export function PhotoManager({ endpoint, editable = true }: { endpoint: string; 
       toast.error((e as Error).message);
     } finally {
       setBusy(null);
+      setProgress('');
       if (input.current) input.current.value = '';
     }
   }
@@ -93,6 +108,7 @@ export function PhotoManager({ endpoint, editable = true }: { endpoint: string; 
     try {
       await api(endpoint, { method: 'PATCH', json: { photoId: id } });
       await mutate();
+      toast.success('Cover photo updated');
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -105,6 +121,7 @@ export function PhotoManager({ endpoint, editable = true }: { endpoint: string; 
     try {
       await api(`${endpoint}?photoId=${encodeURIComponent(id)}`, { method: 'DELETE' });
       await mutate();
+      setConfirmDelete(null);
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -112,43 +129,108 @@ export function PhotoManager({ endpoint, editable = true }: { endpoint: string; 
     }
   }
 
+  const canUpload = editable && uploads && busy !== 'upload';
+
   return (
     <div>
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-        {(photos ?? []).map((p) => (
-          <div key={p.id} className={cn('group relative aspect-[4/3] overflow-hidden rounded-xl border bg-muted', busy === p.id && 'opacity-60')}>
-            <SmartImage src={p.url} icon={ImageIcon} className="h-full w-full" />
-            {p.isMain && <span className="absolute left-2 top-2 rounded-full bg-foreground/80 px-2 py-0.5 text-[10px] font-medium text-background">Cover</span>}
+      <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" aria-label="Photos" aria-busy={!photos}>
+        {!photos &&
+          Array.from({ length: 3 }).map((_, i) => (
+            <li key={i}>
+              <Skeleton className="aspect-[4/3] h-auto rounded-xl" />
+            </li>
+          ))}
+        {(photos ?? []).map((p, i) => (
+          <li key={p.id} className={cn('group relative overflow-hidden rounded-xl border bg-muted', busy === p.id && 'opacity-60')}>
+            <SmartImage src={p.url} alt={`Photo ${i + 1}${p.isMain ? ' (cover)' : ''}`} icon={ImageIcon} aspectRatio="4 / 3" sizes="(min-width: 1024px) 220px, 45vw" className="w-full" />
+            {p.isMain && (
+              <span className="absolute left-2 top-2 inline-flex items-center gap-1 rounded-full bg-inverse/85 px-2 py-0.5 text-2xs font-semibold text-inverse-foreground backdrop-blur">
+                <Star className="size-3 fill-current" aria-hidden /> Cover
+              </span>
+            )}
             {editable && (
-              <div className="absolute inset-x-2 bottom-2 flex justify-end gap-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+              // Always visible on touch screens; on hover-capable screens they appear on hover or focus.
+              <div className="absolute inset-x-2 bottom-2 flex justify-end gap-1.5 transition-opacity focus-within:opacity-100 group-hover:opacity-100 [@media(hover:hover)]:opacity-0">
                 {!p.isMain && (
-                  <Button size="icon-sm" variant="outline" className="h-7 w-7 bg-card/90" onClick={() => makeMain(p.id)} aria-label="Use as cover photo">
-                    <Star className="h-3.5 w-3.5" />
-                  </Button>
+                  <IconButton
+                    label={`Use photo ${i + 1} as the cover`}
+                    size="icon-sm"
+                    variant="outline"
+                    className="bg-surface/90 backdrop-blur"
+                    onClick={() => makeMain(p.id)}
+                    disabled={!!busy}
+                  >
+                    <Star />
+                  </IconButton>
                 )}
-                <Button size="icon-sm" variant="outline" className="h-7 w-7 bg-card/90 text-destructive" onClick={() => remove(p.id)} aria-label="Delete photo">
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
+                <IconButton
+                  label={`Delete photo ${i + 1}`}
+                  size="icon-sm"
+                  variant="outline"
+                  className="bg-surface/90 text-destructive backdrop-blur hover:bg-destructive-soft hover:text-destructive-soft-foreground"
+                  onClick={() => setConfirmDelete(p)}
+                  disabled={!!busy}
+                >
+                  <Trash2 />
+                </IconButton>
               </div>
             )}
-          </div>
+          </li>
         ))}
         {editable && (
-          <button
-            type="button"
-            disabled={!uploads || busy === 'upload'}
-            onClick={() => input.current?.click()}
-            className="flex aspect-[4/3] flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border disabled:hover:text-muted-foreground"
-          >
-            <ImagePlus className={cn('h-5 w-5', busy === 'upload' && 'animate-pulse')} />
-            {busy === 'upload' ? 'Uploading…' : 'Add photos'}
-          </button>
+          <li>
+            <button
+              type="button"
+              disabled={!canUpload}
+              onClick={() => input.current?.click()}
+              onDragOver={(e) => {
+                if (!canUpload) return;
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                if (canUpload) void upload(e.dataTransfer.files);
+              }}
+              className={cn(
+                'flex aspect-[4/3] w-full flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border-strong/60 px-3 text-center text-sm text-muted-foreground transition-colors hover:border-primary hover:bg-primary-soft/40 hover:text-primary-soft-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border-strong/60 disabled:hover:bg-transparent disabled:hover:text-muted-foreground',
+                dragging && 'border-primary bg-primary-soft/60 text-primary-soft-foreground'
+              )}
+            >
+              {busy === 'upload' ? <Loader2 className="size-5 animate-spin" aria-hidden /> : <ImagePlus className="size-5" aria-hidden />}
+              <span className="font-medium">{busy === 'upload' ? progress || 'Uploading…' : 'Add photos'}</span>
+              {busy !== 'upload' && <span className="hidden text-xs sm:block">or drop them here</span>}
+            </button>
+          </li>
         )}
-      </div>
-      <input ref={input} type="file" accept="image/*" multiple className="hidden" onChange={(e) => upload(e.target.files)} />
+      </ul>
+      <span role="status" aria-live="polite" className="sr-only">
+        {progress}
+      </span>
+      <input ref={input} type="file" accept="image/*" multiple className="hidden" onChange={(e) => upload(e.target.files)} tabIndex={-1} aria-hidden />
+      {photos && photos.length === 0 && !editable && <p className="mt-3 text-sm text-muted-foreground">No photos yet.</p>}
       {editable && config && !uploads && (
-        <p className="mt-3 text-xs text-muted-foreground">Photo uploads need file storage — connect a Vercel Blob store (BLOB_READ_WRITE_TOKEN) to turn them on.</p>
+        <div className="mt-3 space-y-2">
+          <p className="text-sm text-muted-foreground">Photo uploads aren’t switched on for this site yet. Your {PRODUCT_NAME} contact can turn them on.</p>
+          <DeveloperNote>
+            <p>
+              Uploads need file storage: connect a Vercel Blob store (<code>BLOB_READ_WRITE_TOKEN</code>) and redeploy.
+            </p>
+          </DeveloperNote>
+        </div>
       )}
+      <ConfirmDialog
+        open={!!confirmDelete}
+        onOpenChange={(o) => !o && setConfirmDelete(null)}
+        title="Delete this photo?"
+        description={confirmDelete?.isMain ? 'It’s your cover photo — the next photo becomes the cover. This can’t be undone.' : 'It’s removed from your booking page right away. This can’t be undone.'}
+        confirmLabel="Delete photo"
+        destructive
+        loading={!!confirmDelete && busy === confirmDelete.id}
+        onConfirm={() => confirmDelete && void remove(confirmDelete.id)}
+      />
     </div>
   );
 }

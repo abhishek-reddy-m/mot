@@ -1,7 +1,7 @@
 /**
  * Which service carries voice conversations. ElevenLabs when its key is set
  * (or VOICE_PROVIDER=elevenlabs), otherwise OpenAI GPT-Live. Both run the
- * same prompts and the same tools through StayOS.
+ * same prompts and the same tools through HotelOne.
  */
 export type VoiceProvider = 'elevenlabs' | 'openai';
 

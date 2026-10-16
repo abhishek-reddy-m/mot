@@ -1,7 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { WifiOff } from 'lucide-react';
+import { Eraser, WifiOff } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Callout } from '@/components/ui/primitives';
 import { useConsole } from '@/components/console/ConsoleProvider';
 import { AgentUIProvider } from './AgentUI';
 import { Composer, type ComposerHandle } from './Composer';
@@ -18,8 +20,11 @@ export function AgentPanel({
   empty,
   rail,
   controllerRef,
+  title,
 }: {
   compact?: boolean;
+  /** Visually hidden page heading shown once the conversation has started (the empty state brings its own). */
+  title?: string;
   empty?: (send: (cmd: string) => void) => React.ReactNode;
   rail?: (agent: AgentController) => React.ReactNode;
   controllerRef?: React.MutableRefObject<AgentController | null>;
@@ -37,7 +42,7 @@ export function AgentPanel({
   }, [pendingCommand, propertyId, agent, takePendingCommand]);
   const composer = React.useRef<ComposerHandle>(null);
   const lastBlockCount = agent.turns.reduce((n, t) => n + t.blocks.length, 0) + agent.turns.length;
-  const scrollRef = useStickToBottom<HTMLDivElement>(lastBlockCount + (agent.busy ? 1 : 0));
+  const scrollRef = useStickToBottom<HTMLDivElement>(lastBlockCount + (agent.busy ? 1 : 0), { enabled: agent.turns.length > 0 });
   if (controllerRef) controllerRef.current = agent;
 
   const latestPlan = React.useMemo(() => {
@@ -63,21 +68,30 @@ export function AgentPanel({
     latestPlan,
   };
 
+  const started = agent.turns.length > 0;
+
   return (
     <AgentUIProvider value={ui}>
       <div className="flex h-full min-h-0">
         <div className="flex min-w-0 flex-1 flex-col">
           {!agent.online && (
-            <div className="flex items-center justify-center gap-2 border-b border-warning/30 bg-warning-soft px-4 py-2 text-xs font-medium text-warning">
-              <WifiOff className="h-3.5 w-3.5" /> You’re offline. The classic screens still show the last data loaded; commands will work again when you reconnect.
-            </div>
+            <Callout tone="warning" icon={WifiOff} role="status" className="rounded-none border-x-0 border-b border-t-0 border-warning/30 py-2 text-xs sm:justify-center">
+              You’re offline. The classic screens still show the last data loaded; commands work again when you reconnect.
+            </Callout>
           )}
-          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto scrollbar-thin">
-            <div className={compact ? 'px-4 py-5' : 'mx-auto w-full max-w-3xl px-4 py-8 sm:px-6'}>
-              {agent.turns.length === 0 ? empty?.(agent.send) : <Timeline turns={agent.turns} onRetry={agent.send} compact={compact} />}
+          <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto overscroll-contain scrollbar-thin">
+            <div className={compact ? 'px-4 py-5' : 'mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8'}>
+              {started && title && <h1 className="sr-only">{title}</h1>}
+              {started ? <Timeline turns={agent.turns} onRetry={agent.send} compact={compact} /> : empty?.(agent.send)}
             </div>
           </div>
-          <div className={compact ? 'border-t bg-background/80 p-3' : 'bg-gradient-to-t from-background via-background to-background/0 pb-5 pt-2'}>
+          <div
+            className={
+              compact
+                ? 'border-t bg-background/90 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]'
+                : 'bg-gradient-to-t from-background via-background to-background/0 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2'
+            }
+          >
             <div className={compact ? '' : 'mx-auto w-full max-w-3xl px-4 sm:px-6'}>
               {voiceReady && <VoiceLiveBar voice={voice} />}
               <Composer
@@ -92,11 +106,11 @@ export function AgentPanel({
                 autoFocus
                 placeholder={property ? `Ask about ${property.name}, or tell me what to do…` : undefined}
               />
-              {agent.turns.length > 0 && !compact && (
-                <div className="mt-2 flex justify-end">
-                  <button onClick={agent.reset} className="text-[11px] text-muted-foreground hover:text-foreground">
-                    Clear conversation
-                  </button>
+              {started && !compact && (
+                <div className="mt-1.5 flex justify-end">
+                  <Button type="button" variant="ghost" size="sm" onClick={agent.reset} className="px-2.5 text-xs font-normal text-muted-foreground hover:text-foreground">
+                    <Eraser aria-hidden /> Clear conversation
+                  </Button>
                 </div>
               )}
             </div>

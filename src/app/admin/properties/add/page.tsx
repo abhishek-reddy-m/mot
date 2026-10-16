@@ -9,23 +9,38 @@ import { ArrowLeft } from 'lucide-react';
 import { api } from '@/lib/fetcher';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { PageHeader } from '@/components/ui/primitives';
-import { EMPTY_PROPERTY, PropertyFields, toPropertyPayload, validateProperty, type PropertyDraft } from '@/components/setup/PropertyFields';
+import { Callout, PageHeader } from '@/components/ui/primitives';
+import { EMPTY_PROPERTY, PropertyFields, errorSummary, propertyErrors, toPropertyPayload, type PropertyDraft } from '@/components/setup/PropertyFields';
 import { useConsole } from '@/components/console/ConsoleProvider';
+
+const FRAME = 'mx-auto w-full max-w-7xl px-4 pb-12 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pt-8';
 
 export default function AddPropertyPage() {
   const router = useRouter();
   const { mutate } = useSWRConfig();
   const { setPropertyId } = useConsole();
   const [draft, setDraft] = React.useState<PropertyDraft>(EMPTY_PROPERTY);
-  const [error, setError] = React.useState<string | null>(null);
+  // Field errors show once someone has tried to save, then update as they type.
+  const [tried, setTried] = React.useState(false);
+  const [serverError, setServerError] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
+  const formRef = React.useRef<HTMLFormElement>(null);
+  const errors = tried ? propertyErrors(draft) : {};
+  const summary = errorSummary(errors);
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    const problem = validateProperty(draft);
-    setError(problem);
-    if (problem) return;
+    setTried(true);
+    setServerError(null);
+    if (Object.keys(propertyErrors(draft)).length) {
+      // Take people to the first field that needs fixing.
+      requestAnimationFrame(() => {
+        const first = formRef.current?.querySelector<HTMLElement>('[aria-invalid="true"]');
+        first?.focus();
+        first?.scrollIntoView({ block: 'center' });
+      });
+      return;
+    }
     setSaving(true);
     try {
       const created = await api<{ id: string; name: string }>('/api/admin/properties', { method: 'POST', json: toPropertyPayload(draft) });
@@ -34,35 +49,40 @@ export default function AddPropertyPage() {
       toast.success(`${created.name} created — now add its rooms`);
       router.push('/admin/room-types/add');
     } catch (err) {
-      setError((err as Error).message);
+      setServerError((err as Error).message);
       setSaving(false);
     }
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-6 p-4 sm:p-6 lg:p-8">
-      <Link href="/admin/properties" className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Properties
-      </Link>
-      <PageHeader title="Add a property" description="The basics guests need. Rooms, photos and rates come next." />
-      <form onSubmit={save} className="space-y-6">
-        <Card className="p-5 sm:p-8">
-          <PropertyFields value={draft} onChange={setDraft} />
-        </Card>
-        {error && (
-          <p className="rounded-lg border border-destructive/25 bg-destructive-soft px-3 py-2 text-sm text-destructive" role="alert">
-            {error}
-          </p>
-        )}
-        <div className="flex justify-end gap-2">
-          <Button type="button" variant="ghost" onClick={() => router.back()}>
-            Cancel
-          </Button>
-          <Button type="submit" loading={saving}>
-            Create property
-          </Button>
-        </div>
-      </form>
+    <div className={FRAME}>
+      <div className="max-w-4xl space-y-6">
+        <Link
+          href="/admin/properties"
+          className="-ml-2 inline-flex h-10 items-center gap-1.5 rounded-lg px-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <ArrowLeft className="size-4" aria-hidden /> Properties
+        </Link>
+        <PageHeader title="Add a property" description="The basics guests need. Rooms, photos and rates come next." />
+        <form ref={formRef} onSubmit={save} className="space-y-6" noValidate>
+          <Card className="p-5 sm:p-8">
+            <PropertyFields value={draft} onChange={setDraft} errors={errors} />
+          </Card>
+          {(serverError || summary) && (
+            <Callout tone="danger" title={serverError ? 'We couldn’t create the property' : 'Please check the form'} role="alert">
+              {serverError ?? summary}
+            </Callout>
+          )}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="ghost" onClick={() => router.back()}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={saving} loadingText="Creating your property…">
+              Create property
+            </Button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 }

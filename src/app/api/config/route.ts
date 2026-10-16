@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { getPaymentConfig } from '@/lib/stripe';
-import { isEmailConfigured } from '@/lib/email';
+import { isEmailConfigured } from '@/server/email';
 import { isBlobConfigured } from '@/lib/cloudinary';
 import { voiceProvider } from '@/server/voice/provider';
 

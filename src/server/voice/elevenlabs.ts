@@ -1,10 +1,10 @@
 /**
  * ElevenLabs Agents as the voice provider.
  *
- * StayOS provisions two private agents in the hotel group's ElevenLabs
+ * HotelOne provisions two private agents in the hotel group's ElevenLabs
  * account — one for guests, one for staff — with our hotel tools registered
  * as *client* tools: ElevenLabs asks the browser to run them, and the
- * browser calls the same StayOS endpoints GPT-Live uses (signed voice token
+ * browser calls the same HotelOne endpoints GPT-Live uses (signed voice token
  * for guests; the permission-checked agent pipeline for staff). Hotel
  * specifics (name, today's date, house rules, greeting) are sent per
  * conversation as prompt overrides. Agents and tools are re-synced whenever
@@ -13,15 +13,22 @@
  * Phone lines: each hotel that turns one on gets its own phone agent, which
  * the account owner points phone numbers at in ElevenLabs (Twilio, SIP trunk
  * or Exotel numbers). There is no browser on a phone call, so ElevenLabs
- * calls StayOS directly: a conversation-initiation webhook when a call comes
+ * calls HotelOne directly: a conversation-initiation webhook when a call comes
  * in (we answer with the hotel's prompt and a signed session token) and
  * webhook tools during the call. Both carry a header secret derived from
  * the server secret.
+ *
+ * Agents are found by the ids stored under brand-free keys (VoiceProviderAgent),
+ * never by name or tag, so renaming them (StayOS → HotelOne) just updates the
+ * same agents in place on their next sync. The webhook header, the
+ * stayos_session variable and the stayos_tool field are configured inside
+ * every phone agent and tool at ElevenLabs: they keep their names for good.
  */
 import { createHash } from 'crypto';
+import { PRODUCT_NAME, PRODUCT_URL } from '@/config/product';
 import { prisma } from '@/lib/prisma';
 import { DomainError, notFound } from '../errors';
-import { publicSiteUrl } from '../public-url';
+import { configuredPublicUrl, publicSiteUrl } from '../public-url';
 import { GUEST_TOOLS, PHONE_TOOLS, STAFF_TOOLS, deriveVoiceKey, sameKey, type FunctionToolSpec } from './live';
 
 const DEFAULT_BASE = 'https://api.elevenlabs.io';
@@ -102,7 +109,7 @@ export function describeElevenLabsError(e: unknown): string {
     case null:
       return 'Couldn’t reach ElevenLabs just now — try again in a moment.';
     case 401:
-      if (/missing[_ ]?permission/i.test(e.detail)) return `This ElevenLabs key is missing a permission StayOS needs — give it “ElevenLabs Agents” write access (or no restrictions). ElevenLabs says: ${detail}`;
+      if (/missing[_ ]?permission/i.test(e.detail)) return `This ElevenLabs key is missing a permission ${PRODUCT_NAME} needs — give it “ElevenLabs Agents” write access (or no restrictions). ElevenLabs says: ${detail}`;
       return 'ElevenLabs didn’t accept the API key. Re-check ELEVENLABS_API_KEY in Vercel (Settings → Environment Variables), then redeploy.';
     case 403:
       return `This ElevenLabs key isn’t allowed to manage agents. Create a key with “ElevenLabs Agents” write access (or no restrictions). ElevenLabs says: ${detail}`;
@@ -166,6 +173,9 @@ function toolConfig(spec: FunctionToolSpec, audience: Audience) {
   };
 }
 
+/** Shown on our agents in the ElevenLabs dashboard; nothing looks agents up by it. */
+const BRAND_TAG = PRODUCT_NAME.toLowerCase();
+
 const CLIENT_EVENTS = ['conversation_initiation_metadata', 'audio', 'interruption', 'user_transcript', 'agent_response', 'agent_response_correction', 'client_tool_call', 'agent_tool_response', 'vad_score', 'client_error', 'ping'];
 
 function agentConfig(audience: Audience, toolIds: string[]) {
@@ -173,8 +183,8 @@ function agentConfig(audience: Audience, toolIds: string[]) {
   const voiceId = process.env.ELEVENLABS_VOICE_ID;
   const suffix = ENVIRONMENT === 'production' ? '' : ` (${ENVIRONMENT})`;
   return {
-    name: `${guest ? 'StayOS — guest front desk' : 'StayOS — staff hands-free'}${suffix}`,
-    tags: ['stayos', guest ? 'guest' : 'staff', ENVIRONMENT],
+    name: `${PRODUCT_NAME} — ${guest ? 'guest front desk' : 'staff hands-free'}${suffix}`,
+    tags: [BRAND_TAG, guest ? 'guest' : 'staff', ENVIRONMENT],
     conversation_config: {
       agent: {
         first_message: guest ? 'Hi, thanks for calling. How can I help?' : 'Hi — what do you need?',
@@ -196,7 +206,7 @@ function agentConfig(audience: Audience, toolIds: string[]) {
       auth: { enable_auth: true },
       // Only what each conversation actually sends: the hotel's prompt and greeting.
       overrides: { conversation_config_override: { agent: { first_message: true, prompt: { prompt: true } } } },
-      // Provider-side backstop on top of StayOS's own per-hotel limits.
+      // Provider-side backstop on top of HotelOne's own per-hotel limits.
       call_limits: {
         agent_concurrency_limit: Number(process.env.ELEVENLABS_MAX_CONCURRENT || 20),
         daily_limit: Number(process.env.ELEVENLABS_MAX_DAILY || 1000),
@@ -207,9 +217,13 @@ function agentConfig(audience: Audience, toolIds: string[]) {
 
 // --- Phone lines -------------------------------------------------------------
 
-/** Header ElevenLabs sends on our phone webhooks; the value is derived from the server secret. */
+/**
+ * Header ElevenLabs sends on our phone webhooks; the value is derived from the
+ * server secret. Wire contract: stored in every phone agent and tool at
+ * ElevenLabs — never rename it (calls would fail until every line re-synced).
+ */
 export const PHONE_WEBHOOK_HEADER = 'X-StayOS-Webhook';
-/** The signed session token for one call, handed to ElevenLabs by the initiation webhook. */
+/** The signed session token for one call, handed to ElevenLabs by the initiation webhook. Wire contract, like the header. */
 export const PHONE_SESSION_VARIABLE = 'stayos_session';
 const PHONE_MAX_SECONDS = 600;
 
@@ -237,13 +251,17 @@ export function verifyPhoneWebhook(headerValue: string | null): boolean {
  * ElevenLabs' calls, so phone lines belong on production.
  */
 export function phoneWebhookBase(): string {
-  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' && !process.env.STAYOS_PUBLIC_URL) {
+  if (process.env.VERCEL_ENV && process.env.VERCEL_ENV !== 'production' && !configuredPublicUrl()) {
     throw new DomainError(503, 'PHONE_URL', 'Phone lines run on your production deployment — preview deployments can’t receive ElevenLabs’ calls.');
   }
   const base = publicSiteUrl() ?? '';
   // Plain http only reaches a local mock of the API, never the real one.
   if (/^https:\/\/[^/]+/.test(base) || (/^http:\/\/[^/]+/.test(base) && BASE !== DEFAULT_BASE)) return base;
-  throw new DomainError(503, 'PHONE_URL', 'Phone calls need StayOS on a public https address — set STAYOS_PUBLIC_URL (for example https://your-domain.com) and redeploy.');
+  throw new DomainError(
+    503,
+    'PHONE_URL',
+    `Phone calls need ${PRODUCT_NAME} on a public https address — set HOTELONE_PUBLIC_URL (for example ${PRODUCT_URL}; the older STAYOS_PUBLIC_URL also works) and redeploy.`,
+  );
 }
 
 /** A phone tool runs on our server: ElevenLabs POSTs the model's arguments plus the call's session token. */
@@ -264,7 +282,7 @@ function phoneToolConfig(spec: FunctionToolSpec, base: string) {
         description: `Arguments for ${spec.name}`,
         properties: {
           ...(params.properties ?? {}),
-          // Filled by ElevenLabs, never by the model.
+          // Filled by ElevenLabs, never by the model. Wire contract: keep these names.
           stayos_tool: { type: 'string', constant_value: spec.name },
           stayos_session: { type: 'string', dynamic_variable: PHONE_SESSION_VARIABLE },
         },
@@ -290,11 +308,11 @@ function phoneAgentConfig(input: PhoneAgentInput, toolIds: string[]) {
   const format = audio === 'auto' ? null : audio;
   const suffix = ENVIRONMENT === 'production' ? '' : ` (${ENVIRONMENT})`;
   return {
-    name: `StayOS — ${input.hotel.slice(0, 70)} phone · ${input.ref}${suffix}`,
-    tags: ['stayos', 'phone', ENVIRONMENT],
+    name: `${PRODUCT_NAME} — ${input.hotel.slice(0, 70)} phone · ${input.ref}${suffix}`,
+    tags: [BRAND_TAG, 'phone', ENVIRONMENT],
     conversation_config: {
       agent: {
-        // Replaced per call by the initiation webhook; this only plays if StayOS couldn't be reached.
+        // Replaced per call by the initiation webhook; this only plays if HotelOne couldn't be reached.
         first_message: 'Thanks for calling. I’m sorry — our assistant can’t take calls right now. Please try again in a few minutes.',
         language: 'en',
         dynamic_variables: { dynamic_variable_placeholders: { [PHONE_SESSION_VARIABLE]: '' } },

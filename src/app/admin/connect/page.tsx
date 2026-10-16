@@ -3,14 +3,17 @@
 import * as React from 'react';
 import useSWR, { useSWRConfig } from 'swr';
 import { toast } from 'sonner';
-import { motion } from 'framer-motion';
+import { motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowRight,
+  Ban,
   Cable,
+  Check,
   CheckCircle2,
   CircleAlert,
+  CircleDashed,
+  Clock3,
   Cloud,
-  Copy,
   Download,
   KeyRound,
   Laptop,
@@ -24,19 +27,24 @@ import {
   Sparkles,
   Unplug,
   Wand2,
+  type LucideIcon,
 } from 'lucide-react';
 import { api, fetcher } from '@/lib/fetcher';
 import { timeAgo } from '@/lib/format';
 import { cn } from '@/lib/utils';
+import { PRODUCT_NAME } from '@/config/product';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import { EmptyState, PageHeader, Skeleton } from '@/components/ui/primitives';
+import { Callout, EmptyState, PageHeader, Skeleton } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/frontdesk/dialogs';
 import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider';
 import { WelcomeBanner } from '@/components/console/WelcomeBanner';
+import { CopyButton } from '@/components/setup/CopyButton';
+import { DeveloperNote } from '@/components/setup/DeveloperNote';
 
 interface Connection {
   id: string;
@@ -70,14 +78,51 @@ interface BridgeData {
   cloudWorker: boolean;
 }
 
-const STATUS_TONE: Record<Task['status'], string> = {
-  QUEUED: 'bg-muted text-muted-foreground',
-  RUNNING: 'bg-agent-soft text-agent',
-  DONE: 'bg-success-soft text-success',
-  FAILED: 'bg-destructive-soft text-destructive',
-  NEEDS_HELP: 'bg-warning-soft text-warning',
-  CANCELLED: 'bg-muted text-muted-foreground',
+const FRAME = 'mx-auto w-full max-w-7xl px-4 pb-12 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pt-8';
+/** The renamed connector; installs of the older stayos-connector.mjs keep working. */
+const CONNECTOR = 'hotelone-connector.mjs';
+const INSTALL = 'npm i playwright && npx playwright install chromium';
+
+const TASK_STATUS: Record<Task['status'], { label: string; variant: BadgeProps['variant']; icon: LucideIcon; spin?: boolean; className?: string }> = {
+  QUEUED: { label: 'Waiting', variant: 'neutral', icon: Clock3 },
+  RUNNING: { label: 'Working on it', variant: 'info', icon: Loader2, spin: true },
+  DONE: { label: 'Done', variant: 'success', icon: CheckCircle2 },
+  FAILED: { label: 'Failed', variant: 'danger', icon: CircleAlert },
+  NEEDS_HELP: { label: 'Needs your help', variant: 'warning', icon: CircleAlert },
+  CANCELLED: { label: 'Cancelled', variant: 'outline', icon: Ban, className: 'text-muted-foreground' },
 };
+
+const stepDot = 'flex size-7 shrink-0 items-center justify-center rounded-full border border-border-strong/60 text-xs font-semibold tabular';
+
+/** A selectable card backed by a real (visually hidden) radio input. */
+function ChoiceCard({
+  name,
+  value,
+  checked,
+  onChange,
+  className,
+  children,
+}: {
+  name: string;
+  value: string;
+  checked: boolean;
+  onChange: () => void;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label
+      className={cn(
+        'relative flex cursor-pointer rounded-xl border bg-card text-left transition-[border-color,background-color,box-shadow] hover:border-border-strong/60 hover:bg-accent/40 has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-background',
+        checked && 'border-primary bg-primary-soft/50 ring-1 ring-primary hover:border-primary hover:bg-primary-soft/60',
+        className
+      )}
+    >
+      <input type="radio" name={name} value={value} checked={checked} onChange={onChange} className="sr-only" />
+      {children}
+    </label>
+  );
+}
 
 function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connection | null; onDone: () => void }) {
   const { propertyId, can } = useConsole();
@@ -103,65 +148,113 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
     }
   }
 
-  if (!can('bridge.manage')) return <EmptyState icon={Cable} title="Not connected yet" description="Ask the owner to connect your PMS so the agent can work in it." />;
+  if (!can('bridge.manage')) {
+    return (
+      <Card>
+        <EmptyState icon={Cable} title="Not connected yet" description="Ask the owner to connect your PMS so the agent can look things up and make changes there." />
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
       <Card className="p-5 sm:p-6">
-        <p className="text-sm font-semibold">1 · Which system do you use today?</p>
-        <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
-          {data.systems.map((s) => (
-            <button
-              key={s}
-              onClick={() => setSystem(s)}
-              className={cn('rounded-xl border px-3 py-3 text-left text-sm font-medium transition-all', system === s ? 'border-primary bg-primary-soft/60 ring-1 ring-primary' : 'hover:bg-accent')}
-            >
-              {s}
-            </button>
-          ))}
+        <fieldset>
+          <legend className="flex items-center gap-3 text-base font-semibold tracking-tight">
+            <span className={stepDot} aria-hidden>
+              1
+            </span>
+            Which system do you use today?
+          </legend>
+          <div className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+            {data.systems.map((s) => (
+              <ChoiceCard key={s} name="pms-system" value={s} checked={system === s} onChange={() => setSystem(s)} className="min-h-12 items-center justify-between gap-2 px-3 py-2.5">
+                <span className="text-sm font-medium">{s}</span>
+                {system === s && <Check className="size-4 shrink-0 text-primary" aria-hidden />}
+              </ChoiceCard>
+            ))}
+          </div>
+        </fieldset>
+        <div className="mt-5 grid gap-4 sm:grid-cols-2">
+          {system === 'Other' && (
+            <Field label="Your PMS name" required>
+              <Input value={other} onChange={(e) => setOther(e.target.value)} placeholder="e.g. RoomKey" autoFocus />
+            </Field>
+          )}
+          <Field label="Sign-in address" optional hint="Where you log in to it, like https://hotels.cloudbeds.com — the operator starts there." className={system === 'Other' ? '' : 'sm:col-span-2 sm:max-w-xl'}>
+            <Input type="url" inputMode="url" value={loginUrl} onChange={(e) => setLoginUrl(e.target.value)} placeholder="https://" />
+          </Field>
         </div>
-        {system === 'Other' && <Input className="mt-3" value={other} onChange={(e) => setOther(e.target.value)} placeholder="Your PMS name" aria-label="PMS name" />}
-        <Field label="Sign-in address (optional)" htmlFor="pms-url" className="mt-4" hint="Where you log in to it, e.g. https://hotels.cloudbeds.com — the operator starts there.">
-          <Input id="pms-url" type="url" value={loginUrl} onChange={(e) => setLoginUrl(e.target.value)} placeholder="https://" />
-        </Field>
       </Card>
 
       <Card className="p-5 sm:p-6">
-        <p className="text-sm font-semibold">2 · How should StayOS reach it?</p>
-        <div className="mt-4 grid gap-3 md:grid-cols-2">
-          {(
-            [
-              { m: 'DESKTOP', icon: Laptop, title: 'From a front-desk computer', text: 'Run the small StayOS Connector on a computer at the hotel. It uses a browser that’s already signed in — your logins never leave the building.', tag: 'Most private' },
-              { m: 'CLOUD', icon: Cloud, title: 'In the StayOS cloud browser', text: 'Nothing to install. We sign in with a login you store here, sealed with AES-256 and never shown to the AI or to anyone.', tag: 'Nothing to install' },
-            ] as const
-          ).map((o) => (
-            <button
-              key={o.m}
-              onClick={() => setMode(o.m)}
-              aria-pressed={mode === o.m}
-              className={cn('flex flex-col rounded-2xl border p-5 text-left transition-all', mode === o.m ? 'border-primary bg-primary-soft/40 ring-1 ring-primary' : 'hover:bg-accent')}
-            >
-              <div className="flex items-center justify-between">
-                <o.icon className={cn('h-5 w-5', mode === o.m ? 'text-primary' : 'text-muted-foreground')} />
-                <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">{o.tag}</span>
-              </div>
-              <p className="mt-3 font-semibold">{o.title}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{o.text}</p>
-            </button>
-          ))}
-        </div>
+        <fieldset>
+          <legend className="flex items-center gap-3 text-base font-semibold tracking-tight">
+            <span className={stepDot} aria-hidden>
+              2
+            </span>
+            How should {PRODUCT_NAME} reach it?
+          </legend>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            {(
+              [
+                {
+                  m: 'DESKTOP',
+                  icon: Laptop,
+                  title: 'From a front-desk computer',
+                  text: `Run the small ${PRODUCT_NAME} Connector on a computer at the hotel. It uses a browser that’s already signed in — your logins never leave the building.`,
+                  tag: 'Most private',
+                },
+                {
+                  m: 'CLOUD',
+                  icon: Cloud,
+                  title: `In the ${PRODUCT_NAME} cloud browser`,
+                  text: 'Nothing to install. We sign in with a login you store here, sealed with AES-256 and never shown to the AI or to anyone.',
+                  tag: 'Nothing to install',
+                },
+              ] as const
+            ).map((o) => (
+              <ChoiceCard key={o.m} name="pms-mode" value={o.m} checked={mode === o.m} onChange={() => setMode(o.m)} className="flex-col rounded-2xl p-5">
+                <span className="flex items-center justify-between gap-2">
+                  <o.icon className={cn('size-5', mode === o.m ? 'text-primary' : 'text-muted-foreground')} aria-hidden />
+                  <Badge variant={mode === o.m ? 'primary' : 'neutral'} size="sm">
+                    {o.tag}
+                  </Badge>
+                </span>
+                <span className="mt-3 font-semibold">{o.title}</span>
+                <span className="mt-1 text-sm text-muted-foreground">{o.text}</span>
+              </ChoiceCard>
+            ))}
+          </div>
+        </fieldset>
       </Card>
 
-      <div className="flex justify-end gap-2">
-        {initial && (
-          <Button variant="ghost" onClick={onDone}>
-            Cancel
-          </Button>
+      <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
+        {!chosen && (
+          <p className="text-sm text-muted-foreground sm:mr-auto" id="pms-continue-hint">
+            Choose your system to continue.
+          </p>
         )}
-        <Button onClick={save} loading={busy} disabled={!chosen}>
-          {initial ? 'Save' : 'Continue'} <ArrowRight className="h-4 w-4" />
-        </Button>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row">
+          {initial && (
+            <Button variant="ghost" onClick={onDone}>
+              Cancel
+            </Button>
+          )}
+          <Button onClick={save} loading={busy} loadingText="Saving…" disabled={!chosen} aria-describedby={!chosen ? 'pms-continue-hint' : undefined}>
+            {initial ? 'Save' : 'Continue'} <ArrowRight aria-hidden />
+          </Button>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function CommandLine({ command, label }: { command: string; label: string }) {
+  return (
+    <div className="flex min-w-0 items-center gap-1 rounded-lg border bg-surface-sunken py-1 pl-3 pr-1">
+      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-1 font-mono text-xs text-foreground scrollbar-thin">{command}</code>
+      <CopyButton iconOnly value={command} label={label} />
     </div>
   );
 }
@@ -169,6 +262,8 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
 function DesktopPanel({ c, onChange }: { c: Connection; onChange: () => void }) {
   const { propertyId, can } = useConsole();
   const [busy, setBusy] = React.useState(false);
+  const [confirmRevoke, setConfirmRevoke] = React.useState(false);
+  const [revoking, setRevoking] = React.useState(false);
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -176,7 +271,7 @@ function DesktopPanel({ c, onChange }: { c: Connection; onChange: () => void }) 
   }, []);
   const origin = typeof window !== 'undefined' ? window.location.origin : '';
   const left = c.pairing ? Math.max(0, Math.round((new Date(c.pairing.expiresAt).getTime() - now) / 1000)) : 0;
-  const command = c.pairing ? `node stayos-connector.mjs pair ${c.pairing.code} --server ${origin}` : '';
+  const command = c.pairing ? `node ${CONNECTOR} pair ${c.pairing.code} --server ${origin}` : '';
 
   async function newCode() {
     setBusy(true);
@@ -190,102 +285,130 @@ function DesktopPanel({ c, onChange }: { c: Connection; onChange: () => void }) 
     }
   }
   async function revoke() {
+    setRevoking(true);
     try {
       await api(`/api/admin/bridge/pairing?propertyId=${propertyId}`, { method: 'DELETE' });
       toast.success('Connector disconnected');
+      setConfirmRevoke(false);
       onChange();
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setRevoking(false);
     }
   }
 
   return (
     <Card className="p-5 sm:p-6">
-      <p className="flex items-center gap-2 text-sm font-semibold">
-        <Laptop className="h-4 w-4 text-muted-foreground" /> Desktop connector
-      </p>
+      <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+        <Laptop className="size-4 text-muted-foreground" aria-hidden /> {PRODUCT_NAME} Connector on a front-desk computer
+      </h2>
       {c.devicePaired ? (
         <div className="mt-4 flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center">
-          <span className={cn('h-2.5 w-2.5 shrink-0 rounded-full', c.online ? 'bg-success' : 'bg-muted-foreground/40')} />
-          <div className="flex-1 text-sm">
-            <p className="font-medium">{c.deviceName ?? 'Paired computer'}</p>
-            <p className="text-xs text-muted-foreground">{c.online ? 'Online — ready for work' : c.lastSeenAt ? `Last seen ${timeAgo(c.lastSeenAt)} — start it with “node stayos-connector.mjs run”` : 'Waiting for it to start'}</p>
+          <span className={cn('size-2.5 shrink-0 rounded-full', c.online ? 'bg-success' : 'bg-border-strong')} aria-hidden />
+          <div className="min-w-0 flex-1 text-sm">
+            <p className="font-medium">
+              {c.deviceName ?? 'Paired computer'}
+              <span className="sr-only">{c.online ? ', online' : ', offline'}</span>
+            </p>
+            <p className="text-muted-foreground">
+              {c.online ? 'Online — ready for work' : c.lastSeenAt ? `Last seen ${timeAgo(c.lastSeenAt)} — start the connector again on that computer:` : 'Waiting for it to start:'}
+            </p>
+            {!c.online && (
+              <div className="mt-2 max-w-md">
+                <CommandLine command={`node ${CONNECTOR} run`} label="Copy the start command" />
+              </div>
+            )}
           </div>
           {can('bridge.manage') && (
-            <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive-soft" onClick={revoke}>
-              <Unplug className="h-4 w-4" /> Disconnect
+            <Button size="sm" variant="ghost" className="self-start text-destructive hover:bg-destructive-soft hover:text-destructive-soft-foreground sm:self-center" onClick={() => setConfirmRevoke(true)}>
+              <Unplug aria-hidden /> Disconnect
             </Button>
           )}
         </div>
       ) : (
-        <ol className="mt-4 space-y-4 text-sm">
+        <ol className="mt-5 space-y-5 text-sm">
           <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">1</span>
-            <div className="flex-1">
-              <p>Download the connector on the front-desk computer (needs Node.js 20+).</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                <Button asChild size="sm" variant="outline">
-                  <a href="/downloads/stayos-connector.mjs" download>
-                    <Download className="h-4 w-4" /> stayos-connector.mjs
+            <span className={stepDot} aria-hidden>
+              1
+            </span>
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="font-medium">Download the connector on the front-desk computer</p>
+              <p className="text-muted-foreground">It needs Node.js 20 or newer. Then install the browser it drives — one command, once:</p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                <Button asChild size="sm" variant="outline" className="self-start">
+                  <a href={`/downloads/${CONNECTOR}`} download>
+                    <Download aria-hidden /> Download {CONNECTOR}
                   </a>
                 </Button>
-                <code className="rounded-lg bg-muted px-2 py-1.5 font-mono text-xs">npm i playwright &amp;&amp; npx playwright install chromium</code>
+                <div className="min-w-0 flex-1">
+                  <CommandLine command={INSTALL} label="Copy the install command" />
+                </div>
               </div>
             </div>
           </li>
           <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">2</span>
-            <div className="min-w-0 flex-1">
-              <p>Pair it with a one-time code.</p>
+            <span className={stepDot} aria-hidden>
+              2
+            </span>
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="font-medium">Pair it with a one-time code</p>
               {c.pairing && left > 0 ? (
-                <div className="mt-2 rounded-xl border bg-surface-sunken/60 p-4">
-                  <p className="font-mono text-3xl font-semibold tracking-[0.3em]">{c.pairing.code}</p>
-                  <p className="mt-1 text-xs text-muted-foreground">
+                <div className="rounded-xl border bg-surface-sunken/60 p-4">
+                  <p className="font-mono text-3xl font-semibold tracking-[0.3em]" aria-label={`Pairing code ${c.pairing.code.split('').join(' ')}`}>
+                    {c.pairing.code}
+                  </p>
+                  <p className="mt-1 text-xs text-muted-foreground" aria-hidden>
                     Expires in {Math.floor(left / 60)}:{String(left % 60).padStart(2, '0')}
                   </p>
-                  <div className="mt-3 flex items-center gap-2">
-                    <code className="min-w-0 flex-1 truncate rounded-lg bg-muted px-2 py-1.5 font-mono text-xs">{command}</code>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      onClick={async () => {
-                        try {
-                          await navigator.clipboard.writeText(command);
-                          toast.success('Copied');
-                        } catch {
-                          /* select manually */
-                        }
-                      }}
-                      aria-label="Copy command"
-                    >
-                      <Copy className="h-4 w-4" />
-                    </Button>
+                  <p className="mt-3 text-muted-foreground">In the folder you downloaded it to, run:</p>
+                  <div className="mt-1.5">
+                    <CommandLine command={command} label="Copy the pairing command" />
                   </div>
                 </div>
               ) : (
-                <Button size="sm" className="mt-2" onClick={newCode} loading={busy} disabled={!can('bridge.manage')}>
-                  <KeyRound className="h-4 w-4" /> Create pairing code
+                <Button size="sm" onClick={newCode} loading={busy} loadingText="Creating a code…" disabled={!can('bridge.manage')}>
+                  <KeyRound aria-hidden /> Create pairing code
                 </Button>
               )}
             </div>
           </li>
           <li className="flex gap-3">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-semibold">3</span>
-            <p className="flex-1">
-              Run <code className="rounded bg-muted px-1 font-mono text-xs">node stayos-connector.mjs run</code>, sign in to {c.system} in the window that opens, and leave it running.
-            </p>
+            <span className={stepDot} aria-hidden>
+              3
+            </span>
+            <div className="min-w-0 flex-1 space-y-2">
+              <p className="font-medium">Start it and sign in to {c.system}</p>
+              <p className="text-muted-foreground">Sign in to {c.system} in the browser window that opens, and leave it running.</p>
+              <div className="max-w-md">
+                <CommandLine command={`node ${CONNECTOR} run`} label="Copy the start command" />
+              </div>
+              <p className="text-xs text-muted-foreground">Already using the older stayos-connector.mjs? It keeps working — no need to reinstall.</p>
+            </div>
           </li>
         </ol>
       )}
+      <ConfirmDialog
+        open={confirmRevoke}
+        onOpenChange={setConfirmRevoke}
+        title={`Disconnect ${c.deviceName ?? 'this computer'}?`}
+        description="It stops working for the agent right away. You can pair it again later with a new code."
+        confirmLabel="Disconnect"
+        destructive
+        loading={revoking}
+        onConfirm={() => void revoke()}
+      />
     </Card>
   );
 }
 
 function CloudPanel({ c, data, onChange }: { c: Connection; data: BridgeData; onChange: () => void }) {
-  const { propertyId, can } = useConsole();
+  const { propertyId, can, role } = useConsole();
   const [form, setForm] = React.useState({ username: '', password: '', totpSecret: '' });
   const [editing, setEditing] = React.useState(!c.hasCredentials);
   const [busy, setBusy] = React.useState(false);
+  const [confirmRemove, setConfirmRemove] = React.useState(false);
+  const [removing, setRemoving] = React.useState(false);
   async function save(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
@@ -302,33 +425,39 @@ function CloudPanel({ c, data, onChange }: { c: Connection; data: BridgeData; on
     }
   }
   async function remove() {
+    setRemoving(true);
     try {
       await api(`/api/admin/bridge/credentials?propertyId=${propertyId}`, { method: 'DELETE' });
       setEditing(true);
+      setConfirmRemove(false);
       onChange();
     } catch (err) {
       toast.error((err as Error).message);
+    } finally {
+      setRemoving(false);
     }
   }
   return (
     <Card className="p-5 sm:p-6">
-      <p className="flex items-center gap-2 text-sm font-semibold">
-        <Cloud className="h-4 w-4 text-muted-foreground" /> Cloud browser login
+      <h2 className="flex items-center gap-2 text-base font-semibold tracking-tight">
+        <Cloud className="size-4 text-muted-foreground" aria-hidden /> Cloud browser login
+      </h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Create a dedicated {c.system} user for {PRODUCT_NAME} if you can — you can see and revoke its access from {c.system} at any time.
       </p>
-      <p className="mt-1 text-xs text-muted-foreground">Create a dedicated {c.system} user for StayOS if you can — you can see and revoke its access from {c.system} at any time.</p>
       {!editing && c.hasCredentials ? (
         <div className="mt-4 flex flex-col gap-3 rounded-xl border p-4 sm:flex-row sm:items-center">
-          <Lock className="h-5 w-5 shrink-0 text-success" />
+          <Lock className="size-5 shrink-0 text-success" aria-hidden />
           <div className="flex-1 text-sm">
-            <p className="font-medium">Login stored · sealed</p>
-            <p className="text-xs text-muted-foreground">Encrypted with AES-256-GCM. Never shown again, never sent to the AI.</p>
+            <p className="font-medium">Login stored and sealed</p>
+            <p className="text-muted-foreground">Encrypted with AES-256-GCM. Never shown again, never sent to the AI.</p>
           </div>
           {can('bridge.manage') && (
             <div className="flex gap-2">
               <Button size="sm" variant="outline" onClick={() => setEditing(true)}>
                 Replace
               </Button>
-              <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive-soft" onClick={remove}>
+              <Button size="sm" variant="ghost" className="text-destructive hover:bg-destructive-soft hover:text-destructive-soft-foreground" onClick={() => setConfirmRemove(true)}>
                 Remove
               </Button>
             </div>
@@ -336,83 +465,119 @@ function CloudPanel({ c, data, onChange }: { c: Connection; data: BridgeData; on
         </div>
       ) : (
         <form onSubmit={save} className="mt-4 space-y-4">
+          {!data.vaultReady && (
+            <Callout tone="warning" title="Secure storage isn’t set up on this server yet">
+              <p>Logins can’t be saved until it is. You can use the desktop connector in the meantime.</p>
+              <DeveloperNote open={role === 'ADMIN'} className="mt-3">
+                <p>
+                  Set <code>HOTELONE_VAULT_KEY</code> on the server and redeploy (an existing <code>STAYOS_VAULT_KEY</code> also works).
+                </p>
+              </DeveloperNote>
+            </Callout>
+          )}
           <fieldset disabled={!can('bridge.manage') || !data.vaultReady} className="grid gap-4 sm:grid-cols-2">
-            <Field label="Username" htmlFor="pms-user">
-              <Input id="pms-user" autoComplete="off" required value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
+            <legend className="sr-only">{c.system} login</legend>
+            <Field label="Username" required>
+              <Input autoComplete="off" required value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })} />
             </Field>
-            <Field label="Password" htmlFor="pms-pass">
-              <Input id="pms-pass" type="password" autoComplete="new-password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
+            <Field label="Password" required>
+              <Input type="password" autoComplete="new-password" required value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} />
             </Field>
-            <Field label="Authenticator secret (optional)" htmlFor="pms-totp" className="sm:col-span-2" hint="If your PMS uses 2-step codes, paste the setup key so the cloud browser can generate them.">
-              <Input id="pms-totp" autoComplete="off" value={form.totpSecret} onChange={(e) => setForm({ ...form, totpSecret: e.target.value })} className="font-mono" />
+            <Field label="Authenticator setup key" optional className="sm:col-span-2" hint="If your PMS uses 2-step codes, paste the setup key so the cloud browser can generate them.">
+              <Input autoComplete="off" value={form.totpSecret} onChange={(e) => setForm({ ...form, totpSecret: e.target.value })} className="font-mono" />
             </Field>
           </fieldset>
-          {!data.vaultReady && <p className="text-xs text-warning">Secure storage isn’t configured on this server (STAYOS_VAULT_KEY), so logins can’t be saved yet.</p>}
           <div className="flex justify-end gap-2">
             {c.hasCredentials && (
               <Button type="button" variant="ghost" onClick={() => setEditing(false)}>
                 Cancel
               </Button>
             )}
-            <Button type="submit" loading={busy} disabled={!form.username || !form.password || !data.vaultReady}>
-              <ShieldCheck className="h-4 w-4" /> Seal and save
+            <Button type="submit" loading={busy} loadingText="Sealing…" disabled={!form.username || !form.password || !data.vaultReady}>
+              <ShieldCheck aria-hidden /> Seal and save
             </Button>
           </div>
         </form>
       )}
+      <ConfirmDialog
+        open={confirmRemove}
+        onOpenChange={setConfirmRemove}
+        title="Remove the stored login?"
+        description={`The cloud browser can’t sign in to ${c.system} until you store a new one. Waiting tasks stay in the queue.`}
+        confirmLabel="Remove login"
+        destructive
+        loading={removing}
+        onConfirm={() => void remove()}
+      />
     </Card>
   );
 }
 
 function TaskList({ tasks, onChange }: { tasks: Task[]; onChange: () => void }) {
+  const [acting, setActing] = React.useState<string | null>(null);
   const act = async (id: string, action: 'cancel' | 'retry') => {
+    setActing(id);
     try {
       await api(`/api/admin/bridge/tasks/${id}`, { method: 'PATCH', json: { action } });
       onChange();
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setActing(null);
     }
   };
-  if (!tasks.length) return <p className="rounded-xl border border-dashed px-4 py-8 text-center text-sm text-muted-foreground">Nothing sent yet. Ask the agent — or use the box above.</p>;
+  if (!tasks.length) {
+    return (
+      <Card>
+        <EmptyState icon={Search} title="Nothing sent yet" description="Ask the agent — or type a look-up or change in the box above and send it." className="py-10" />
+      </Card>
+    );
+  }
   return (
-    <ul className="divide-y rounded-2xl border bg-card">
-      {tasks.map((t) => (
-        <li key={t.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start">
-          <div className="min-w-0 flex-1">
-            <p className="text-sm">{t.instruction}</p>
-            {t.summary && <p className="mt-1 text-sm text-muted-foreground">{t.summary}</p>}
-            {t.error && <p className="mt-1 text-sm text-destructive">{t.error}</p>}
-            <p className="mt-1 text-[11px] text-muted-foreground">
-              {t.kind === 'LOOKUP' ? 'Look-up' : 'Change'} · {timeAgo(t.createdAt)}
-            </p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className={cn('inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium', STATUS_TONE[t.status])}>
-              {(t.status === 'RUNNING' || t.status === 'QUEUED') && <Loader2 className="h-3 w-3 animate-spin" />}
-              {t.status === 'DONE' && <CheckCircle2 className="h-3 w-3" />}
-              {(t.status === 'FAILED' || t.status === 'NEEDS_HELP') && <CircleAlert className="h-3 w-3" />}
-              {t.status.replace('_', ' ').toLowerCase()}
-            </span>
-            {t.status === 'QUEUED' && (
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => act(t.id, 'cancel')}>
-                Cancel
-              </Button>
-            )}
-            {(t.status === 'FAILED' || t.status === 'NEEDS_HELP') && (
-              <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => act(t.id, 'retry')}>
-                <RotateCcw className="h-3 w-3" /> Retry
-              </Button>
-            )}
-          </div>
-        </li>
-      ))}
-    </ul>
+    <Card className="p-0">
+      <ul className="divide-y">
+        {tasks.map((t) => {
+          const s = TASK_STATUS[t.status];
+          return (
+            <li key={t.id} className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:gap-4">
+              <div className="min-w-0 flex-1">
+                <p className="text-sm">{t.instruction}</p>
+                {t.summary && <p className="mt-1 text-sm text-muted-foreground">{t.summary}</p>}
+                {t.error && <p className="mt-1 text-sm text-destructive">{t.error}</p>}
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {t.kind === 'LOOKUP' ? 'Look-up' : 'Change'} · <time dateTime={t.createdAt}>{timeAgo(t.createdAt)}</time>
+                </p>
+              </div>
+              <div className="flex shrink-0 items-center gap-2">
+                <Badge variant={s.variant} size="sm" className={cn(s.className, s.spin && 'motion-safe:[&_svg]:animate-spin')} icon={s.icon}>
+                  {s.label}
+                </Badge>
+                {/* A fixed-width action column keeps every status badge lined up. */}
+                <div className="flex justify-end sm:w-24">
+                  {t.status === 'QUEUED' && (
+                    <Button size="sm" variant="ghost" onClick={() => act(t.id, 'cancel')} loading={acting === t.id} aria-label={`Cancel “${t.instruction.slice(0, 60)}”`}>
+                      Cancel
+                    </Button>
+                  )}
+                  {(t.status === 'FAILED' || t.status === 'NEEDS_HELP') && (
+                    <Button size="sm" variant="ghost" onClick={() => act(t.id, 'retry')} loading={acting === t.id}>
+                      <RotateCcw aria-hidden /> Retry
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </li>
+          );
+        })}
+      </ul>
+    </Card>
   );
 }
 
 export default function ConnectPage() {
-  const { propertyId, property, can, askAgent } = useConsole();
+  const { propertyId, property, can, askAgent, role } = useConsole();
   const { mutate: globalMutate } = useSWRConfig();
+  const reduce = useReducedMotion();
   const url = usePropertyUrl('/api/admin/bridge');
   const { data, mutate } = useSWR<BridgeData>(url, fetcher, {
     refreshInterval: (d) => (d?.tasks.some((t) => t.status === 'QUEUED' || t.status === 'RUNNING') || d?.connection?.pairing ? 3000 : 15000),
@@ -421,7 +586,9 @@ export default function ConnectPage() {
   const [instruction, setInstruction] = React.useState('');
   const [sending, setSending] = React.useState<null | 'LOOKUP' | 'FREEFORM'>(null);
   const [confirm, setConfirm] = React.useState<null | 'disconnect' | 'migrate' | 'change'>(null);
+  const [confirmBusy, setConfirmBusy] = React.useState(false);
   const c = data?.connection;
+  const isAdmin = role === 'ADMIN';
 
   async function send(kind: 'LOOKUP' | 'FREEFORM') {
     setSending(kind);
@@ -446,162 +613,215 @@ export default function ConnectPage() {
     }
   }
   async function disconnect() {
+    setConfirmBusy(true);
     try {
       await api(`/api/admin/bridge?propertyId=${propertyId}`, { method: 'DELETE' });
       setConfirm(null);
       await mutate();
     } catch (e) {
       toast.error((e as Error).message);
+    } finally {
+      setConfirmBusy(false);
     }
   }
   async function migrate() {
+    setConfirmBusy(true);
     try {
       await api('/api/admin/setup-path', { method: 'PUT', json: { propertyId, setupPath: 'FULL' } });
       await globalMutate('/api/admin/context');
-      toast.success('Welcome to StayOS — your front desk now runs here');
+      toast.success(`Welcome to ${PRODUCT_NAME} — your front desk now runs here`);
       window.location.href = '/admin/dashboard?welcome=1';
     } catch (e) {
       toast.error((e as Error).message);
+      setConfirmBusy(false);
     }
   }
 
   const ready = c && c.status !== 'PAUSED' && (c.mode === 'CLOUD' ? c.hasCredentials && data?.cloudWorker : c.devicePaired);
+  const statusBadge = !c ? null : c.status === 'PAUSED' ? (
+    <Badge variant="neutral" icon={Pause}>
+      Paused
+    </Badge>
+  ) : ready && c.mode === 'DESKTOP' && !c.online ? (
+    // Paired, but the computer isn't running the connector right now.
+    <Badge variant="warning" icon={CircleAlert}>
+      Computer offline
+    </Badge>
+  ) : ready ? (
+    <Badge variant="success" icon={CheckCircle2}>
+      Ready
+    </Badge>
+  ) : (
+    <Badge variant="warning" icon={CircleDashed}>
+      {c.mode === 'CLOUD' && c.hasCredentials ? 'Waiting for the cloud browser' : 'Finish setup'}
+    </Badge>
+  );
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
-      <PageHeader
-        title="Your PMS"
-        description={c ? `StayOS works ${c.system} for ${property?.name ?? 'your hotel'} — nothing to migrate.` : 'Keep the system you know. Connect it once and the agent looks things up and makes changes there for you.'}
-        actions={
-          c && can('bridge.manage') && !editing ? (
-            <>
-              <Button variant="outline" size="sm" onClick={() => pause(c.status !== 'PAUSED')}>
-                {c.status === 'PAUSED' ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />} {c.status === 'PAUSED' ? 'Resume' : 'Pause'}
-              </Button>
-              <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-                Change
-              </Button>
-            </>
-          ) : undefined
-        }
-      />
-
-      <WelcomeBanner title="Welcome to StayOS — one step left">
-        Finish connecting {c?.system ?? 'your system'} below. Then open the Agent and ask “who’s arriving today?” — it will check {c?.system ?? 'your PMS'} for you.
-      </WelcomeBanner>
-
-      {!data ? (
-        <Skeleton className="h-80 rounded-2xl" />
-      ) : !c || editing ? (
-        <Setup data={data} initial={editing ? c : null} onDone={() => { setEditing(false); void mutate(); }} />
-      ) : (
-        <>
-          <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
-            <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
-              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-primary-soft text-primary">
-                <Cable className="h-6 w-6" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-lg font-semibold tracking-tight">{c.system}</p>
-                <p className="text-sm text-muted-foreground">
-                  {c.mode === 'CLOUD' ? 'StayOS cloud browser' : 'Desktop connector'}
-                  {c.loginUrl ? ` · ${c.loginUrl.replace(/^https?:\/\//, '')}` : ''}
-                </p>
-              </div>
-              <span
-                className={cn(
-                  'inline-flex w-fit items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium',
-                  c.status === 'PAUSED' ? 'bg-muted text-muted-foreground' : ready ? 'bg-success-soft text-success' : 'bg-warning-soft text-warning'
-                )}
-              >
-                <span className={cn('h-1.5 w-1.5 rounded-full', c.status === 'PAUSED' ? 'bg-muted-foreground' : ready ? 'bg-success' : 'bg-warning')} />
-                {c.status === 'PAUSED' ? 'Paused' : ready ? 'Ready' : c.mode === 'CLOUD' && c.hasCredentials ? 'Waiting for cloud worker' : 'Finish setup'}
-              </span>
-            </Card>
-          </motion.div>
-
-          {c.lastError && (
-            <p className="flex items-start gap-2 rounded-xl border border-warning/30 bg-warning-soft px-4 py-3 text-sm">
-              <CircleAlert className="mt-0.5 h-4 w-4 shrink-0 text-warning" /> Last problem: {c.lastError}
-            </p>
-          )}
-
-          {c.mode === 'DESKTOP' ? <DesktopPanel c={c} onChange={() => void mutate()} /> : <CloudPanel c={c} data={data} onChange={() => void mutate()} />}
-
-          {c.mode === 'CLOUD' && !data.cloudWorker && (
-            <p className="flex items-start gap-2 rounded-xl border px-4 py-3 text-sm text-muted-foreground">
-              <Cloud className="mt-0.5 h-4 w-4 shrink-0" /> The StayOS cloud worker isn’t running for this server yet (it needs <code className="rounded bg-muted px-1 font-mono text-xs">BRIDGE_WORKER_SECRET</code>). Tasks wait in the queue until it starts — or switch to the desktop connector.
-            </p>
-          )}
-          {!data.operator.ready && (
-            <p className="flex items-start gap-2 rounded-xl border px-4 py-3 text-sm text-muted-foreground">
-              <KeyRound className="mt-0.5 h-4 w-4 shrink-0" /> The operator runs on the StayOS server and needs <code className="rounded bg-muted px-1 font-mono text-xs">OPENAI_API_KEY</code> there. Tasks queue up until it’s set.
-            </p>
-          )}
-
-          <Card className="p-5 sm:p-6">
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm font-semibold">Send something to {c.system}</p>
-              {can('agent.use') && (
-                <Button variant="ghost" size="sm" className="text-agent hover:bg-agent-soft" onClick={() => askAgent(`who is arriving today?`)}>
-                  <Sparkles className="h-4 w-4" /> Or ask the agent
+    <div className={FRAME}>
+      <div className="space-y-6">
+        <PageHeader
+          title="Your PMS"
+          description={
+            c
+              ? `${PRODUCT_NAME} works in ${c.system} for ${property?.name ?? 'your hotel'} — nothing to migrate.`
+              : 'Keep the system you know. Connect it once and the agent looks things up and makes changes there for you.'
+          }
+          actions={
+            c && can('bridge.manage') && !editing ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => pause(c.status !== 'PAUSED')}>
+                  {c.status === 'PAUSED' ? <Play aria-hidden /> : <Pause aria-hidden />} {c.status === 'PAUSED' ? 'Resume' : 'Pause'}
                 </Button>
-              )}
-            </div>
-            <Textarea className="mt-3" rows={2} value={instruction} onChange={(e) => setInstruction(e.target.value)} placeholder="e.g. Find the reservation for Jordan Smith arriving Friday and tell me the room and balance" />
-            <div className="mt-3 flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => send('LOOKUP')} loading={sending === 'LOOKUP'} disabled={instruction.trim().length < 4}>
-                <Search className="h-4 w-4" /> Look it up
-              </Button>
-              <Button onClick={() => setConfirm('change')} disabled={instruction.trim().length < 4}>
-                <Wand2 className="h-4 w-4" /> Make this change
-              </Button>
-            </div>
-          </Card>
+                <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
+                  Change system
+                </Button>
+              </>
+            ) : undefined
+          }
+        />
 
-          <div>
-            <p className="mb-3 text-sm font-semibold">Recent work</p>
-            <TaskList tasks={data.tasks} onChange={() => void mutate()} />
+        <WelcomeBanner title={`Welcome to ${PRODUCT_NAME} — one step left`}>
+          Finish connecting {c?.system ?? 'your system'} below. Then open the Agent and ask “who’s arriving today?” — it will check {c?.system ?? 'your PMS'} for you.
+        </WelcomeBanner>
+
+        {!data ? (
+          <div className="space-y-6" aria-busy>
+            <Skeleton className="h-[96px] rounded-2xl" />
+            <Skeleton className="h-[280px] rounded-2xl" />
+            <span className="sr-only" role="status">
+              Loading your PMS connection…
+            </span>
           </div>
+        ) : !c || editing ? (
+          <Setup
+            data={data}
+            initial={editing ? c : null}
+            onDone={() => {
+              setEditing(false);
+              void mutate();
+            }}
+          />
+        ) : (
+          <>
+            <motion.div initial={reduce ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
+              <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
+                <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary-soft text-primary-soft-foreground" aria-hidden>
+                  <Cable className="size-6" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <h2 className="text-lg font-semibold tracking-tight">{c.system}</h2>
+                  <p className="truncate text-sm text-muted-foreground">
+                    {c.mode === 'CLOUD' ? `${PRODUCT_NAME} cloud browser` : `${PRODUCT_NAME} Connector on a front-desk computer`}
+                    {c.loginUrl ? ` · ${c.loginUrl.replace(/^https?:\/\//, '')}` : ''}
+                  </p>
+                </div>
+                <span aria-live="polite">{statusBadge}</span>
+              </Card>
+            </motion.div>
 
-          {can('property.write') && (
-            <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
-              <div className="flex-1">
-                <p className="text-sm font-semibold">Ready to run everything on StayOS?</p>
-                <p className="mt-1 text-sm text-muted-foreground">Switch when it suits you — we’ll help move your rooms, rates and upcoming reservations. Your bridge keeps working until you do.</p>
+            {c.lastError && (
+              <Callout tone="warning" title="The last task ran into a problem">
+                {c.lastError}
+              </Callout>
+            )}
+            {c.mode === 'CLOUD' && !data.cloudWorker && (
+              <Callout tone="info" title="The cloud browser isn’t running on this server yet">
+                <p>Tasks wait in the queue until it starts — or switch to the desktop connector.</p>
+                <DeveloperNote open={isAdmin} className="mt-3">
+                  <p>
+                    Start the cloud worker with <code>BRIDGE_WORKER_SECRET</code> set on both the server and the worker.
+                  </p>
+                </DeveloperNote>
+              </Callout>
+            )}
+            {!data.operator.ready && (
+              <Callout tone="info" title="The operator isn’t switched on yet">
+                <p>Tasks queue up and run as soon as it is.</p>
+                <DeveloperNote open={isAdmin} className="mt-3">
+                  <p>
+                    The operator runs on the {PRODUCT_NAME} server and needs <code>OPENAI_API_KEY</code> there.
+                  </p>
+                </DeveloperNote>
+              </Callout>
+            )}
+
+            {c.mode === 'DESKTOP' ? <DesktopPanel c={c} onChange={() => void mutate()} /> : <CloudPanel c={c} data={data} onChange={() => void mutate()} />}
+
+            <Card className="p-5 sm:p-6">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <h2 className="text-base font-semibold tracking-tight">Send something to {c.system}</h2>
+                {can('agent.use') && (
+                  <Button variant="outline" size="sm" onClick={() => askAgent(`who is arriving today?`)}>
+                    <Sparkles className="text-agent" aria-hidden /> Or ask the agent
+                  </Button>
+                )}
               </div>
-              <Button variant="outline" onClick={() => setConfirm('migrate')}>
-                Move to StayOS <ArrowRight className="h-4 w-4" />
-              </Button>
+              <Field label="What should the operator do?" hint="Look-ups only read. Changes ask you to confirm first." className="mt-4">
+                <Textarea
+                  rows={2}
+                  value={instruction}
+                  onChange={(e) => setInstruction(e.target.value)}
+                  placeholder="e.g. Find the reservation for Jordan Smith arriving Friday and tell me the room and balance"
+                />
+              </Field>
+              <div className="mt-3 flex flex-wrap justify-end gap-2">
+                <Button variant="outline" onClick={() => send('LOOKUP')} loading={sending === 'LOOKUP'} loadingText="Sending…" disabled={instruction.trim().length < 4}>
+                  <Search aria-hidden /> Look it up
+                </Button>
+                <Button onClick={() => setConfirm('change')} disabled={instruction.trim().length < 4}>
+                  <Wand2 aria-hidden /> Make this change
+                </Button>
+              </div>
             </Card>
-          )}
 
-          {can('bridge.manage') && (
-            <div className="flex justify-end">
-              <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive-soft" onClick={() => setConfirm('disconnect')}>
-                <Unplug className="h-4 w-4" /> Disconnect {c.system}
-              </Button>
-            </div>
-          )}
-        </>
-      )}
+            <section aria-labelledby="pms-recent" className="space-y-3">
+              <h2 id="pms-recent" className="text-base font-semibold tracking-tight">
+                Recent work
+              </h2>
+              <TaskList tasks={data.tasks} onChange={() => void mutate()} />
+            </section>
 
-      <ConfirmDialog
-        open={confirm !== null}
-        onOpenChange={(o) => !o && setConfirm(null)}
-        title={confirm === 'change' ? `Make this change in ${c?.system}?` : confirm === 'migrate' ? 'Run this property on StayOS?' : `Disconnect ${c?.system}?`}
-        description={
-          confirm === 'change'
-            ? `“${instruction.trim()}” — the operator changes only this and reports exactly what it did.`
-            : confirm === 'migrate'
-              ? 'Front desk, housekeeping, reservations and rates switch to StayOS screens. Add your rooms and upcoming stays (we can help) before you stop using your old system.'
-              : 'Waiting tasks are cancelled and the stored login or paired computer stops working immediately.'
-        }
-        confirmLabel={confirm === 'change' ? 'Send change' : confirm === 'migrate' ? 'Switch to StayOS' : 'Disconnect'}
-        destructive={confirm === 'disconnect'}
-        loading={confirm === 'change' && sending === 'FREEFORM'}
-        onConfirm={() => (confirm === 'change' ? send('FREEFORM') : confirm === 'migrate' ? migrate() : disconnect())}
-      />
+            {can('property.write') && (
+              <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
+                <div className="flex-1">
+                  <h2 className="text-base font-semibold tracking-tight">Ready to run everything on {PRODUCT_NAME}?</h2>
+                  <p className="mt-1 text-sm text-muted-foreground">Switch when it suits you — we’ll help move your rooms, rates and upcoming reservations. Your connection keeps working until you do.</p>
+                </div>
+                <Button variant="outline" onClick={() => setConfirm('migrate')}>
+                  Move to {PRODUCT_NAME} <ArrowRight aria-hidden />
+                </Button>
+              </Card>
+            )}
+
+            {can('bridge.manage') && (
+              <div className="flex justify-end">
+                <Button variant="ghost" size="sm" className="text-destructive hover:bg-destructive-soft hover:text-destructive-soft-foreground" onClick={() => setConfirm('disconnect')}>
+                  <Unplug aria-hidden /> Disconnect {c.system}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
+
+        <ConfirmDialog
+          open={confirm !== null}
+          onOpenChange={(o) => !o && setConfirm(null)}
+          title={confirm === 'change' ? `Make this change in ${c?.system}?` : confirm === 'migrate' ? `Run this property on ${PRODUCT_NAME}?` : `Disconnect ${c?.system}?`}
+          description={
+            confirm === 'change'
+              ? `“${instruction.trim()}” — the operator changes only this and reports exactly what it did.`
+              : confirm === 'migrate'
+                ? `Front desk, housekeeping, reservations and rates switch to ${PRODUCT_NAME} screens. Add your rooms and upcoming stays (we can help) before you stop using your old system.`
+                : 'Waiting tasks are cancelled and the stored login or paired computer stops working immediately.'
+          }
+          confirmLabel={confirm === 'change' ? 'Send change' : confirm === 'migrate' ? `Switch to ${PRODUCT_NAME}` : 'Disconnect'}
+          cancelLabel={confirm === 'disconnect' ? 'Keep it connected' : 'Not now'}
+          destructive={confirm === 'disconnect'}
+          loading={(confirm === 'change' && sending === 'FREEFORM') || (confirm !== 'change' && confirmBusy)}
+          onConfirm={() => (confirm === 'change' ? send('FREEFORM') : confirm === 'migrate' ? migrate() : disconnect())}
+        />
+      </div>
     </div>
   );
 }

@@ -2,7 +2,7 @@
 
 import * as React from 'react';
 import useSWR from 'swr';
-import { AlertTriangle, BedDouble, CheckCircle2, Sparkle } from 'lucide-react';
+import { BedDouble, CheckCircle2, LogOut, MessageSquareText, Moon } from 'lucide-react';
 import type { RoomOption } from '@/lib/agent/blocks';
 import type { BookingSummary } from '@/lib/dto';
 import { fetcher } from '@/lib/fetcher';
@@ -12,7 +12,8 @@ import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Field } from '@/components/ui/label';
-import { Skeleton } from '@/components/ui/primitives';
+import { Badge } from '@/components/ui/badge';
+import { Callout, Skeleton } from '@/components/ui/primitives';
 import { Textarea } from '@/components/ui/textarea';
 import { useBookingActions } from './useBookingActions';
 
@@ -43,7 +44,8 @@ function RoomPicker({
 
   return (
     <div className="space-y-3">
-      <div className="flex flex-wrap gap-1.5">
+      <div className="flex flex-wrap items-center gap-2" role="group" aria-label="Room preferences">
+        <span className="text-xs text-muted-foreground">Prefer</span>
         {(
           [
             ['highFloor', 'High floor'],
@@ -53,51 +55,70 @@ function RoomPicker({
           <button
             key={k}
             type="button"
+            aria-pressed={prefs[k]}
             onClick={() => setPrefs((p) => ({ ...p, [k]: !p[k] }))}
             className={cn(
-              'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-              prefs[k] ? 'border-primary bg-primary-soft text-primary' : 'text-muted-foreground hover:text-foreground'
+              'inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-popover',
+              prefs[k]
+                ? 'border-primary/50 bg-primary-soft text-primary-soft-foreground'
+                : 'border-border-strong/50 bg-surface text-muted-foreground hover:border-border-strong hover:text-foreground'
             )}
           >
+            {prefs[k] && <CheckCircle2 className="size-3.5" aria-hidden />}
             {label}
           </button>
         ))}
       </div>
       {isLoading ? (
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3" role="status">
+          <span className="sr-only">Finding free rooms…</span>
           {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-16 rounded-xl" />
+            <Skeleton key={i} className="h-[66px] rounded-xl" />
           ))}
         </div>
       ) : options.length === 0 ? (
-        <p className="rounded-xl border border-dashed p-4 text-center text-sm text-muted-foreground">
-          No {readyOnly ? 'ready ' : ''}{booking.roomType.name} room is free for these nights.
+        <p className="rounded-xl border border-dashed border-border-strong/50 p-4 text-center text-sm text-muted-foreground">
+          No {readyOnly ? 'ready ' : ''}
+          {booking.roomType.name} room is free for these nights.
+          {readyOnly ? ' Tick “Show rooms that still need cleaning” to see the rest.' : ''}
         </p>
       ) : (
-        <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto pr-1 sm:grid-cols-3" role="radiogroup" aria-label="Room">
-          {options.map((o, i) => (
-            <button
-              key={o.room.id}
-              type="button"
-              role="radio"
-              aria-checked={value === o.room.id}
-              onClick={() => onChange(o.room.id, o)}
-              className={cn(
-                'relative rounded-xl border p-2.5 text-left transition-all',
-                value === o.room.id ? 'border-primary bg-primary-soft ring-2 ring-primary/20' : 'hover:border-foreground/30',
-                !o.ready && 'border-dashed'
-              )}
-            >
-              <span className="flex items-center justify-between">
-                <span className="font-semibold tabular">{o.room.number}</span>
-                {i === 0 && <span className="rounded-full bg-agent-soft px-1.5 text-[10px] font-semibold text-agent">Best</span>}
-              </span>
-              <span className="mt-0.5 block text-[11px] text-muted-foreground">
-                Floor {o.room.floor ?? '—'} · {o.ready ? (o.room.status === 'INSPECTED' ? 'Inspected' : 'Clean') : 'Needs cleaning'}
-              </span>
-              {o.room.tags.includes('quiet') && <Sparkle className="absolute bottom-2 right-2 h-3 w-3 text-agent" />}
-            </button>
-          ))}
+        <div className="grid max-h-64 grid-cols-2 gap-2 overflow-y-auto p-0.5 pr-1 sm:grid-cols-3" role="radiogroup" aria-label="Room">
+          {options.map((o, i) => {
+            const checked = value === o.room.id;
+            return (
+              <button
+                key={o.room.id}
+                type="button"
+                role="radio"
+                aria-checked={checked}
+                onClick={() => onChange(o.room.id, o)}
+                className={cn(
+                  'relative min-h-[66px] rounded-xl border p-2.5 text-left transition-[border-color,background-color,box-shadow] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-popover',
+                  checked ? 'border-primary bg-primary-soft ring-1 ring-primary' : 'border-border-strong/40 hover:border-border-strong',
+                  !o.ready && !checked && 'border-dashed'
+                )}
+              >
+                <span className="flex items-center justify-between gap-1">
+                  <span className="font-semibold tabular">{o.room.number}</span>
+                  {i === 0 && (
+                    <Badge variant="highlight" size="sm">
+                      Best match
+                    </Badge>
+                  )}
+                </span>
+                <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                  {o.room.floor ? `Floor ${o.room.floor}` : 'No floor'} · {o.ready ? (o.room.status === 'INSPECTED' ? 'Inspected' : 'Clean') : 'Needs cleaning'}
+                  {o.room.tags.includes('quiet') && (
+                    <>
+                      <Moon className="ml-auto size-3 shrink-0" aria-hidden />
+                      <span className="sr-only">, quiet</span>
+                    </>
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -132,21 +153,32 @@ export function CheckInDialog({ booking, open, onOpenChange }: { booking: Bookin
             {booking.guests === 1 ? '' : 's'}
           </DialogDescription>
         </DialogHeader>
-        {booking.notes && <p className="rounded-xl bg-agent-soft/50 px-3 py-2 text-sm">{booking.notes.split('\n').slice(-1)[0]}</p>}
+        {booking.notes && (
+          <p className="flex items-start gap-2 rounded-xl bg-muted px-3 py-2 text-sm">
+            <MessageSquareText className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden />
+            <span>
+              <span className="sr-only">Latest note: </span>
+              {booking.notes.split('\n').slice(-1)[0]?.replace(/^\[[^\]]+\]\s*/, '')}
+            </span>
+          </p>
+        )}
         <RoomPicker booking={booking} value={roomId} onChange={onChange} readyOnly={!showAll} />
-        <label className="flex items-center gap-2 text-xs text-muted-foreground">
-          <input type="checkbox" checked={showAll} onChange={(e) => setShowAll(e.target.checked)} className="accent-[hsl(var(--primary))]" />
+        <label className="flex min-h-10 cursor-pointer items-center gap-2.5 text-sm text-muted-foreground">
+          <input
+            type="checkbox"
+            checked={showAll}
+            onChange={(e) => setShowAll(e.target.checked)}
+            className="size-4 shrink-0 cursor-pointer rounded-sm border-input accent-[hsl(var(--primary))]"
+          />
           Show rooms that still need cleaning
         </label>
         {dirty && (
-          <p className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft/60 px-3 py-2 text-xs">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" /> Room {option?.room.number} hasn’t been cleaned. The guest will be checked into it anyway.
-          </p>
+          <Callout tone="warning" role="status">
+            Room {option?.room.number} hasn’t been cleaned yet. The guest will be checked into it anyway.
+          </Callout>
         )}
         {booking.paymentStatus === 'AWAITING_PAYMENT' && (
-          <p className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft/60 px-3 py-2 text-xs">
-            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" /> Online payment didn’t complete — collect {money(booking.totalPrice)} at the desk.
-          </p>
+          <Callout tone="warning">Online payment didn’t complete — collect {money(booking.totalPrice)} at the desk.</Callout>
         )}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -155,12 +187,13 @@ export function CheckInDialog({ booking, open, onOpenChange }: { booking: Bookin
           <Button
             disabled={!roomId}
             loading={pending === `${booking.id}:CHECKED_IN`}
+            loadingText="Checking in…"
             onClick={async () => {
               const r = await transition(booking, 'CHECKED_IN', { roomId: roomId!, allowDirtyRoom: dirty });
               if (r) onOpenChange(false);
             }}
           >
-            <CheckCircle2 className="h-4 w-4" /> Check in{option ? ` to ${option.room.number}` : ''}
+            <CheckCircle2 aria-hidden /> Check in{option ? ` to room ${option.room.number}` : ''}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -205,12 +238,13 @@ export function AssignRoomDialog({ booking, open, onOpenChange }: { booking: Boo
           <Button
             disabled={!roomId || roomId === booking.room?.id}
             loading={pending === `${booking.id}:room`}
+            loadingText="Assigning…"
             onClick={async () => {
               const r = await assignRoom(booking, roomId!);
               if (r) onOpenChange(false);
             }}
           >
-            <BedDouble className="h-4 w-4" /> Assign{option ? ` Room ${option.room.number}` : ''}
+            <BedDouble aria-hidden /> Assign{option ? ` room ${option.room.number}` : ''}
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -232,30 +266,25 @@ export function CheckOutDialog({ booking, open, onOpenChange, today }: { booking
             {booking.room ? `Room ${booking.room.number} will be marked dirty and added to the housekeeping queue.` : 'This stay will be closed.'}
           </DialogDescription>
         </DialogHeader>
-        <div className="space-y-2">
-          {early && (
-            <p className="flex gap-2 rounded-xl border border-info/25 bg-info-soft/60 px-3 py-2 text-xs">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-info" /> Early departure — the unused nights go back on sale.
-            </p>
-          )}
-          {unpaid && (
-            <p className="flex gap-2 rounded-xl border border-warning/30 bg-warning-soft/60 px-3 py-2 text-xs">
-              <AlertTriangle className="h-4 w-4 shrink-0 text-warning" /> Balance of {money(booking.totalPrice)} to settle before the guest leaves.
-            </p>
-          )}
-        </div>
+        {(early || unpaid) && (
+          <div className="space-y-2">
+            {early && <Callout tone="info">Early departure — the unused nights go back on sale.</Callout>}
+            {unpaid && <Callout tone="warning">Balance of {money(booking.totalPrice)} to settle before the guest leaves.</Callout>}
+          </div>
+        )}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             Not yet
           </Button>
           <Button
             loading={pending === `${booking.id}:CHECKED_OUT`}
+            loadingText="Checking out…"
             onClick={async () => {
               const r = await transition(booking, 'CHECKED_OUT');
               if (r) onOpenChange(false);
             }}
           >
-            Check out
+            <LogOut aria-hidden /> Check out
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -277,8 +306,8 @@ export function NoteDialog({ booking, open, onOpenChange }: { booking: BookingSu
           <DialogTitle>Note for {booking.guest.name}</DialogTitle>
           <DialogDescription>Visible to the whole team on this reservation, stamped with your name.</DialogDescription>
         </DialogHeader>
-        <Field label="Note" htmlFor="note">
-          <Textarea id="note" autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Celebrating an anniversary — leave a card in the room" maxLength={1000} />
+        <Field label="Note" htmlFor="booking-note" hint={`${note.length}/1000 characters`}>
+          <Textarea id="booking-note" autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Celebrating an anniversary — leave a card in the room" maxLength={1000} />
         </Field>
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
@@ -287,6 +316,7 @@ export function NoteDialog({ booking, open, onOpenChange }: { booking: BookingSu
           <Button
             disabled={!note.trim()}
             loading={pending === `${booking.id}:note`}
+            loadingText="Saving…"
             onClick={async () => {
               const r = await addNote(booking, note);
               if (r) onOpenChange(false);
@@ -306,6 +336,7 @@ export function ConfirmDialog({
   title,
   description,
   confirmLabel,
+  cancelLabel = 'Keep it',
   destructive,
   loading,
   onConfirm,
@@ -316,6 +347,8 @@ export function ConfirmDialog({
   title: string;
   description?: React.ReactNode;
   confirmLabel: string;
+  /** The button that closes without doing anything (default "Keep it", which suits cancellations and deletions). */
+  cancelLabel?: string;
   destructive?: boolean;
   loading?: boolean;
   onConfirm: () => void;
@@ -331,7 +364,7 @@ export function ConfirmDialog({
         {children}
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
-            Keep it
+            {cancelLabel}
           </Button>
           <Button variant={destructive ? 'destructive' : 'default'} loading={loading} onClick={onConfirm}>
             {confirmLabel}

@@ -5,16 +5,17 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { AudioLines, MicOff, PhoneOff, Mic } from 'lucide-react';
 import { speakBlocks } from '@/lib/agent/speak';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Button, IconButton } from '@/components/ui/button';
 import type { AgentController } from '@/components/agent/useAgent';
 import { useLiveVoice } from './useLiveVoice';
-import { VoiceOrb } from './VoiceOrb';
+import { VoiceOrb, VoiceStatus, voicePhase } from './VoiceOrb';
 
 /**
- * Hands-free mode for the agent workspace. GPT-Live listens and talks;
- * every request it delegates runs through the same agent pipeline as typed
- * commands, so the answer builds itself on screen while it's spoken, and
- * changes still need a "yes" to the plan.
+ * Hands-free mode for the agent workspace. The live voice (GPT-Live or
+ * ElevenLabs, chosen by the server) listens and talks; every request it
+ * delegates runs through the same agent pipeline as typed commands, so the
+ * answer builds itself on screen while it's spoken, and changes still need
+ * a "yes" to the plan.
  */
 export function useStaffVoice(agent: AgentController, propertyId: string | undefined) {
   const agentRef = React.useRef(agent);
@@ -59,19 +60,22 @@ export function VoiceTalkButton({ voice, compact }: { voice: StaffVoiceControlle
       size="sm"
       variant={active ? 'secondary' : 'ghost'}
       onClick={() => (active ? voice.stop() : void voice.start())}
-      className={cn('h-8 gap-1.5 rounded-lg px-2.5 text-xs', !active && 'text-agent hover:bg-agent-soft')}
-      aria-label={active ? 'End voice' : 'Talk to the agent'}
+      className={cn('rounded-lg', compact ? 'w-9 px-0' : 'gap-1.5 px-2.5', !active && 'text-agent-soft-foreground hover:bg-agent-soft hover:text-agent-soft-foreground')}
+      aria-label={active ? 'End the voice conversation' : 'Talk to the agent'}
+      title={compact ? (active ? 'End voice' : 'Talk to the agent') : undefined}
     >
-      {active ? <PhoneOff className="h-3.5 w-3.5" /> : <AudioLines className="h-3.5 w-3.5" />}
+      {active ? <PhoneOff aria-hidden /> : <AudioLines aria-hidden />}
       {!compact && (active ? 'End' : 'Talk')}
     </Button>
   );
 }
 
+/** The live call strip above the composer: who's talking, the latest words, mute and end. */
 export function VoiceLiveBar({ voice }: { voice: StaffVoiceController }) {
   const show = voice.state === 'live' || voice.state === 'connecting' || voice.state === 'ending' || !!voice.error;
   const lastAgent = [...voice.captions].reverse().find((c) => c.role === 'agent');
   const lastUser = [...voice.captions].reverse().find((c) => c.role === 'user');
+  const phase = voicePhase({ state: voice.state, speaking: voice.agentSpeaking, working: voice.working, muted: voice.muted, error: voice.error });
   return (
     <AnimatePresence>
       {show && (
@@ -79,20 +83,31 @@ export function VoiceLiveBar({ voice }: { voice: StaffVoiceController }) {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           exit={{ opacity: 0, y: 8 }}
-          className="mb-2 flex items-center gap-3 rounded-2xl border border-agent/25 bg-card/95 p-3 shadow-lifted backdrop-blur"
-          role="status"
-          aria-live="polite"
+          transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+          className={cn(
+            'mb-2 flex items-center gap-3 rounded-2xl border bg-card p-3 shadow-lifted',
+            voice.error ? 'border-destructive/30' : 'border-agent/30'
+          )}
+          role="region"
+          aria-label="Voice conversation"
         >
-          <VoiceOrb state={voice.state} level={voice.level} speaking={voice.agentSpeaking} working={voice.working} size={40} />
-          <div className="min-w-0 flex-1">
+          <VoiceOrb state={voice.state} level={voice.level} speaking={voice.agentSpeaking} working={voice.working} muted={voice.muted} size={40} />
+          <div className="min-w-0 flex-1" aria-live="polite">
+            <VoiceStatus phase={phase} className="h-5 border-transparent bg-transparent px-0" />
             {voice.error ? (
-              <p className="text-sm text-destructive">{voice.error}</p>
+              <p className="mt-0.5 text-sm text-destructive">{voice.error}</p>
             ) : voice.state === 'connecting' ? (
-              <p className="text-sm text-muted-foreground">Connecting the voice line…</p>
+              <p className="mt-0.5 truncate text-sm text-muted-foreground">
+                <span className="sr-only">Connecting the voice line. </span>If your browser asks, allow the microphone.
+              </p>
             ) : (
               <>
-                <p className="truncate text-sm">{lastAgent?.text || 'Listening — just talk.'}</p>
-                {lastUser && <p className="truncate text-xs text-muted-foreground">You: {lastUser.text}</p>}
+                <p className="mt-0.5 truncate text-sm">{lastAgent?.text || 'Go ahead — just talk.'}</p>
+                {lastUser && (
+                  <p className="truncate text-xs text-muted-foreground">
+                    <span className="font-medium">You:</span> {lastUser.text}
+                  </p>
+                )}
               </>
             )}
           </div>
@@ -102,12 +117,17 @@ export function VoiceLiveBar({ voice }: { voice: StaffVoiceController }) {
             </Button>
           ) : (
             <div className="flex shrink-0 gap-1">
-              <Button size="icon-sm" variant="ghost" onClick={voice.toggleMute} aria-label={voice.muted ? 'Unmute' : 'Mute'}>
-                {voice.muted ? <MicOff className="h-4 w-4 text-destructive" /> : <Mic className="h-4 w-4" />}
-              </Button>
-              <Button size="icon-sm" variant="ghost" onClick={voice.stop} aria-label="End voice">
-                <PhoneOff className="h-4 w-4" />
-              </Button>
+              <IconButton
+                label={voice.muted ? 'Turn microphone on' : 'Turn microphone off'}
+                aria-pressed={voice.muted}
+                onClick={voice.toggleMute}
+                className={cn(voice.muted && 'text-destructive')}
+              >
+                {voice.muted ? <MicOff aria-hidden /> : <Mic aria-hidden />}
+              </IconButton>
+              <IconButton label="End the voice conversation" onClick={voice.stop}>
+                <PhoneOff aria-hidden />
+              </IconButton>
             </div>
           )}
         </motion.div>

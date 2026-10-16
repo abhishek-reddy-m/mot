@@ -1,5 +1,6 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
+import { PRODUCT_NAME } from '@/config/product';
 import { prisma } from '@/lib/prisma';
 import { conflict } from '@/server/errors';
 import { handleRoute, json, parseJson } from '@/server/http';
@@ -48,7 +49,7 @@ export const POST = handleRoute(async (request: NextRequest, { params }: Params)
   });
 
   if (next.kind === 'credential') {
-    if (caller.kind !== 'worker') return json({ next: { kind: 'done', status: 'NEEDS_HELP', summary: `Please sign in to ${connection.system} in the StayOS browser window, then retry.` } });
+    if (caller.kind !== 'worker') return json({ next: { kind: 'done', status: 'NEEDS_HELP', summary: `Please sign in to ${connection.system} in the ${PRODUCT_NAME} browser window, then retry.` } });
     const creds = readCredentials(connection);
     if (!creds) return json({ next: { kind: 'done', status: 'NEEDS_HELP', summary: `No ${connection.system} login is stored for the cloud browser.` } });
     const value = next.field === 'username' ? creds.username : next.field === 'password' ? creds.password : creds.totpSecret ? totp(creds.totpSecret) : null;

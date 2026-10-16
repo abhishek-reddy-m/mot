@@ -1,12 +1,14 @@
 'use client';
 
 import * as React from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, motion, useReducedMotion } from 'framer-motion';
 import { PartyPopper, X } from 'lucide-react';
+import { IconButton } from '@/components/ui/button';
 
 /** Shown once after onboarding (?welcome=1); dismissing removes the flag from the URL. */
 export function WelcomeBanner({ title, children }: { title: string; children: React.ReactNode }) {
   const [show, setShow] = React.useState(false);
+  const reduce = useReducedMotion();
   React.useEffect(() => {
     setShow(new URLSearchParams(window.location.search).get('welcome') === '1');
   }, []);
@@ -19,16 +21,22 @@ export function WelcomeBanner({ title, children }: { title: string; children: Re
   return (
     <AnimatePresence>
       {show && (
-        <motion.div initial={{ opacity: 0, y: -8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} className="relative overflow-hidden rounded-2xl border bg-card p-5 shadow-soft">
-          <div className="bg-aurora absolute inset-x-0 top-0 h-1" />
-          <p className="flex items-center gap-2 text-sm font-semibold text-primary">
-            <PartyPopper className="h-4 w-4" /> {title}
-          </p>
-          <div className="mt-1 text-sm text-muted-foreground">{children}</div>
-          <button onClick={close} className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-accent" aria-label="Dismiss">
-            <X className="h-4 w-4" />
-          </button>
-        </motion.div>
+        <motion.section
+          aria-labelledby="welcome-banner-title"
+          initial={reduce ? false : { opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={reduce ? { opacity: 0 } : { opacity: 0, y: -8 }}
+          className="relative overflow-hidden rounded-2xl border bg-card p-5 pr-14 shadow-soft"
+        >
+          <div className="absolute inset-x-0 top-0 h-1 bg-primary" aria-hidden />
+          <h2 id="welcome-banner-title" className="flex items-center gap-2 text-base font-semibold text-primary-soft-foreground">
+            <PartyPopper className="size-4 shrink-0" aria-hidden /> {title}
+          </h2>
+          <div className="mt-1 text-sm leading-relaxed text-muted-foreground">{children}</div>
+          <IconButton label="Dismiss" size="icon-sm" onClick={close} className="absolute right-2.5 top-2.5 text-muted-foreground">
+            <X />
+          </IconButton>
+        </motion.section>
       )}
     </AnimatePresence>
   );

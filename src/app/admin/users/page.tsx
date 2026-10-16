@@ -3,11 +3,13 @@
 import * as React from 'react';
 import useSWR from 'swr';
 import { toast } from 'sonner';
-import { Check, Copy, KeyRound, MoreHorizontal, Search, UserPlus, Users } from 'lucide-react';
+import { BriefcaseBusiness, Building2, Check, ConciergeBell, Crown, KeyRound, MoreHorizontal, Search, ShieldCheck, Brush, UserPlus, Users, type LucideIcon } from 'lucide-react';
 import { api, fetcher } from '@/lib/fetcher';
-import { roleLabel } from '@/lib/status';
+import { formatPhone } from '@/lib/format';
+import { formatNumber, roleLabel } from '@/lib/status';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
+import { Badge, type BadgeProps } from '@/components/ui/badge';
+import { Button, IconButton } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
@@ -17,6 +19,7 @@ import { Avatar, EmptyState, PageHeader, Skeleton } from '@/components/ui/primit
 import { SegmentedControl } from '@/components/ui/segmented';
 import { ConfirmDialog } from '@/components/frontdesk/dialogs';
 import { useConsole } from '@/components/console/ConsoleProvider';
+import { CopyButton } from '@/components/setup/CopyButton';
 
 interface UserRow {
   id: string;
@@ -31,6 +34,8 @@ interface UserRow {
   _count: { bookings: number };
 }
 
+const FRAME = 'mx-auto w-full max-w-7xl px-4 pb-12 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pt-8';
+
 const STAFF_ROLES = [
   { value: 'MANAGER', desc: 'Runs operations: front desk, housekeeping, rates and the team.' },
   { value: 'FRONT_DESK', desc: 'Arrivals, check-in and check-out, reservations and the agent.' },
@@ -38,41 +43,76 @@ const STAFF_ROLES = [
   { value: 'OWNER', desc: 'Everything, including properties, rates and team.' },
 ];
 
+/** Roles are identities, not states: told apart by icon and fill, never by status colours. */
+const ROLE_LOOK: Record<string, { icon: LucideIcon; variant: BadgeProps['variant'] }> = {
+  ADMIN: { icon: ShieldCheck, variant: 'outline' },
+  OWNER: { icon: Crown, variant: 'primary' },
+  MANAGER: { icon: BriefcaseBusiness, variant: 'outline' },
+  FRONT_DESK: { icon: ConciergeBell, variant: 'neutral' },
+  HOUSEKEEPER: { icon: Brush, variant: 'neutral' },
+};
+
+function RoleBadge({ role }: { role: string }) {
+  const look = ROLE_LOOK[role] ?? { icon: Users, variant: 'neutral' as const };
+  return (
+    <Badge variant={look.variant} size="sm" icon={look.icon}>
+      {roleLabel(role)}
+    </Badge>
+  );
+}
+
 function tempPassword() {
   const words = ['harbor', 'maple', 'cedar', 'coral', 'linen', 'amber', 'willow', 'ember', 'tide', 'meadow'];
   const pick = () => words[Math.floor(Math.random() * words.length)];
   return `${pick()}-${pick()}-${Math.floor(100 + Math.random() * 900)}`;
 }
 
-function RoleChooser({ value, onChange, allowOwner }: { value: string; onChange: (v: string) => void; allowOwner: boolean }) {
+/** Role picker: a native radio group (arrow keys work), styled as cards. */
+function RoleChooser({ value, onChange, allowOwner, name }: { value: string; onChange: (v: string) => void; allowOwner: boolean; name: string }) {
   return (
-    <div className="grid gap-2">
-      {STAFF_ROLES.filter((r) => allowOwner || r.value !== 'OWNER').map((r) => (
-        <button
-          key={r.value}
-          type="button"
-          onClick={() => onChange(r.value)}
-          className={cn('flex items-start gap-3 rounded-xl border p-3 text-left transition-colors', value === r.value ? 'border-primary/50 bg-primary-soft/50 ring-1 ring-primary/30' : 'hover:bg-accent')}
-        >
-          <span className={cn('mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full border', value === r.value && 'border-primary bg-primary text-primary-foreground')}>
-            {value === r.value && <Check className="h-2.5 w-2.5" />}
-          </span>
-          <span>
-            <span className="block text-sm font-medium">{roleLabel(r.value)}</span>
-            <span className="block text-xs text-muted-foreground">{r.desc}</span>
-          </span>
-        </button>
-      ))}
-    </div>
+    <fieldset>
+      <legend className="mb-2 text-sm font-medium">Role</legend>
+      <div className="grid gap-2">
+        {STAFF_ROLES.filter((r) => allowOwner || r.value !== 'OWNER').map((r) => {
+          const on = value === r.value;
+          return (
+            <label
+              key={r.value}
+              className={cn(
+                'flex cursor-pointer items-start gap-3 rounded-xl border p-3 text-left transition-colors has-[:focus-visible]:ring-2 has-[:focus-visible]:ring-ring has-[:focus-visible]:ring-offset-2 has-[:focus-visible]:ring-offset-popover',
+                on ? 'border-primary/60 bg-primary-soft/50 ring-1 ring-primary/30' : 'hover:bg-accent/60'
+              )}
+            >
+              <input type="radio" name={name} value={r.value} checked={on} onChange={() => onChange(r.value)} className="sr-only" />
+              <span
+                className={cn('mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full border border-border-strong', on && 'border-primary bg-primary text-primary-foreground')}
+                aria-hidden
+              >
+                {on && <Check className="size-2.5" />}
+              </span>
+              <span>
+                <span className="block text-sm font-medium">{roleLabel(r.value)}</span>
+                <span className="block text-sm text-muted-foreground">{r.desc}</span>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </fieldset>
   );
 }
 
+/** Which properties someone works at: a labelled group of toggle buttons. */
 function PropertyChecks({ value, onChange }: { value: string[]; onChange: (v: string[]) => void }) {
   const { ctx } = useConsole();
   const props = ctx?.properties ?? [];
+  const labelId = React.useId();
   if (props.length <= 1) return null;
   return (
-    <Field label="Works at">
+    <div role="group" aria-labelledby={labelId} aria-describedby={`${labelId}-hint`}>
+      <p id={labelId} className="mb-2 text-sm font-medium">
+        Works at
+      </p>
       <div className="flex flex-wrap gap-2">
         {props.map((p) => {
           const on = value.includes(p.id);
@@ -80,15 +120,23 @@ function PropertyChecks({ value, onChange }: { value: string[]; onChange: (v: st
             <button
               key={p.id}
               type="button"
+              aria-pressed={on}
               onClick={() => onChange(on ? value.filter((x) => x !== p.id) : [...value, p.id])}
-              className={cn('inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition-colors', on ? 'border-primary/50 bg-primary-soft text-primary' : 'hover:bg-accent')}
+              className={cn(
+                'inline-flex min-h-10 items-center gap-1.5 rounded-lg border px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-popover',
+                on ? 'border-primary/60 bg-primary-soft font-medium text-primary-soft-foreground' : 'border-border-strong/50 hover:bg-accent'
+              )}
             >
-              {on && <Check className="h-3.5 w-3.5" />} {p.name}
+              {on ? <Check className="size-4" aria-hidden /> : <Building2 className="size-4 text-muted-foreground" aria-hidden />}
+              {p.name}
             </button>
           );
         })}
       </div>
-    </Field>
+      <p id={`${labelId}-hint`} className={cn('mt-2 text-xs', value.length ? 'text-muted-foreground' : 'font-medium text-destructive')}>
+        {value.length ? 'They only see reservations and rooms at these properties.' : 'Pick at least one property.'}
+      </p>
+    </div>
   );
 }
 
@@ -98,14 +146,12 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
   const [props, setProps] = React.useState<string[]>([]);
   const [busy, setBusy] = React.useState(false);
   const [created, setCreated] = React.useState<{ email: string; password: string; name: string } | null>(null);
-  const [copied, setCopied] = React.useState(false);
 
   React.useEffect(() => {
     if (open) {
       setForm({ firstName: '', lastName: '', email: '', role: 'FRONT_DESK', password: tempPassword() });
       setProps(propertyId ? [propertyId] : []);
       setCreated(null);
-      setCopied(false);
     }
   }, [open, propertyId]);
 
@@ -130,67 +176,51 @@ function InviteDialog({ open, onOpenChange, onDone }: { open: boolean; onOpenCha
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         {created ? (
           <>
             <DialogHeader>
               <DialogTitle>{created.name} is on the team</DialogTitle>
               <DialogDescription>Share these sign-in details privately. They can change the password from their profile.</DialogDescription>
             </DialogHeader>
-            <pre className="whitespace-pre-wrap rounded-xl border bg-muted/60 p-4 font-mono text-xs">{credentials}</pre>
+            <pre className="whitespace-pre-wrap break-all rounded-xl border bg-surface-sunken p-4 font-mono text-xs leading-relaxed">{credentials}</pre>
             <DialogFooter>
-              <Button
-                variant="outline"
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(credentials);
-                    setCopied(true);
-                  } catch {
-                    toast.error('Couldn’t copy — select the text instead.');
-                  }
-                }}
-              >
-                {copied ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />} {copied ? 'Copied' : 'Copy details'}
-              </Button>
+              <CopyButton value={credentials} label="Copy details" copiedLabel="Details copied" size="default" />
               <Button onClick={() => onOpenChange(false)}>Done</Button>
             </DialogFooter>
           </>
         ) : (
-          <form onSubmit={submit}>
+          <form onSubmit={submit} className="grid gap-5">
             <DialogHeader>
               <DialogTitle>Add a teammate</DialogTitle>
               <DialogDescription>They’ll see only what their role needs.</DialogDescription>
             </DialogHeader>
-            <div className="mt-5 space-y-4">
-              <div className="grid grid-cols-2 gap-3">
-                <Field label="First name" htmlFor="inv-first">
-                  <Input id="inv-first" required value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
-                </Field>
-                <Field label="Last name" htmlFor="inv-last">
-                  <Input id="inv-last" required value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
-                </Field>
-              </div>
-              <Field label="Work email" htmlFor="inv-email">
-                <Input id="inv-email" type="email" required value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <Field label="First name" required>
+                <Input required autoComplete="off" value={form.firstName} onChange={(e) => setForm({ ...form, firstName: e.target.value })} />
               </Field>
-              <Field label="Role">
-                <RoleChooser value={form.role} onChange={(role) => setForm({ ...form, role })} allowOwner={myRole === 'ADMIN' || myRole === 'OWNER'} />
-              </Field>
-              <PropertyChecks value={props} onChange={setProps} />
-              <Field label="Temporary password" htmlFor="inv-pass" hint="At least 8 characters.">
-                <div className="flex gap-2">
-                  <Input id="inv-pass" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="font-mono" minLength={8} required />
-                  <Button type="button" variant="outline" size="icon" onClick={() => setForm({ ...form, password: tempPassword() })} aria-label="Generate another password">
-                    <KeyRound className="h-4 w-4" />
-                  </Button>
-                </div>
+              <Field label="Last name" required>
+                <Input required autoComplete="off" value={form.lastName} onChange={(e) => setForm({ ...form, lastName: e.target.value })} />
               </Field>
             </div>
-            <DialogFooter className="mt-6">
+            <Field label="Work email" required hint="They sign in with this address.">
+              <Input type="email" required autoComplete="off" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} />
+            </Field>
+            <RoleChooser name="invite-role" value={form.role} onChange={(role) => setForm({ ...form, role })} allowOwner={myRole === 'ADMIN' || myRole === 'OWNER'} />
+            <PropertyChecks value={props} onChange={setProps} />
+            <Field label="Temporary password" required hint="At least 8 characters. Share it privately; they can change it later.">
+              <div className="flex gap-2">
+                <Input value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} className="font-mono" minLength={8} required autoComplete="off" />
+                <IconButton label="Make up another password" variant="outline" onClick={() => setForm({ ...form, password: tempPassword() })}>
+                  <KeyRound />
+                </IconButton>
+              </div>
+            </Field>
+            <DialogFooter>
               <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
                 Cancel
               </Button>
-              <Button type="submit" loading={busy} disabled={!props.length}>
+              <Button type="submit" loading={busy} loadingText="Adding…" disabled={!props.length}>
                 Add teammate
               </Button>
             </DialogFooter>
@@ -234,28 +264,26 @@ function EditDialog({ user, onClose, onDone }: { user: UserRow | null; onClose: 
 
   return (
     <Dialog open={!!user} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>
             {user?.firstName} {user?.lastName}
           </DialogTitle>
           <DialogDescription>{user?.email}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4">
-          <Field label="Role">
-            <RoleChooser value={role} onChange={setRole} allowOwner={myRole === 'ADMIN' || myRole === 'OWNER'} />
-          </Field>
+        <div className="grid gap-5">
+          <RoleChooser name="edit-role" value={role} onChange={setRole} allowOwner={myRole === 'ADMIN' || myRole === 'OWNER'} />
           <PropertyChecks value={props} onChange={setProps} />
-          <Field label="Phone" htmlFor="edit-phone">
-            <Input id="edit-phone" type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} />
+          <Field label="Phone" optional hint="Include the country code, like +1 831 555 0100.">
+            <Input type="tel" inputMode="tel" autoComplete="off" value={phone} onChange={(e) => setPhone(e.target.value)} />
           </Field>
         </div>
         <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={save} loading={busy}>
-            Save
+          <Button onClick={save} loading={busy} loadingText="Saving…">
+            Save changes
           </Button>
         </DialogFooter>
       </DialogContent>
@@ -274,6 +302,7 @@ export default function TeamPage() {
   const [busy, setBusy] = React.useState(false);
   const [newPassword, setNewPassword] = React.useState('');
   const editable = can('users.write');
+  const multiProperty = (ctx?.properties.length ?? 0) > 1;
 
   const list = (data ?? [])
     .filter((u) => (tab === 'team' ? u.role !== 'CUSTOMER' : u.role === 'CUSTOMER'))
@@ -306,111 +335,177 @@ export default function TeamPage() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl space-y-6 p-4 sm:p-6 lg:p-8">
-      <PageHeader
-        title="Team"
-        description="Who can sign in to the console, and what each role can do."
-        actions={
-          editable ? (
-            <Button onClick={() => setInvite(true)}>
-              <UserPlus className="h-4 w-4" /> Add teammate
-            </Button>
-          ) : undefined
-        }
-      />
-
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <SegmentedControl
-          layoutId="team-tab"
-          aria-label="People"
-          value={tab}
-          onChange={setTab}
-          options={[
-            { value: 'team', label: `Team${data ? ` · ${teamCount}` : ''}` },
-            { value: 'guests', label: `Guests${data ? ` · ${guestCount}` : ''}` },
-          ]}
+    <div className={FRAME}>
+      <div className="space-y-5">
+        <PageHeader
+          title="Team"
+          description="Who can sign in to the console, and what each role can do."
+          actions={
+            editable ? (
+              <Button onClick={() => setInvite(true)}>
+                <UserPlus aria-hidden /> Add teammate
+              </Button>
+            ) : undefined
+          }
         />
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or email" className="pl-9" aria-label="Search people" />
-        </div>
-      </div>
 
-      <Card className="overflow-hidden p-0">
-        {isLoading ? (
-          <div className="space-y-px">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Skeleton key={i} className="h-16 rounded-none" />
-            ))}
+        <div role="search" aria-label="Find people" className="flex flex-col gap-3 sm:flex-row sm:items-center">
+          <SegmentedControl
+            layoutId="team-tab"
+            aria-label="People"
+            value={tab}
+            onChange={setTab}
+            options={[
+              { value: 'team', label: `Team${data ? ` · ${formatNumber(teamCount)}` : ''}` },
+              { value: 'guests', label: `Guests${data ? ` · ${formatNumber(guestCount)}` : ''}` },
+            ]}
+            className="self-start"
+          />
+          <div className="relative flex-1 sm:max-w-sm">
+            <label htmlFor="team-search" className="sr-only">
+              Search people
+            </label>
+            <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden />
+            <Input id="team-search" type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search by name or email" className="pl-9" autoComplete="off" />
           </div>
-        ) : list.length === 0 ? (
-          <EmptyState icon={Users} title={q ? 'Nobody matches' : tab === 'team' ? 'Just you so far' : 'No guests yet'} description={tab === 'team' && !q ? 'Add your front desk and housekeeping team so they can use the console.' : undefined} />
-        ) : (
-          <ul className="divide-y">
-            {list.map((u) => {
-              const me = u.id === ctx?.user.id;
-              return (
-                <li key={u.id} className={cn('flex items-center gap-3 px-4 py-3', !u.isActive && 'opacity-60')}>
-                  <Avatar name={`${u.firstName} ${u.lastName}`} />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">
-                      {u.firstName} {u.lastName}
-                      {me && <span className="ml-1.5 text-xs font-normal text-muted-foreground">(you)</span>}
-                      {!u.isActive && <span className="ml-1.5 rounded bg-muted px-1.5 py-px text-[10px] font-medium text-muted-foreground">Deactivated</span>}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">
-                      {u.email}
-                      {tab === 'guests' && ` · ${u._count.bookings} booking${u._count.bookings === 1 ? '' : 's'}`}
-                    </p>
+        </div>
+
+        <Card className="overflow-hidden p-0 shadow-xs">
+          {isLoading ? (
+            <div aria-busy>
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex h-[68px] items-center gap-3 border-b px-4 last:border-b-0">
+                  <Skeleton className="size-9 rounded-full" />
+                  <div className="flex-1 space-y-1.5">
+                    <Skeleton className="h-4 w-40" />
+                    <Skeleton className="h-3 w-56" />
                   </div>
-                  {tab === 'team' && (
-                    <div className="hidden min-w-0 text-right sm:block">
-                      <span className="inline-flex rounded-full bg-primary-soft px-2 py-0.5 text-xs font-medium text-primary">{roleLabel(u.role)}</span>
-                      {(ctx?.properties.length ?? 0) > 1 && (
-                        <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{u.assignedProperties.map((a) => a.property.name).join(', ') || 'All properties'}</p>
+                  <Skeleton className="hidden h-5 w-24 rounded-full sm:block" />
+                </div>
+              ))}
+            </div>
+          ) : list.length === 0 ? (
+            <EmptyState
+              icon={Users}
+              title={q ? 'Nobody matches that search' : tab === 'team' ? 'Just you so far' : 'No guests yet'}
+              description={
+                q
+                  ? 'Try part of a first name, last name or email address.'
+                  : tab === 'team'
+                    ? 'Add your front desk and housekeeping team so they can use the console.'
+                    : 'Guests appear here after their first booking on your booking page.'
+              }
+              action={
+                q ? (
+                  <Button variant="outline" onClick={() => setQ('')}>
+                    Clear search
+                  </Button>
+                ) : tab === 'team' && editable ? (
+                  <Button onClick={() => setInvite(true)}>
+                    <UserPlus aria-hidden /> Add teammate
+                  </Button>
+                ) : undefined
+              }
+            />
+          ) : (
+            <ul className="divide-y" aria-label={tab === 'team' ? 'Team members' : 'Guests'}>
+              {list.map((u) => {
+                const me = u.id === ctx?.user.id;
+                const showMenu = editable && tab === 'team' && !me && u.role !== 'ADMIN';
+                return (
+                  <li key={u.id} className={cn('flex items-center gap-3 px-4 py-3', !u.isActive && 'bg-surface-sunken/50')}>
+                    <Avatar name={`${u.firstName} ${u.lastName}`} className={cn(!u.isActive && 'opacity-60')} />
+                    <div className="min-w-0 flex-1">
+                      <p className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm font-medium">
+                        <span className={cn('truncate', !u.isActive && 'text-muted-foreground')}>
+                          {u.firstName} {u.lastName}
+                        </span>
+                        {me && <span className="text-xs font-normal text-muted-foreground">(you)</span>}
+                        {!u.isActive && (
+                          <Badge variant="outline" size="sm" className="text-muted-foreground">
+                            Can’t sign in
+                          </Badge>
+                        )}
+                      </p>
+                      {/* Email and phone share a line on wider screens and stack on phones, so neither gets cut off. */}
+                      <p className="flex min-w-0 flex-col text-xs text-muted-foreground sm:flex-row sm:flex-wrap sm:gap-x-1.5">
+                        <span className="truncate">{u.email}</span>
+                        {u.phone && (
+                          <span className="tabular">
+                            <span className="hidden sm:inline" aria-hidden>
+                              ·{' '}
+                            </span>
+                            {formatPhone(u.phone)}
+                          </span>
+                        )}
+                        {tab === 'guests' && (
+                          <span>
+                            <span className="hidden sm:inline" aria-hidden>
+                              ·{' '}
+                            </span>
+                            {formatNumber(u._count.bookings)} booking{u._count.bookings === 1 ? '' : 's'}
+                          </span>
+                        )}
+                      </p>
+                      {tab === 'team' && (
+                        <div className="mt-1.5 sm:hidden">
+                          <RoleBadge role={u.role} />
+                        </div>
                       )}
                     </div>
-                  )}
-                  {editable && tab === 'team' && !me && u.role !== 'ADMIN' && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon-sm" aria-label={`Actions for ${u.firstName}`}>
-                          <MoreHorizontal className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuItem onSelect={() => setEdit(u)}>Change role & access</DropdownMenuItem>
-                        <DropdownMenuItem
-                          onSelect={() => {
-                            setNewPassword(tempPassword());
-                            setConfirm({ user: u, action: 'reset' });
-                          }}
-                        >
-                          Reset password
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        {u.isActive ? (
-                          <DropdownMenuItem destructive onSelect={() => setConfirm({ user: u, action: 'deactivate' })}>
-                            Deactivate
-                          </DropdownMenuItem>
-                        ) : (
-                          <DropdownMenuItem onSelect={() => setConfirm({ user: u, action: 'reactivate' })}>Reactivate</DropdownMenuItem>
+                    {tab === 'team' && (
+                      <div className="hidden w-56 min-w-0 shrink-0 text-right sm:block">
+                        <RoleBadge role={u.role} />
+                        {multiProperty && <p className="mt-1 truncate text-xs text-muted-foreground">{u.assignedProperties.map((a) => a.property.name).join(', ') || 'All properties'}</p>}
+                      </div>
+                    )}
+                    {tab === 'team' && editable && (
+                      // Reserve the column so every badge lines up, menu or not.
+                      <div className="flex w-10 shrink-0 justify-end">
+                        {showMenu && (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <IconButton label={`Actions for ${u.firstName} ${u.lastName}`}>
+                                <MoreHorizontal />
+                              </IconButton>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent align="end">
+                              <DropdownMenuItem onSelect={() => setEdit(u)}>Change role and access</DropdownMenuItem>
+                              <DropdownMenuItem
+                                onSelect={() => {
+                                  setNewPassword(tempPassword());
+                                  setConfirm({ user: u, action: 'reset' });
+                                }}
+                              >
+                                Reset password…
+                              </DropdownMenuItem>
+                              <DropdownMenuSeparator />
+                              {u.isActive ? (
+                                <DropdownMenuItem destructive onSelect={() => setConfirm({ user: u, action: 'deactivate' })}>
+                                  Deactivate…
+                                </DropdownMenuItem>
+                              ) : (
+                                <DropdownMenuItem onSelect={() => setConfirm({ user: u, action: 'reactivate' })}>Reactivate…</DropdownMenuItem>
+                              )}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+      </div>
 
       <InviteDialog open={invite} onOpenChange={setInvite} onDone={() => void mutate()} />
       <EditDialog user={edit} onClose={() => setEdit(null)} onDone={() => void mutate()} />
       <ConfirmDialog
         open={!!confirm}
         onOpenChange={(o) => !o && setConfirm(null)}
+        cancelLabel={confirm?.action === 'deactivate' ? 'Keep access' : 'Cancel'}
         title={
           confirm?.action === 'reset'
             ? `Reset ${confirm.user.firstName}’s password?`
@@ -431,12 +526,14 @@ export default function TeamPage() {
         onConfirm={runConfirm}
       >
         {confirm?.action === 'reset' && (
-          <div className="flex gap-2">
-            <Input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="font-mono" aria-label="New password" />
-            <Button type="button" variant="outline" size="icon" onClick={() => setNewPassword(tempPassword())} aria-label="Generate another">
-              <KeyRound className="h-4 w-4" />
-            </Button>
-          </div>
+          <Field label="New password" hint="At least 8 characters.">
+            <div className="flex gap-2">
+              <Input value={newPassword} onChange={(e) => setNewPassword(e.target.value)} className="font-mono" autoComplete="off" />
+              <IconButton label="Make up another password" variant="outline" onClick={() => setNewPassword(tempPassword())}>
+                <KeyRound />
+              </IconButton>
+            </div>
+          </Field>
         )}
       </ConfirmDialog>
     </div>

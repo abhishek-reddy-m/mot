@@ -4,7 +4,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { toDateString } from '@/lib/date-utils';
 import { isStripeConfigured, getStripe } from '@/lib/stripe';
-import { sendBookingConfirmation } from '@/lib/email';
+import { sendBookingConfirmation } from '@/server/email';
 import { handleRoute, parseJson } from '@/server/http';
 import { badRequest, unauthorized } from '@/server/errors';
 import { createBooking } from '@/server/services/bookings';

@@ -16,8 +16,7 @@ export function isConsolePath(pathname: string): boolean {
   return pathname === '/admin' || pathname.startsWith('/admin/');
 }
 
-/** Where a user should land after signing in, by role. */
-/** Console home for a role at a property, following how the hotel uses StayOS. */
+/** Console home for a role at a property, following how the hotel uses HotelOne. */
 export function homeForProperty(role: string | null | undefined, setupPath: 'FULL' | 'BRIDGE' | 'VOICE' | undefined): string {
   if (!isStaffRole(role)) return '/dashboard';
   if (setupPath === 'VOICE') return '/admin/voice';
@@ -25,6 +24,7 @@ export function homeForProperty(role: string | null | undefined, setupPath: 'FUL
   return homeForRole(role);
 }
 
+/** Where a user should land after signing in, by role. */
 export function homeForRole(role: string | null | undefined): string {
   switch (role) {
     case 'ADMIN':

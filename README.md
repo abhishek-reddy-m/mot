@@ -1,14 +1,14 @@
-# StayOS
+# HotelOne
 
-Direct booking, an agentic front desk and a voice front desk for independent hotels — with a path for every hotel:
+Direct booking, an agentic front desk and a voice front desk for independent hotels — with a path for every hotel. Live at [hotelone.site](https://hotelone.site).
 
 | Path | For hotels that… | They get |
 | --- | --- | --- |
-| **Run on StayOS** (`FULL`) | want one system | White-label booking site, front desk, housekeeping, rates, analytics, the agent and voice |
+| **Run on HotelOne** (`FULL`) | want one system | White-label booking site, front desk, housekeeping, rates, analytics, the agent and voice |
 | **Keep your PMS** (`BRIDGE`) | aren't ready to migrate (or never will) | The agent and voice working *their* PMS through the bridge — desktop connector or cloud browser |
 | **Just voice** (`VOICE`) | want to stop missing calls first | A voice front desk with their real rooms and prices, plus a messages inbox |
 
-Hotels move between paths without starting over (Console → *Your PMS* → *Move to StayOS*).
+Hotels move between paths without starting over (Console → *Your PMS* → *Move to HotelOne*).
 
 ## What's inside
 
@@ -16,9 +16,10 @@ Hotels move between paths without starting over (Console → *Your PMS* → *Mov
 - **Staff console** (`/admin`) — two ways to work the same data:
   - **Classic**: dashboard with setup checklist and forecast, front desk (arrivals, departures, in-house, room board), housekeeping (supervisor board + phone-first *My rooms*), reservations, rate calendar (drag-select, set/adjust/reset), analytics, rooms, properties, team, activity log, settings.
   - **Agentic**: a natural-language workspace whose answers render as live UI blocks (booking lists, room options, rate grids, plans). Every change is a **signed plan** (HMAC, 10-minute expiry, single use) that a person confirms; every action is permission-checked and audited. ⌘K opens the agent from any Classic screen, and alerts hand off to it ("Fix").
-- **Voice front desk** — ElevenLabs Agents (WebSocket, StayOS provisions and syncs the agents) or OpenAI GPT-Live (`gpt-live-1`, WebRTC with Responses delegation). Guests talk from the hotel page; staff go hands-free in the agent workspace. Either way, tool calls are executed by StayOS code, never by the model directly.
-- **Phone line** (ElevenLabs) — each hotel gets its own phone agent; point a Twilio, SIP-trunk or Exotel number at it in ElevenLabs and forward the hotel's existing number to it. Assign the same agent to a WhatsApp number in ElevenLabs and it answers WhatsApp chats and calls too. Calls start with a webhook to StayOS (hotel prompt + signed session) and run their tools server to server; phone bookings become requests the team confirms by sending the guest a pre-filled booking link. See *Voice → Phone* in the console.
-- **PMS bridge** — a computer-use operator that works the hotel's existing PMS in a browser, through the StayOS Connector on a hotel computer or our isolated cloud browser.
+- **Voice front desk** — ElevenLabs Agents (WebSocket, HotelOne provisions and syncs the agents) or OpenAI GPT-Live (`gpt-live-1`, WebRTC with Responses delegation). Guests talk from the hotel page; staff go hands-free in the agent workspace. Either way, tool calls are executed by HotelOne code, never by the model directly.
+- **Phone line** (ElevenLabs) — each hotel gets its own phone agent; point a Twilio, SIP-trunk or Exotel number at it in ElevenLabs and forward the hotel's existing number to it. Assign the same agent to a WhatsApp number in ElevenLabs and it answers WhatsApp chats and calls too. Calls start with a webhook to HotelOne (hotel prompt + signed session) and run their tools server to server; phone bookings become requests the team confirms by sending the guest a pre-filled booking link. See *Voice → Phone* in the console.
+- **PMS bridge** — a computer-use operator that works the hotel's existing PMS in a browser, through the HotelOne Connector on a hotel computer or our isolated cloud browser.
+- **Booking confirmation email** (Resend) — sent by HotelOne on the hotel's behalf (`src/server/email.ts`).
 
 ## Architecture
 
@@ -34,7 +35,8 @@ src/server         Domain layer (server-only)
   bridge/          computer-use operator step + TOTP
   vault.ts         AES-256-GCM sealing for stored PMS logins
 src/components     console shell, agent UI + blocks, voice UI, guest UI, design system
-public/downloads   stayos-connector.mjs (desktop connector / cloud worker)
+public/downloads   hotelone-connector.mjs (desktop connector / cloud worker);
+                   stayos-connector.mjs stays for computers set up before the rename
 connector/         connector docs
 prisma/            schema, migrations, demo seed
 ```
@@ -62,11 +64,13 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 
 | Login | Sees |
 | --- | --- |
-| `owner@stayos.demo` | Everything, plus **Harbor Motel** (a bridge-path hotel on Cloudbeds) |
-| `manager@stayos.demo` | Operations, rates, team |
-| `frontdesk@stayos.demo` | Front desk, reservations, the agent |
-| `housekeeping@stayos.demo` | *My rooms* (phone-first) |
-| `guest@stayos.demo` | Trips and the booking flow |
+| `owner@hotelone.demo` | Everything, plus **Harbor Motel** (a bridge-path hotel on Cloudbeds) |
+| `manager@hotelone.demo` | Operations, rates, team |
+| `frontdesk@hotelone.demo` | Front desk, reservations, the agent |
+| `housekeeping@hotelone.demo` | *My rooms* (phone-first) |
+| `guest@hotelone.demo` | Trips and the booking flow |
+
+`.demo` addresses never resolve, so no real email is sent to them. Databases seeded before the rename had `@stayos.demo` logins; a migration moves them to `@hotelone.demo`, and the old domain is still treated as a demo login.
 
 ## Environment variables
 
@@ -79,10 +83,10 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 | `HOTEL_TIMEZONE` | | Hotel "today" (default `America/Los_Angeles`) |
 | `AGENT_PLAN_SECRET` | | Separate secret for signed agent plans |
 | `NEXT_PUBLIC_DEMO_MODE` | | `true` = public demo: one-click demo logins on `/login`; the shared demo logins and the demo hotels' public details (name, listing, voice script) can't be changed |
-| `NEXT_PUBLIC_SITE_URL` | | Pins Stripe return URLs to one host (default: the host the guest booked on) |
-| `ELEVENLABS_API_KEY` | voice | Voice front desk on ElevenLabs Agents (used when set). Needs Agents write access; StayOS creates and updates its two agents itself |
+| `NEXT_PUBLIC_SITE_URL` | | Canonical public address, e.g. `https://hotelone.site` — metadata, sitemap, and Stripe return URLs (default: `https://hotelone.site` for metadata, the host the guest booked on for Stripe) |
+| `ELEVENLABS_API_KEY` | voice | Voice front desk on ElevenLabs Agents (used when set). Needs Agents write access; HotelOne creates and updates its two agents itself |
 | `ELEVENLABS_VOICE_ID`, `ELEVENLABS_LLM` | | ElevenLabs voice (default: the platform default) and LLM (default `gemini-2.5-flash`) |
-| `STAYOS_PUBLIC_URL` | | Public https address for phone-line webhooks and booking links (default: `NEXT_PUBLIC_SITE_URL`, else the Vercel production domain) |
+| `HOTELONE_PUBLIC_URL` | | Public https address for phone-line webhooks and booking links (default: `NEXT_PUBLIC_SITE_URL`, else the Vercel production domain). `STAYOS_PUBLIC_URL` is still accepted |
 | `VOICE_PHONE_MAX_CALLS_PER_HOTEL_HOUR`, `VOICE_PHONE_MAX_CALLS_PER_HOUR` | | Phone-call ceilings per hotel and across hotels (defaults 120 / 300), separate from the booking page's |
 | `ELEVENLABS_PHONE_AUDIO_FORMAT` | | Phone agent audio (default `ulaw_8000`, right for Twilio and SIP/PCMU; `auto` leaves it to ElevenLabs) |
 | `ELEVENLABS_GUEST_AGENT_ID`, `ELEVENLABS_STAFF_AGENT_ID` | | Use your own ElevenLabs agents instead (they need the same client tools and prompt/first-message overrides enabled) |
@@ -92,10 +96,11 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 | `OPENAI_VOICE_BACKEND_MODEL` | | Model the voice delegates reasoning/tools to (default `gpt-6-luna`) |
 | `BRIDGE_OPERATOR_MODEL` | | Computer-use model (default `computer-use-preview`) |
 | `BRIDGE_OPERATOR_TOOL` | | `computer` to use the GA computer tool instead of `computer_use_preview` |
-| `STAYOS_VAULT_KEY` | prod bridge | 32-byte base64 key for sealing PMS logins (`openssl rand -base64 32`); dev derives one from `NEXTAUTH_SECRET` |
-| `BRIDGE_WORKER_SECRET` | cloud bridge | Shared secret for the cloud worker (`stayos-connector.mjs worker`) |
+| `HOTELONE_VAULT_KEY` | prod bridge | 32-byte base64 key for sealing PMS logins (`openssl rand -base64 32`); dev derives one from `NEXTAUTH_SECRET`. `STAYOS_VAULT_KEY` is still accepted — to switch names, copy the **exact same value** (a new key can't open stored logins) |
+| `BRIDGE_WORKER_SECRET` | cloud bridge | Shared secret for the cloud worker (`hotelone-connector.mjs worker`) |
 | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY` | | Online card payment (pay-at-hotel works without) |
 | `RESEND_API_KEY` | | Confirmation emails |
+| `EMAIL_FROM` | | Sender for confirmation emails (default `HotelOne <bookings@hotelone.site>`, which needs hotelone.site verified in Resend) |
 | `BLOB_READ_WRITE_TOKEN` | | Photo uploads (Vercel Blob) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | | Google sign-in for guests |
 | `ADMIN_SEED_PASSWORD`, `DEMO_PASSWORD`, `SEED_DEMO`, `ALLOW_SEED_WIPE` | | Seeding controls (production and Vercel builds never wipe unless `ALLOW_SEED_WIPE=true`; the demo is created once) |
@@ -105,14 +110,22 @@ Open http://localhost:3000 and use the one-click demo logins on `/login` (passwo
 ## The PMS bridge in one minute
 
 1. Owner opens **Your PMS**, picks their system and how to reach it.
-2. **Desktop**: download `stayos-connector.mjs`, pair with the one-time code, run it, sign in to the PMS in its window. **Cloud**: store a (preferably dedicated) PMS login — sealed, write-only — and run the worker.
+2. **Desktop**: download `hotelone-connector.mjs`, pair with the one-time code, run it, sign in to the PMS in its window. **Cloud**: store a (preferably dedicated) PMS login — sealed, write-only — and run the worker.
 3. Staff ask the agent ("who's arriving?", "check in Moreno into 14"). Look-ups queue straight away; changes need a confirmed plan. Results stream back into the conversation as live task cards.
 
 See [`connector/README.md`](connector/README.md) for details and guardrails.
 
 ## Deploying
 
-Vercel: connect the repo, add a Postgres database from *Storage*, set the secrets, redeploy — migrations and the optional demo seed run during the build. Step by step in [`DEPLOYMENT.md`](DEPLOYMENT.md); `/api/health` confirms the database is connected.
+Vercel: connect the repo, add a Postgres database from *Storage*, set the secrets, redeploy — migrations and the optional demo seed run during the build. Step by step, including the custom domain (hotelone.site), in [`DEPLOYMENT.md`](DEPLOYMENT.md); `/api/health` confirms the database is connected.
+
+## Renamed from StayOS
+
+The product name lives in `src/config/product.ts` (`PRODUCT_NAME`, `PRODUCT_DOMAIN`, …) — import it rather than writing the name. A few internal identifiers keep the old name on purpose, because they are stored outside this repo or in data that must keep working:
+
+- Phone webhooks: the `X-StayOS-Webhook` header and the `stayos_session` / `stayos_tool` fields are configured in every hotel's ElevenLabs phone agent and tools.
+- Vault key derivation (`stayos-vault`, `stayos-dev-secret`, used only without a vault key in development) opens logins already sealed.
+- Browser storage keys (`stayos-theme`, `stayos:*`, `stayos.checklist.*`, `stayos-agent:*`), the calendar UID suffix `@stayos`, the connector's `~/.stayos` folder on existing installs, and the `STAYOS_*` environment variables (each has a `HOTELONE_*` name read first).
 
 ## Scripts
 

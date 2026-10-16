@@ -120,6 +120,13 @@ async function main() {
 
   // Safe to re-run (e.g. on every deploy): the hotels are created once.
   if (!allowWipe && (await prisma.property.findFirst({ where: { name: 'The Saltwater Inn', isDemo: true }, select: { id: true } }))) {
+    // The platform was renamed (StayOS → HotelOne). Existing demo hotels are
+    // never re-created, so swap the old name in their descriptions — once.
+    const renamed = await prisma.property.findMany({ where: { isDemo: true, description: { contains: 'StayOS' } }, select: { id: true, description: true } });
+    for (const p of renamed) {
+      await prisma.property.update({ where: { id: p.id }, data: { description: p.description.replaceAll('StayOS', 'HotelOne') } });
+    }
+    if (renamed.length) console.log(`Renamed StayOS → HotelOne in ${renamed.length} demo hotel description(s).`);
     console.log('Demo hotels already present — logins checked, nothing else to seed.');
     return;
   }
@@ -389,7 +396,7 @@ async function main() {
       name: 'Harbor Motel',
       type: 'Motel',
       tagline: 'Simple rooms by the wharf.',
-      description: 'A friendly 30-room motel two minutes from Fisherman’s Wharf. Runs on Cloudbeds — StayOS works it through the bridge.',
+      description: 'A friendly 30-room motel two minutes from Fisherman’s Wharf. Runs on Cloudbeds — HotelOne works it through the bridge.',
       address: '12 Pier Road',
       city: 'Monterey',
       state: 'CA',

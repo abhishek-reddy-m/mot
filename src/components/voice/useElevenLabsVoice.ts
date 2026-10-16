@@ -24,9 +24,9 @@ const friendly = (message: string) => message.replace(/^Server error:\s*/i, '').
 
 /**
  * ElevenLabs Agents over a WebSocket. The server mints a single-use signed
- * URL for StayOS's private agent; the hotel's prompt and greeting go up as
+ * URL for HotelOne's private agent; the hotel's prompt and greeting go up as
  * overrides; tools the agent calls run in the browser (client tools) through
- * the same StayOS endpoints as GPT-Live, so permission checks and confirm
+ * the same HotelOne endpoints as GPT-Live, so permission checks and confirm
  * plans are unchanged.
  */
 export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateChange }: VoiceOptions): VoiceController {

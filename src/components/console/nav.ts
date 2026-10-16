@@ -9,7 +9,7 @@ import {
   LayoutDashboard,
   Settings2,
   Sparkles,
-  SprayCan,
+  BrushCleaning,
   Users,
   AudioLines,
   Cable,
@@ -22,9 +22,9 @@ export interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
-  /** Shown with the agent's aurora treatment. */
+  /** The AI agent's own screen: shown with the agent's violet treatment. */
   agent?: boolean;
-  /** Setup paths this screen belongs to (default: running on StayOS). */
+  /** Setup paths this screen belongs to (default: the hotel runs fully on HotelOne). */
   paths?: SetupPath[];
 }
 
@@ -43,7 +43,7 @@ const GROUPS: NavGroup[] = [
       { label: 'Your PMS', href: '/admin/connect', icon: Cable, paths: ['BRIDGE'] },
       { label: 'Dashboard', href: '/admin/dashboard', icon: LayoutDashboard },
       { label: 'Front desk', href: '/admin/front-desk', icon: ConciergeBell },
-      { label: 'Housekeeping', href: '/admin/housekeeping', icon: SprayCan },
+      { label: 'Housekeeping', href: '/admin/housekeeping', icon: BrushCleaning },
       { label: 'Reservations', href: '/admin/bookings', icon: CalendarCheck2 },
       { label: 'Voice', href: '/admin/voice', icon: AudioLines, paths: ALL },
     ],
@@ -76,6 +76,7 @@ export function navFor(role: string | undefined, opts: { agentEnabled: boolean; 
   })).filter((g) => g.items.length > 0);
 }
 
+/** The console section a path belongs to ("Front desk"), for the header and breadcrumb. */
 export function titleFor(pathname: string): string {
   for (const g of GROUPS) for (const i of g.items) if (pathname === i.href || pathname.startsWith(i.href + '/')) return i.label;
   return 'Console';

@@ -5,7 +5,7 @@
 import { prisma } from '@/lib/prisma';
 import type { FrontDeskAlert, FrontDeskSummary, ISODate, OccupancyDay } from '@/lib/dto';
 import { assertPropertyAccess, requirePermission, type Actor } from '../authz';
-import { addDaysISO, atNoonUTC, eachNight, hotelToday, toISODate } from '../dates';
+import { addDaysISO, atNoonUTC, eachNight, formatDay, hotelToday, toISODate } from '../dates';
 import { notFound } from '../errors';
 import { arrivalsOn, departuresOn, inHouse } from './bookings';
 import { OCCUPYING_STATUSES } from './inventory';
@@ -50,7 +50,7 @@ export async function frontDeskSummary(actor: Actor, propertyId: string, day: IS
       id: 'overdue',
       tone: 'danger',
       title: `${overdue.length} overdue check-out${overdue.length > 1 ? 's' : ''}`,
-      detail: overdue.map((b) => `${b.guest.name} (due ${b.checkOut})`).join(', '),
+      detail: overdue.map((b) => `${b.guest.name} (due ${formatDay(b.checkOut)})`).join(', '),
       command: `check out ${overdue[0].guest.name}`,
     });
   }

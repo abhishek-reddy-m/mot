@@ -1,15 +1,16 @@
 import { NextRequest } from 'next/server';
 import { z } from 'zod';
+import { PRODUCT_NAME } from '@/config/product';
 import { prisma } from '@/lib/prisma';
 import { requireStaff, resolvePropertyId } from '@/server/authz';
 import { handleRoute, json, parseJson } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
 
-const LABEL = { FULL: 'everything on StayOS', BRIDGE: 'keep your PMS (bridge)', VOICE: 'voice front desk only' } as const;
+const LABEL = { FULL: `everything on ${PRODUCT_NAME}`, BRIDGE: 'keep your PMS (bridge)', VOICE: 'voice front desk only' } as const;
 
 /**
  * PUT { propertyId, setupPath } — move between adoption paths without
- * starting over (voice only → bridge → full StayOS). Data is kept.
+ * starting over (voice only → bridge → full HotelOne). Data is kept.
  */
 export const PUT = handleRoute(async (request: NextRequest) => {
   const actor = await requireStaff('property.write');

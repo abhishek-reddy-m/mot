@@ -3,22 +3,32 @@
 import * as React from 'react';
 import useSWR from 'swr';
 import { toast } from 'sonner';
-import { Brush, CircleCheck, Sparkles, Wrench } from 'lucide-react';
+import { BadgeCheck, Brush, CircleCheck, Wrench } from 'lucide-react';
 import type { RoomSummary, TeamMember } from '@/lib/dto';
 import { api, fetcher } from '@/lib/fetcher';
 import { fmtDay } from '@/lib/format';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Field } from '@/components/ui/label';
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { OccupancyBadge, RoomStatusBadge, TaskStatusBadge } from '@/components/hotel/badges';
 import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider';
+import { AskAgentButton } from '@/components/console/AskAgentButton';
 
 export function RoomSheet({ room, onOpenChange }: { room: RoomSummary | null; onOpenChange: (o: boolean) => void }) {
-  const { can, refresh, askAgent } = useConsole();
+  const { can, refresh } = useConsole();
+  const statusLabelId = React.useId();
   const teamUrl = usePropertyUrl('/api/admin/team', { role: 'HOUSEKEEPER' });
-  const { data: team } = useSWR<TeamMember[]>(room && can('housekeeping.assign') ? teamUrl : null, fetcher);
+  const { data: team, error: teamError } = useSWR<TeamMember[]>(room && can('housekeeping.assign') ? teamUrl : null, fetcher);
+  const teamPlaceholder = teamError
+    ? 'Couldn’t load housekeepers'
+    : !team
+      ? 'Loading housekeepers…'
+      : team.length
+        ? 'Choose a housekeeper'
+        : 'No housekeepers on this property yet';
   const [busy, setBusy] = React.useState<string | null>(null);
   const [reason, setReason] = React.useState('');
   React.useEffect(() => setReason(''), [room?.id]);
@@ -47,8 +57,9 @@ export function RoomSheet({ room, onOpenChange }: { room: RoomSummary | null; on
             <SheetHeader>
               <SheetTitle className="text-lg">Room {room.number}</SheetTitle>
               <SheetDescription>
-                {room.roomType.name} · Floor {room.floor ?? '—'}
-                {room.tags.length > 0 && ` · ${room.tags.join(', ')}`}
+                {room.roomType.name}
+                {room.floor ? ` · Floor ${room.floor}` : ''}
+                {room.tags.length > 0 && ` · ${room.tags.map((t) => t.replace(/[-_]/g, ' ')).join(', ')}`}
               </SheetDescription>
               <div className="flex flex-wrap gap-1.5 pt-2">
                 <RoomStatusBadge status={room.status} />
@@ -60,14 +71,14 @@ export function RoomSheet({ room, onOpenChange }: { room: RoomSummary | null; on
               {(room.current || room.arriving) && (
                 <div className="space-y-2">
                   {room.current && (
-                    <div className="rounded-xl border p-3 text-sm">
+                    <div className="rounded-xl border bg-surface-sunken p-3 text-sm">
                       <p className="text-xs text-muted-foreground">In house</p>
                       <p className="font-medium">{room.current.guestName}</p>
                       <p className="text-xs text-muted-foreground">Leaves {fmtDay(room.current.checkOut, 'weekday')} · #{room.current.code}</p>
                     </div>
                   )}
                   {room.arriving && (
-                    <div className="rounded-xl border p-3 text-sm">
+                    <div className="rounded-xl border bg-surface-sunken p-3 text-sm">
                       <p className="text-xs text-muted-foreground">Arriving</p>
                       <p className="font-medium">{room.arriving.guestName}</p>
                       <p className="text-xs text-muted-foreground">#{room.arriving.code}</p>
@@ -78,26 +89,36 @@ export function RoomSheet({ room, onOpenChange }: { room: RoomSummary | null; on
 
               {!room.isOutOfOrder && can('room.status') && (
                 <div>
-                  <p className="mb-2 text-sm font-medium">Housekeeping status</p>
-                  <div className="grid grid-cols-3 gap-2">
+                  <p id={statusLabelId} className="mb-2 text-sm font-medium">
+                    Housekeeping status
+                  </p>
+                  <div className="grid grid-cols-3 gap-2" role="group" aria-labelledby={statusLabelId}>
                     {(
                       [
                         ['DIRTY', 'Dirty', Brush],
                         ['CLEAN', 'Clean', CircleCheck],
-                        ['INSPECTED', 'Inspected', Sparkles],
+                        ['INSPECTED', 'Inspected', BadgeCheck],
                       ] as const
-                    ).map(([status, label, Icon]) => (
-                      <Button
-                        key={status}
-                        variant={room.status === status ? 'default' : 'outline'}
-                        size="sm"
-                        loading={busy === status}
-                        disabled={room.status === status}
-                        onClick={() => act(status, () => patch({ status }), `Room ${room.number} marked ${label.toLowerCase()}`)}
-                      >
-                        <Icon className="h-4 w-4" /> {label}
-                      </Button>
-                    ))}
+                    ).map(([status, label, Icon]) => {
+                      const current = room.status === status;
+                      return (
+                        <Button
+                          key={status}
+                          variant={current ? 'soft' : 'outline'}
+                          aria-pressed={current}
+                          loading={busy === status}
+                          disabled={busy !== null && busy !== status}
+                          className={cn('px-2', current && 'ring-1 ring-inset ring-primary/40')}
+                          onClick={() => {
+                            // The current status is shown as selected; choosing it again changes nothing.
+                            if (current) return;
+                            void act(status, () => patch({ status }), `Room ${room.number} marked ${label.toLowerCase()}`);
+                          }}
+                        >
+                          <Icon aria-hidden /> {label}
+                        </Button>
+                      );
+                    })}
                   </div>
                 </div>
               )}
@@ -110,8 +131,8 @@ export function RoomSheet({ room, onOpenChange }: { room: RoomSummary | null; on
                       act('assign', () => api('/api/admin/housekeeping', { method: 'POST', json: { roomId: room.id, assignedTo: v } }), `Room ${room.number} assigned`)
                     }
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder={team?.length ? 'Choose a housekeeper' : 'No housekeepers on this property yet'} />
+                    <SelectTrigger disabled={busy === 'assign' || !team?.length}>
+                      <SelectValue placeholder={teamPlaceholder} />
                     </SelectTrigger>
                     <SelectContent>
                       {(team ?? []).map((m) => (
@@ -127,14 +148,13 @@ export function RoomSheet({ room, onOpenChange }: { room: RoomSummary | null; on
               {can('room.outOfOrder') && (
                 <div className="rounded-xl border p-4">
                   <p className="flex items-center gap-2 text-sm font-medium">
-                    <Wrench className="h-4 w-4 text-muted-foreground" /> {room.isOutOfOrder ? 'Out of order' : 'Maintenance'}
+                    <Wrench className="size-4 text-muted-foreground" aria-hidden /> {room.isOutOfOrder ? 'Out of order' : 'Maintenance'}
                   </p>
                   {room.isOutOfOrder ? (
                     <>
-                      <p className="mt-1 text-sm text-muted-foreground">{room.outOfOrderReason}</p>
+                      <p className="mt-1 text-sm text-muted-foreground">{room.outOfOrderReason ?? 'No reason given.'}</p>
                       <Button
                         className="mt-3"
-                        size="sm"
                         variant="outline"
                         loading={busy === 'ooo'}
                         onClick={() => act('ooo', () => patch({ isOutOfOrder: false }), `Room ${room.number} is back in service`)}
@@ -144,12 +164,16 @@ export function RoomSheet({ room, onOpenChange }: { room: RoomSummary | null; on
                     </>
                   ) : (
                     <>
-                      <Field label="Reason" className="mt-3">
+                      <Field
+                        label="Reason"
+                        optional
+                        className="mt-3"
+                        hint={room.occupancy === 'OCCUPIED' || room.occupancy === 'DEPARTING' ? 'Someone is staying here — move them to another room first.' : undefined}
+                      >
                         <Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="e.g. AC not cooling — vendor booked" />
                       </Field>
                       <Button
                         className="mt-3"
-                        size="sm"
                         variant="destructive"
                         disabled={room.occupancy === 'OCCUPIED' || room.occupancy === 'DEPARTING'}
                         loading={busy === 'ooo'}
@@ -157,20 +181,17 @@ export function RoomSheet({ room, onOpenChange }: { room: RoomSummary | null; on
                       >
                         Take out of order
                       </Button>
-                      {(room.occupancy === 'OCCUPIED' || room.occupancy === 'DEPARTING') && (
-                        <p className="mt-2 text-xs text-muted-foreground">Someone is staying here — move them first.</p>
-                      )}
                     </>
                   )}
                 </div>
               )}
             </div>
             {can('agent.use') && (
-              <div className="border-t p-4">
-                <Button variant="soft" className="w-full" onClick={() => askAgent(`rooms on floor ${room.floor ?? ''}`)}>
-                  <Sparkles className="h-4 w-4" /> Ask the agent about floor {room.floor}
-                </Button>
-              </div>
+              <SheetFooter>
+                <AskAgentButton size="default" className="w-full" command={room.floor ? `rooms on floor ${room.floor}` : 'show the room board'}>
+                  {room.floor ? `Ask the agent about floor ${room.floor}` : 'Ask the agent about the rooms'}
+                </AskAgentButton>
+              </SheetFooter>
             )}
           </>
         )}

@@ -33,7 +33,7 @@ const putSchema = z.object({
   loginUrl: pmsLoginUrlSchema,
 });
 
-/** PUT — choose the PMS and how StayOS reaches it (desktop connector or cloud browser). */
+/** PUT — choose the PMS and how HotelOne reaches it (desktop connector or cloud browser). */
 export const PUT = handleRoute(async (request: NextRequest) => {
   const actor = await requireStaff('bridge.manage');
   const body = await parseJson(request, putSchema);
