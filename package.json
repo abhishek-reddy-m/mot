@@ -20,6 +20,7 @@
     "seed": "node prisma/seed.js"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.131.0",
     "@auth/prisma-adapter": "^2.10.0",
     "@prisma/client": "^6.11.1",
     "@radix-ui/react-dialog": "^1.1.14",
@@ -37,6 +38,7 @@
     "cloudinary": "^2.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "fast-xml-parser": "^5.11.2",
     "framer-motion": "^12.23.6",
     "gsap": "^3.13.0",
     "lucide-react": "^0.525.0",
@@ -50,7 +52,8 @@
     "react-dom": "19.1.0",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "3.3.3",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "zod": "^4.6.5"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3",
