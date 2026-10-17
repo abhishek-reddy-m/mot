@@ -11,6 +11,9 @@ import { money } from '@/lib/status';
 import { HOTEL_POLICY, cleanFaqs } from '../concierge/facts';
 import { cleanSkillText, skillKey, type AnswerBody, type SkillAudience } from './types';
 
+/** Tools discovered on a hotel's PMS MCP server (src/server/pms/tools.ts) — CONFIG rows this sync leaves alone. */
+const PMS_TOOL_KIND = 'PMS_TOOL';
+
 /** A generated answer skill. */
 interface ConfigSkill {
   key: string;
@@ -146,7 +149,7 @@ export async function syncConfigSkills(propertyId: string): Promise<ConfigSyncRe
 
   for (const d of desired) {
     const current = byKey.get(d.key);
-    if (current && current.source !== 'CONFIG') {
+    if (current && (current.source !== 'CONFIG' || current.kind === PMS_TOOL_KIND)) {
       result.skipped++;
       continue;
     }
@@ -171,8 +174,9 @@ export async function syncConfigSkills(propertyId: string): Promise<ConfigSyncRe
     }
   }
 
-  const stale = existing.filter((s) => s.source === 'CONFIG' && !wanted.has(s.key)).map((s) => s.id);
-  if (stale.length) result.deleted = (await prisma.agentSkill.deleteMany({ where: { id: { in: stale }, source: 'CONFIG' } })).count;
+  // PMS_TOOL rows are CONFIG too (generated from the hotel's PMS, src/server/pms) but not ours to remove.
+  const stale = existing.filter((s) => s.source === 'CONFIG' && s.kind !== PMS_TOOL_KIND && !wanted.has(s.key)).map((s) => s.id);
+  if (stale.length) result.deleted = (await prisma.agentSkill.deleteMany({ where: { id: { in: stale }, source: 'CONFIG', kind: { not: PMS_TOOL_KIND } } })).count;
   result.total = wanted.size;
   return result;
 }
@@ -187,7 +191,7 @@ const ensured = new Set<string>();
 export async function ensureConfigSkills(propertyId: string): Promise<void> {
   if (ensured.has(propertyId)) return;
   try {
-    const n = await prisma.agentSkill.count({ where: { propertyId, source: 'CONFIG' } });
+    const n = await prisma.agentSkill.count({ where: { propertyId, source: 'CONFIG', kind: { not: PMS_TOOL_KIND } } });
     if (n === 0) await syncConfigSkills(propertyId);
     ensured.add(propertyId);
   } catch (e) {

@@ -97,7 +97,8 @@ export type AgentBlock =
   | { type: 'clarify'; question: string; options: { label: string; hint?: string; command: string }[] }
   | { type: 'error'; text: string }
   /** Work sent to the hotel's own PMS through the bridge; the card follows it live. */
-  | { type: 'bridgeTask'; taskId: string; system: string; instruction: string; kind: string };
+  /** `mode` is how HotelOne reaches the PMS (DESKTOP | CLOUD | MCP); older messages may lack it. */
+  | { type: 'bridgeTask'; taskId: string; system: string; instruction: string; kind: string; mode?: string };
 
 /** Conversation memory the client sends back so "them" and "that room" resolve. */
 export interface AgentContextState {

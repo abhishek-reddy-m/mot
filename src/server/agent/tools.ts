@@ -761,7 +761,7 @@ export interface StepResult {
   ok: boolean;
   line: string;
   bookingId?: string;
-  bridgeTask?: { id: string; system: string; instruction: string; kind: string };
+  bridgeTask?: { id: string; system: string; instruction: string; kind: string; mode: string };
 }
 
 export async function executeStep(ctx: OpContext, step: PlanStep): Promise<StepResult> {
@@ -806,7 +806,7 @@ export async function executeStep(ctx: OpContext, step: PlanStep): Promise<StepR
       }
       case 'bridge_task': {
         const { task, connection } = await enqueueTask(ctx, String(a.propertyId), { kind: String(a.kind ?? 'ACTION'), instruction: String(a.instruction) });
-        return { ok: true, line: `Sent to ${connection.system}: “${task.instruction}”`, bridgeTask: { id: task.id, system: connection.system, instruction: task.instruction, kind: task.kind } };
+        return { ok: true, line: `Sent to ${connection.system}: “${task.instruction}”`, bridgeTask: { id: task.id, system: connection.system, instruction: task.instruction, kind: task.kind, mode: connection.mode } };
       }
       default:
         return { ok: false, line: `Unknown action “${step.tool}”.` };

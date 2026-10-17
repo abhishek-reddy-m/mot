@@ -16,6 +16,7 @@ import { assertPropertyAccess, can } from '../authz';
 import { hotelToday } from '../dates';
 import { recordAudit } from '../services/audit';
 import { enqueueTask, getConnection } from '../services/bridge';
+import { runMcpTaskInline } from '../pms/run';
 import { bookingInclude, toBookingSummary } from '../services/mappers';
 import { looksLikeQuestion } from '../skills';
 import { runWithLLM } from './llm';
@@ -316,7 +317,7 @@ async function* runBridged(input: AgentRunInput, message: string, today: string)
   const connection = await getConnection(propertyId);
   if (!connection) {
     yield { type: 'block', block: { type: 'text', text: 'Your hotel runs on its own PMS, and it isn’t connected yet. Connect it once and I can look things up and make changes there for you.' } };
-    yield { type: 'block', block: { type: 'navigate', label: 'Connect your PMS', href: '/admin/connect', description: 'Desktop connector or secure cloud browser' } };
+    yield { type: 'block', block: { type: 'navigate', label: 'Connect your PMS', href: '/admin/connect', description: 'Your PMS’s MCP server, the desktop connector or a secure cloud browser' } };
     return;
   }
   if (!can(actor, 'bridge.use')) {
@@ -329,7 +330,9 @@ async function* runBridged(input: AgentRunInput, message: string, today: string)
   if (!isWrite) {
     // Look-ups are read-only for the operator, so they go straight through.
     const { task } = await enqueueTask({ actor, source: 'agent' }, propertyId, { kind: 'LOOKUP', instruction: message });
-    yield { type: 'block', block: { type: 'bridgeTask', taskId: task.id, system: connection.system, instruction: task.instruction, kind: task.kind } };
+    // Through the PMS's MCP server a look-up takes seconds: wait for it so the card arrives finished.
+    if (connection.mode === 'MCP') await runMcpTaskInline(task.id, 15_000);
+    yield { type: 'block', block: { type: 'bridgeTask', taskId: task.id, system: connection.system, instruction: task.instruction, kind: task.kind, mode: connection.mode } };
     await recordAudit({ actor, source: 'agent' }, propertyId, 'COMMAND', `Asked ${connection.system}: “${message.slice(0, 140)}”`, { message: message.slice(0, 300), engine: 'bridge' });
     return;
   }
@@ -338,7 +341,7 @@ async function* runBridged(input: AgentRunInput, message: string, today: string)
       tool: 'bridge_task',
       args: { propertyId, instruction: message, kind: 'ACTION' },
       summary: `In ${connection.system}: ${message}`,
-      detail: 'The operator makes only this change and reports exactly what it did.',
+      detail: connection.mode === 'MCP' ? `${PRODUCT_NAME} makes only this change through ${connection.system}’s MCP server and reports exactly what it did.` : 'The operator makes only this change and reports exactly what it did.',
     },
   ];
   const { token, expiresAt } = signPlan({ userId: actor.userId, propertyId, title: `Do this in ${connection.system}`, steps });
@@ -406,6 +409,8 @@ export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmR
       if (i < plan.steps.length - 1) lines.push('Stopped here so nothing half-finished goes through.');
     }
   }
+  // Changes through a PMS's MCP server take seconds: run them now so their cards arrive finished.
+  for (const t of bridged) if (t.mode === 'MCP') await runMcpTaskInline(t.id, 15_000);
   await recordAudit(ctx, plan.pid, 'PLAN_EXECUTED', `${failed ? 'Partly carried out' : 'Carried out'}: ${plan.title}`, {
     ...(!failed && plan.shape ? { okShape: plan.shape.shape } : {}),
     nonce: plan.nonce,
@@ -421,14 +426,16 @@ export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmR
       title: failed
         ? 'Some changes didn’t go through'
         : bridged.length === plan.steps.length
-          ? `Sent to ${bridged[0].system} — the operator is on it`
+          ? bridged.every((t) => t.mode === 'MCP')
+            ? `Sent to ${bridged[0].system}`
+            : `Sent to ${bridged[0].system} — the operator is on it`
           : plan.steps.length === 1
             ? 'Done'
             : `Done — ${plan.steps.length} changes made`,
       lines,
     },
   ];
-  for (const t of bridged) blocks.push({ type: 'bridgeTask', taskId: t.id, system: t.system, instruction: t.instruction, kind: t.kind });
+  for (const t of bridged) blocks.push({ type: 'bridgeTask', taskId: t.id, system: t.system, instruction: t.instruction, kind: t.kind, mode: t.mode });
   const context: AgentContextState = {};
   const today = hotelToday();
   for (const id of [...touched].slice(0, 2)) {

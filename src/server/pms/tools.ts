@@ -13,6 +13,8 @@
 import { createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import { PRODUCT_NAME as HOTELONE } from '@/config/product';
+import { badRequest, notFound } from '../errors';
 import { CONTRACT_BY_NAME, coverage, isForbiddenTool, isReadOnlyTool, matchContract, operationForTool, type ContractMapping, type ContractOperationName } from './contract';
 import type { McpTool, McpToolAnnotations } from './mcp-client';
 
@@ -207,6 +209,19 @@ export async function recordToolUse(propertyId: string, toolNames: string[]): Pr
       data: { uses: { increment: 1 }, lastUsedAt: new Date() },
     })
     .catch(() => undefined);
+}
+
+/**
+ * Switch one PMS tool on or off for HotelOne (the executor never calls a
+ * tool whose skill isn't ACTIVE). Blocked tools can't be switched on.
+ */
+export async function setToolEnabled(propertyId: string, toolName: string, enabled: boolean): Promise<CachedPmsTool> {
+  const row = await prisma.agentSkill.findFirst({ where: { propertyId, kind: PMS_TOOL_KIND, body: { path: ['tool'], equals: toolName } } });
+  if (!row) throw notFound('PMS tool');
+  const body = (row.body ?? {}) as Partial<PmsToolBody>;
+  if (enabled && body.blocked) throw badRequest(`${HOTELONE} never uses tools that delete, refund, export data or manage users.`);
+  await prisma.agentSkill.update({ where: { id: row.id }, data: { status: enabled ? 'ACTIVE' : 'DISABLED' } });
+  return (await listCachedTools(propertyId)).find((t) => t.id === row.id)!;
 }
 
 export async function deleteCachedTools(propertyId: string): Promise<number> {

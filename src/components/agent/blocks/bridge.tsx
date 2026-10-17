@@ -18,6 +18,9 @@ interface TaskView {
   error: string | null;
   createdAt: string;
   finishedAt: string | null;
+  /** 'mcp' when it ran through the PMS's MCP server. */
+  via?: string | null;
+  pmsCalls?: number | null;
 }
 
 const STATUS: Record<TaskView['status'], { label: string; variant: 'info' | 'success' | 'warning' | 'neutral'; icon: LucideIcon }> = {
@@ -29,14 +32,15 @@ const STATUS: Record<TaskView['status'], { label: string; variant: 'info' | 'suc
   CANCELLED: { label: 'Cancelled', variant: 'neutral', icon: XCircle },
 };
 
-/** Follows one bridge task live until the operator reports back. */
+/** Follows one bridge task live until the operator (or the PMS's MCP server) reports back. */
 export function BridgeTaskBlock({ block }: { block: Extract<AgentBlock, { type: 'bridgeTask' }> }) {
   const { data, mutate } = useSWR<TaskView>(`/api/admin/bridge/tasks/${block.taskId}`, fetcher, {
     refreshInterval: (d) => (!d || d.status === 'QUEUED' || d.status === 'RUNNING' ? 2500 : 0),
   });
   const status = data?.status ?? 'QUEUED';
   const active = status === 'QUEUED' || status === 'RUNNING';
-  const st = STATUS[status];
+  const mcp = block.mode === 'MCP' || data?.via === 'mcp';
+  const st = mcp && status === 'QUEUED' ? { ...STATUS.QUEUED, label: 'Sending to your PMS' } : STATUS[status];
   const [busy, setBusy] = React.useState<'cancel' | 'retry' | null>(null);
   const id = React.useId();
   const act = async (action: 'cancel' | 'retry') => {
@@ -68,11 +72,18 @@ export function BridgeTaskBlock({ block }: { block: Extract<AgentBlock, { type: 
         {data?.error && <p className="text-sm text-destructive">{data.error}</p>}
         {active && (
           <p className="text-xs text-muted-foreground">
-            {status === 'QUEUED' ? 'Your connector picks this up within a few seconds when it’s online.' : 'Reading the screen and working step by step — usually under a minute.'}
+            {mcp
+              ? `Talking to ${block.system} through its MCP server — usually a few seconds.`
+              : status === 'QUEUED'
+                ? 'Your connector picks this up within a few seconds when it’s online.'
+                : 'Reading the screen and working step by step — usually under a minute.'}
           </p>
         )}
         <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 pt-1">
-          <span className="text-xs text-muted-foreground">{data ? `Sent ${timeAgo(data.createdAt)}` : ''}</span>
+          <span className="text-xs text-muted-foreground">
+            {data ? `Sent ${timeAgo(data.createdAt)}` : ''}
+            {data && mcp ? ` · via MCP${data.pmsCalls ? ` · ${data.pmsCalls} PMS call${data.pmsCalls === 1 ? '' : 's'}` : ''}` : ''}
+          </span>
           <div className="flex gap-2">
             {status === 'QUEUED' && (
               <Button type="button" size="sm" variant="ghost" loading={busy === 'cancel'} disabled={!!busy} onClick={() => act('cancel')}>

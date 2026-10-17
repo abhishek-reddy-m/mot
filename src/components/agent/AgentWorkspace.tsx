@@ -252,7 +252,7 @@ function LiveRail({ agent }: { agent: AgentController }) {
 }
 
 interface BridgeSnapshot {
-  connection: { system: string; mode: 'DESKTOP' | 'CLOUD'; status: string; online: boolean; hasCredentials: boolean; devicePaired: boolean } | null;
+  connection: { system: string; mode: 'DESKTOP' | 'CLOUD' | 'MCP'; status: string; online: boolean; hasCredentials: boolean; devicePaired: boolean } | null;
   tasks: { id: string; instruction: string; status: string; summary: string | null; createdAt: string }[];
 }
 
@@ -270,8 +270,9 @@ function BridgeRail({ agent }: { agent: AgentController }) {
   const url = usePropertyUrl('/api/admin/bridge');
   const { data } = useSWR<BridgeSnapshot>(url, fetcher, { refreshInterval: 8000 });
   const c = data?.connection;
-  const ready = c && c.status !== 'PAUSED' && (c.mode === 'CLOUD' ? c.hasCredentials : c.devicePaired);
-  const health = !c || !ready ? 'setup' : c.mode === 'DESKTOP' && !c.online ? 'offline' : 'online';
+  // MCP: ready once the PMS's server answered (status CONNECTED); ERROR means the last call to it failed.
+  const ready = c && c.status !== 'PAUSED' && (c.mode === 'MCP' ? c.status === 'CONNECTED' || c.status === 'ERROR' : c.mode === 'CLOUD' ? c.hasCredentials : c.devicePaired);
+  const health = !c || !ready ? 'setup' : (c.mode === 'DESKTOP' && !c.online) || (c.mode === 'MCP' && c.status === 'ERROR') ? 'offline' : 'online';
   return (
     <aside aria-label="Your PMS" className="hidden w-[300px] shrink-0 overflow-y-auto border-l bg-surface/60 p-4 scrollbar-thin xl:block">
       <RailHeading icon={Cable}>Your PMS</RailHeading>
@@ -292,10 +293,10 @@ function BridgeRail({ agent }: { agent: AgentController }) {
         >
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{c.system}</span>
-            <span className="block text-xs text-muted-foreground">{c.mode === 'CLOUD' ? 'Cloud browser' : 'Desktop connector'}</span>
+            <span className="block text-xs text-muted-foreground">{c.mode === 'MCP' ? 'MCP server' : c.mode === 'CLOUD' ? 'Cloud browser' : 'Desktop connector'}</span>
           </span>
           <Badge variant={health === 'online' ? 'success' : health === 'offline' ? 'warning' : 'neutral'} size="sm" dot>
-            {health === 'online' ? 'Online' : health === 'offline' ? 'Offline' : 'Finish setup'}
+            {health === 'online' ? 'Online' : health === 'offline' ? (c.mode === 'MCP' ? 'Not answering' : 'Offline') : 'Finish setup'}
           </Badge>
         </Link>
       )}

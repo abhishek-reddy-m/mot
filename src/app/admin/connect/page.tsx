@@ -21,6 +21,7 @@ import {
   Lock,
   Pause,
   Play,
+  Plug,
   RotateCcw,
   Search,
   ShieldCheck,
@@ -43,13 +44,13 @@ import { Callout, EmptyState, PageHeader, Skeleton } from '@/components/ui/primi
 import { ConfirmDialog } from '@/components/frontdesk/dialogs';
 import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider';
 import { WelcomeBanner } from '@/components/console/WelcomeBanner';
-import { CopyButton } from '@/components/setup/CopyButton';
 import { DeveloperNote } from '@/components/setup/DeveloperNote';
+import { CommandLine, EMPTY_MCP_FORM, McpPanel, McpSetupFields, authPayload, mcpFormReady, useDemoLocked, type McpForm, type McpStatus } from './mcp';
 
 interface Connection {
   id: string;
   system: string;
-  mode: 'DESKTOP' | 'CLOUD';
+  mode: 'DESKTOP' | 'CLOUD' | 'MCP';
   status: 'PENDING' | 'CONNECTED' | 'ERROR' | 'PAUSED';
   loginUrl: string | null;
   hasCredentials: boolean;
@@ -68,6 +69,8 @@ interface Task {
   summary: string | null;
   error: string | null;
   createdAt: string;
+  /** 'mcp' when it ran through the PMS's MCP server. */
+  via?: string | null;
 }
 interface BridgeData {
   connection: Connection | null;
@@ -131,13 +134,38 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
   const { mutate } = useSWRConfig();
   const [system, setSystem] = React.useState(initial?.system ?? '');
   const [other, setOther] = React.useState('');
-  const [mode, setMode] = React.useState<'DESKTOP' | 'CLOUD'>(initial?.mode ?? 'DESKTOP');
-  const [loginUrl, setLoginUrl] = React.useState(initial?.loginUrl ?? '');
-  const [busy, setBusy] = React.useState(false);
+  const [mode, setMode] = React.useState<Connection['mode']>(initial?.mode ?? 'DESKTOP');
+  const wasMcp = initial?.mode === 'MCP';
+  // An MCP address is shown with its query values masked ("…"); then it has to be pasted again.
+  const knownMcpUrl = wasMcp && initial?.loginUrl && !initial.loginUrl.includes('…') ? initial.loginUrl : '';
+  const [loginUrl, setLoginUrl] = React.useState(wasMcp ? '' : (initial?.loginUrl ?? ''));
+  const [mcpForm, setMcpForm] = React.useState<McpForm>({ ...EMPTY_MCP_FORM, url: knownMcpUrl });
+  const [test, setTest] = React.useState<{ result: React.ComponentProps<typeof McpSetupFields>['test']['result']; error: string | null }>({ result: null, error: null });
+  const [busy, setBusy] = React.useState<null | 'save' | 'test'>(null);
+  const locked = useDemoLocked();
   const chosen = system === 'Other' ? other.trim() : system;
+  const keepToken = wasMcp && !!knownMcpUrl && mcpForm.url.trim() === knownMcpUrl;
+
+  // Reconnecting: start from how the saved connection signs in.
+  const statusUrl = usePropertyUrl('/api/admin/pms');
+  const { data: saved } = useSWR<McpStatus>(wasMcp ? statusUrl : null, fetcher);
+  const seeded = React.useRef(false);
+  React.useEffect(() => {
+    const m = saved?.mcp;
+    if (!m || seeded.current) return;
+    seeded.current = true;
+    if (m.authType === 'bearer' || m.authType === 'header' || m.authType === 'none') {
+      setMcpForm((f) => ({ ...f, authType: m.authType as McpForm['authType'], headerName: m.authHeaderName ?? f.headerName }));
+    }
+  }, [saved]);
+
+  const updateMcp = (f: McpForm) => {
+    setMcpForm(f);
+    setTest({ result: null, error: null });
+  };
 
   async function save() {
-    setBusy(true);
+    setBusy('save');
     try {
       await api('/api/admin/bridge', { method: 'PUT', json: { propertyId, system: chosen, mode, loginUrl: loginUrl.trim() || null } });
       await mutate('/api/admin/context');
@@ -146,9 +174,37 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
-      setBusy(false);
+      setBusy(null);
     }
   }
+  async function testMcp() {
+    setBusy('test');
+    setTest({ result: null, error: null });
+    try {
+      const result = await api<NonNullable<typeof test.result>>('/api/admin/pms/test', { method: 'POST', json: { propertyId, url: mcpForm.url.trim(), auth: authPayload(mcpForm) } });
+      setTest({ result, error: null });
+    } catch (e) {
+      setTest({ result: null, error: (e as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  }
+  async function connectMcp() {
+    setBusy('save');
+    setTest({ result: null, error: null });
+    try {
+      const r = await api<McpStatus>('/api/admin/pms/connect', { method: 'POST', json: { propertyId, system: chosen, url: mcpForm.url.trim(), auth: authPayload(mcpForm) } });
+      await mutate('/api/admin/context');
+      if (statusUrl) await mutate(statusUrl, r, { revalidate: false });
+      toast.success(`Connected to ${chosen} — ${r.mcp?.toolCount ?? 0} tools found`);
+      onDone();
+    } catch (e) {
+      setTest({ result: null, error: (e as Error).message });
+    } finally {
+      setBusy(null);
+    }
+  }
+  const mcpReady = !!chosen && mcpFormReady(mcpForm, keepToken) && !locked && (mcpForm.authType === 'none' || data.vaultReady);
 
   if (!can('bridge.manage')) {
     return (
@@ -183,9 +239,11 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
               <Input value={other} onChange={(e) => setOther(e.target.value)} placeholder="e.g. RoomKey" autoFocus />
             </Field>
           )}
-          <Field label="Sign-in address" optional hint="Where you log in to it, like https://hotels.cloudbeds.com — the operator starts there." className={system === 'Other' ? '' : 'sm:col-span-2 sm:max-w-xl'}>
-            <Input type="url" inputMode="url" value={loginUrl} onChange={(e) => setLoginUrl(e.target.value)} placeholder="https://" />
-          </Field>
+          {mode !== 'MCP' && (
+            <Field label="Sign-in address" optional hint="Where you log in to it, like https://hotels.cloudbeds.com — the operator starts there." className={system === 'Other' ? '' : 'sm:col-span-2 sm:max-w-xl'}>
+              <Input type="url" inputMode="url" value={loginUrl} onChange={(e) => setLoginUrl(e.target.value)} placeholder="https://" />
+            </Field>
+          )}
         </div>
       </Card>
 
@@ -197,7 +255,7 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
             </span>
             How should {PRODUCT_NAME} reach it?
           </legend>
-          <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {(
               [
                 {
@@ -213,6 +271,13 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
                   title: `In the ${PRODUCT_NAME} cloud browser`,
                   text: 'Nothing to install. We sign in with a login you store here, sealed with AES-256 and never shown to the AI or to anyone.',
                   tag: 'Nothing to install',
+                },
+                {
+                  m: 'MCP',
+                  icon: Plug,
+                  title: 'Through your PMS’s MCP server',
+                  text: `If ${chosen || 'your PMS'} offers an MCP server, paste its address and token. ${PRODUCT_NAME} works with your PMS directly — no browser, answers in seconds.`,
+                  tag: 'Fastest',
                 },
               ] as const
             ).map((o) => (
@@ -231,10 +296,12 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
         </fieldset>
       </Card>
 
+      {mode === 'MCP' && <McpSetupFields system={chosen} form={mcpForm} setForm={updateMcp} keepToken={keepToken} vaultReady={data.vaultReady} locked={locked} test={test} />}
+
       <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center sm:justify-end">
-        {!chosen && (
+        {(!chosen || (mode === 'MCP' && !mcpReady)) && (
           <p className="text-sm text-muted-foreground sm:mr-auto" id="pms-continue-hint">
-            Choose your system to continue.
+            {!chosen ? 'Choose your system to continue.' : locked ? 'Demo hotels can’t connect an outside PMS.' : 'Add the MCP server address and its token to continue.'}
           </p>
         )}
         <div className="flex flex-col-reverse gap-2 sm:flex-row">
@@ -243,20 +310,22 @@ function Setup({ data, initial, onDone }: { data: BridgeData; initial?: Connecti
               Cancel
             </Button>
           )}
-          <Button onClick={save} loading={busy} loadingText="Saving…" disabled={!chosen} aria-describedby={!chosen ? 'pms-continue-hint' : undefined}>
-            {initial ? 'Save' : 'Continue'} <ArrowRight aria-hidden />
-          </Button>
+          {mode === 'MCP' ? (
+            <>
+              <Button variant="outline" onClick={testMcp} loading={busy === 'test'} loadingText="Testing…" disabled={!mcpReady || !!busy} aria-describedby={!mcpReady ? 'pms-continue-hint' : undefined}>
+                Test connection
+              </Button>
+              <Button onClick={connectMcp} loading={busy === 'save'} loadingText="Connecting…" disabled={!mcpReady || !!busy} aria-describedby={!mcpReady ? 'pms-continue-hint' : undefined}>
+                <Plug aria-hidden /> Connect
+              </Button>
+            </>
+          ) : (
+            <Button onClick={save} loading={busy === 'save'} loadingText="Saving…" disabled={!chosen} aria-describedby={!chosen ? 'pms-continue-hint' : undefined}>
+              {initial ? 'Save' : 'Continue'} <ArrowRight aria-hidden />
+            </Button>
+          )}
         </div>
       </div>
-    </div>
-  );
-}
-
-function CommandLine({ command, label }: { command: string; label: string }) {
-  return (
-    <div className="flex min-w-0 items-center gap-1 rounded-lg border bg-surface-sunken py-1 pl-3 pr-1">
-      <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap py-1 font-mono text-xs text-foreground scrollbar-thin">{command}</code>
-      <CopyButton iconOnly value={command} label={label} />
     </div>
   );
 }
@@ -551,7 +620,8 @@ function TaskList({ tasks, onChange }: { tasks: Task[]; onChange: () => void }) 
                 {t.summary && <p className="mt-1 text-sm text-muted-foreground">{t.summary}</p>}
                 {t.error && <p className="mt-1 text-sm text-destructive">{t.error}</p>}
                 <p className="mt-1 text-xs text-muted-foreground">
-                  {t.kind === 'LOOKUP' ? 'Look-up' : 'Change'} · <time dateTime={t.createdAt}>{timeAgo(t.createdAt)}</time>
+                  {t.kind === 'LOOKUP' ? 'Look-up' : 'Change'}
+                  {t.via === 'mcp' ? ' · via MCP' : ''} · <time dateTime={t.createdAt}>{timeAgo(t.createdAt)}</time>
                 </p>
               </div>
               <div className="flex shrink-0 items-center gap-2">
@@ -595,6 +665,7 @@ export default function ConnectPage() {
   const [confirmBusy, setConfirmBusy] = React.useState(false);
   const c = data?.connection;
   const isAdmin = role === 'ADMIN';
+  const mcp = c?.mode === 'MCP';
 
   async function send(kind: 'LOOKUP' | 'FREEFORM') {
     setSending(kind);
@@ -603,7 +674,7 @@ export default function ConnectPage() {
       setInstruction('');
       setConfirm(null);
       await mutate();
-      toast.success(kind === 'LOOKUP' ? 'Look-up sent' : 'Change sent to the operator');
+      toast.success(kind === 'LOOKUP' ? 'Look-up sent' : mcp ? `Change sent to ${c?.system}` : 'Change sent to the operator');
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -621,9 +692,11 @@ export default function ConnectPage() {
   async function disconnect() {
     setConfirmBusy(true);
     try {
-      await api(`/api/admin/bridge?propertyId=${propertyId}`, { method: 'DELETE' });
+      // MCP connections go through their own route (demo lock, cached tools removed).
+      await api(`${mcp ? '/api/admin/pms' : '/api/admin/bridge'}?propertyId=${propertyId}`, { method: 'DELETE' });
       setConfirm(null);
       await mutate();
+      await globalMutate('/api/admin/context');
     } catch (e) {
       toast.error((e as Error).message);
     } finally {
@@ -643,7 +716,8 @@ export default function ConnectPage() {
     }
   }
 
-  const ready = c && c.status !== 'PAUSED' && (c.mode === 'CLOUD' ? c.hasCredentials && data?.cloudWorker : c.devicePaired);
+  const ready =
+    c && c.status !== 'PAUSED' && (c.mode === 'MCP' ? c.status === 'CONNECTED' || c.status === 'ERROR' : c.mode === 'CLOUD' ? c.hasCredentials && data?.cloudWorker : c.devicePaired);
   const statusBadge = !c ? null : c.status === 'PAUSED' ? (
     <Badge variant="neutral" icon={Pause}>
       Paused
@@ -652,6 +726,11 @@ export default function ConnectPage() {
     // Paired, but the computer isn't running the connector right now.
     <Badge variant="warning" icon={CircleAlert}>
       Computer offline
+    </Badge>
+  ) : ready && c.mode === 'MCP' && c.status === 'ERROR' ? (
+    // Connected, but the last call to the PMS's server failed.
+    <Badge variant="warning" icon={CircleAlert}>
+      Not answering
     </Badge>
   ) : ready ? (
     <Badge variant="success" icon={CheckCircle2}>
@@ -680,7 +759,7 @@ export default function ConnectPage() {
                   {c.status === 'PAUSED' ? <Play aria-hidden /> : <Pause aria-hidden />} {c.status === 'PAUSED' ? 'Resume' : 'Pause'}
                 </Button>
                 <Button variant="ghost" size="sm" onClick={() => setEditing(true)}>
-                  Change system
+                  {mcp ? 'Change connection' : 'Change system'}
                 </Button>
               </>
             ) : undefined
@@ -713,12 +792,12 @@ export default function ConnectPage() {
             <motion.div initial={reduce ? false : { opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }}>
               <Card className="flex flex-col gap-4 p-5 sm:flex-row sm:items-center sm:p-6">
                 <span className="flex size-12 shrink-0 items-center justify-center rounded-2xl bg-primary-soft text-primary-soft-foreground" aria-hidden>
-                  <Cable className="size-6" />
+                  {mcp ? <Plug className="size-6" /> : <Cable className="size-6" />}
                 </span>
                 <div className="min-w-0 flex-1">
                   <h2 className="text-lg font-semibold tracking-tight">{c.system}</h2>
                   <p className="truncate text-sm text-muted-foreground">
-                    {c.mode === 'CLOUD' ? `${PRODUCT_NAME} cloud browser` : `${PRODUCT_NAME} Connector on a front-desk computer`}
+                    {c.mode === 'MCP' ? `${c.system}’s MCP server` : c.mode === 'CLOUD' ? `${PRODUCT_NAME} cloud browser` : `${PRODUCT_NAME} Connector on a front-desk computer`}
                     {c.loginUrl ? ` · ${c.loginUrl.replace(/^https?:\/\//, '')}` : ''}
                   </p>
                 </div>
@@ -727,7 +806,7 @@ export default function ConnectPage() {
             </motion.div>
 
             {c.lastError && (
-              <Callout tone="warning" title="The last task ran into a problem">
+              <Callout tone="warning" title={mcp ? `The last call to ${c.system} ran into a problem` : 'The last task ran into a problem'}>
                 {c.lastError}
               </Callout>
             )}
@@ -741,7 +820,17 @@ export default function ConnectPage() {
                 </DeveloperNote>
               </Callout>
             )}
-            {!data.operator.ready && (
+            {mcp && !data.operator.ready && (
+              <Callout tone="info" title="Everyday requests work now">
+                <p>Look-ups, check-ins and the other recommended tools run directly. Requests outside them need the AI planner, which isn’t switched on yet.</p>
+                <DeveloperNote open={isAdmin} className="mt-3">
+                  <p>
+                    The planner runs on the {PRODUCT_NAME} server and needs <code>OPENAI_API_KEY</code> there (model: <code>PMS_MCP_MODEL</code>).
+                  </p>
+                </DeveloperNote>
+              </Callout>
+            )}
+            {!mcp && !data.operator.ready && (
               <Callout tone="info" title="The operator isn’t switched on yet">
                 <p>Tasks queue up and run as soon as it is.</p>
                 <DeveloperNote open={isAdmin} className="mt-3">
@@ -752,7 +841,13 @@ export default function ConnectPage() {
               </Callout>
             )}
 
-            {c.mode === 'DESKTOP' ? <DesktopPanel c={c} onChange={() => void mutate()} /> : <CloudPanel c={c} data={data} onChange={() => void mutate()} />}
+            {c.mode === 'MCP' ? (
+              <McpPanel system={c.system} onChange={() => void mutate()} />
+            ) : c.mode === 'DESKTOP' ? (
+              <DesktopPanel c={c} onChange={() => void mutate()} />
+            ) : (
+              <CloudPanel c={c} data={data} onChange={() => void mutate()} />
+            )}
 
             <Card className="p-5 sm:p-6">
               <div className="flex flex-wrap items-center justify-between gap-3">
@@ -763,7 +858,7 @@ export default function ConnectPage() {
                   </Button>
                 )}
               </div>
-              <Field label="What should the operator do?" hint="Look-ups only read. Changes ask you to confirm first." className="mt-4">
+              <Field label={mcp ? `What should ${PRODUCT_NAME} do in ${c.system}?` : 'What should the operator do?'} hint="Look-ups only read. Changes ask you to confirm first." className="mt-4">
                 <Textarea
                   rows={2}
                   value={instruction}
@@ -816,10 +911,12 @@ export default function ConnectPage() {
           title={confirm === 'change' ? `Make this change in ${c?.system}?` : confirm === 'migrate' ? `Run this property on ${PRODUCT_NAME}?` : `Disconnect ${c?.system}?`}
           description={
             confirm === 'change'
-              ? `“${instruction.trim()}” — the operator changes only this and reports exactly what it did.`
+              ? `“${instruction.trim()}” — ${mcp ? PRODUCT_NAME : 'the operator'} changes only this and reports exactly what it did.`
               : confirm === 'migrate'
                 ? `Front desk, housekeeping, reservations and rates switch to ${PRODUCT_NAME} screens. Add your rooms and upcoming stays (we can help) before you stop using your old system.`
-                : 'Waiting tasks are cancelled and the stored login or paired computer stops working immediately.'
+                : mcp
+                  ? `Waiting tasks are cancelled, the stored token is deleted and ${c?.system}’s tools are removed from ${PRODUCT_NAME}.`
+                  : 'Waiting tasks are cancelled and the stored login or paired computer stops working immediately.'
           }
           confirmLabel={confirm === 'change' ? 'Send change' : confirm === 'migrate' ? `Switch to ${PRODUCT_NAME}` : 'Disconnect'}
           cancelLabel={confirm === 'disconnect' ? 'Keep it connected' : 'Not now'}

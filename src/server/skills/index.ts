@@ -164,6 +164,8 @@ export async function useSkill(propertyId: string | null, key: string, args: unk
   if (!skill) throw notFound(`Skill "${key}"`);
   if (skill.status !== 'ACTIVE') throw new DomainError(409, 'SKILL_INACTIVE', `The skill "${key}" isn’t active${skill.status === 'SUGGESTED' ? ' yet — a manager needs to approve it' : ''}.`);
   if (skill.audience !== 'ALL' && skill.audience !== ctx.audience) throw forbidden(`The skill "${key}" is for ${skill.audience.toLowerCase()} agents.`);
+  // Tools discovered on the hotel's PMS (src/server/pms) run as PMS tasks, with their own safety rules — not here.
+  if ((skill.kind as string) === 'PMS_TOOL') throw new DomainError(409, 'PMS_TOOL', `"${key}" is a tool of the hotel’s PMS. Ask the staff agent and it runs it through the PMS connection.`);
   if (!isSkillKind(skill.kind) || !skillBodySchemas[skill.kind].safeParse(skill.body).success) throw badRequest(`The skill "${key}" can’t be used here.`);
   let result: UseSkillResult;
   if (skill.kind === 'ANSWER') {

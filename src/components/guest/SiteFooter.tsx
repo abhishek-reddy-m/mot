@@ -27,6 +27,7 @@ const COLUMNS = [
     title: 'Company',
     links: [
       { href: '/about', label: 'About' },
+      { href: '/developers/pms', label: 'For PMS partners' },
       { href: '/contact', label: 'Contact' },
       { href: '/login', label: 'Sign in' },
     ],
