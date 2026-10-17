@@ -20,7 +20,9 @@ import {
   User,
   DollarSign,
   ClipboardList,
-  Sparkles
+  Sparkles,
+  Globe,
+  Bot
 } from 'lucide-react';
 
 const navigation = [
@@ -30,6 +32,8 @@ const navigation = [
   { name: 'Properties', href: '/admin/properties', icon: Building2 },
   { name: 'Room Types', href: '/admin/room-types', icon: Bed },
   { name: 'Rate Calendar', href: '/admin/rate-calendar', icon: DollarSign },
+  { name: 'Channel Manager', href: '/admin/channels', icon: Globe },
+  { name: 'Channel Agent', href: '/admin/channel-agent', icon: Bot },
   { name: 'Bookings', href: '/admin/bookings', icon: Calendar },
   { name: 'Users', href: '/admin/users', icon: Users },
   { name: 'Analytics', href: '/admin/analytics', icon: BarChart3 },

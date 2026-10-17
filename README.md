@@ -19,6 +19,10 @@ A comprehensive full-stack motel booking website built with Next.js, TypeScript,
 - 👥 User management
 - 📈 Analytics and reporting dashboard
 - 📸 Photo upload and management
+- 🌐 Channel manager for Expedia and Booking.com: onboarding, room mapping, rate/availability sync, reservation import and promotions
+- 🤖 Channel Agent: AI assistant that changes OTA rates, restrictions and promotions on request, with admin approval
+
+See [CHANNEL_MANAGER.md](CHANNEL_MANAGER.md) for setup and details.
 
 ### Security & Authentication
 - 🔐 Multi-level authentication (Customer/Admin)
@@ -82,6 +86,9 @@ The application uses a relational database with the following main entities:
    CLOUDINARY_CLOUD_NAME="your-cloudinary-cloud-name"
    CLOUDINARY_API_KEY="your-cloudinary-api-key"
    CLOUDINARY_API_SECRET="your-cloudinary-api-secret"
+   # Channel manager (optional)
+   ANTHROPIC_API_KEY="your-anthropic-api-key"   # Channel Agent
+   CRON_SECRET="a-long-random-string"           # scheduled OTA sync
    ```
 
 4. Set up the database:

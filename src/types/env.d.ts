@@ -10,5 +10,13 @@ declare namespace NodeJS {
     CLOUDINARY_CLOUD_NAME?: string
     CLOUDINARY_API_KEY?: string
     CLOUDINARY_API_SECRET?: string
+    // Channel manager (see CHANNEL_MANAGER.md)
+    ANTHROPIC_API_KEY?: string
+    CRON_SECRET?: string
+    ENCRYPTION_KEY?: string
+    EXPEDIA_EQC_BASE_URL?: string
+    EXPEDIA_API_BASE_URL?: string
+    BOOKING_COM_SUPPLY_URL?: string
+    BOOKING_COM_SECURE_URL?: string
   }
 }
