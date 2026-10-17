@@ -424,6 +424,8 @@ model GuestRequest {
 enum PmsConnectionMode {
   DESKTOP
   CLOUD
+  /// The PMS vendor's own MCP server (src/server/pms): loginUrl is the MCP endpoint, credentialsCipher its sealed auth.
+  MCP
 }
 
 enum PmsConnectionStatus {
@@ -441,7 +443,7 @@ model PmsConnection {
   mode              PmsConnectionMode
   status            PmsConnectionStatus @default(PENDING)
   loginUrl          String?
-  /// AES-256-GCM sealed JSON { username, password, totpSecret? } — CLOUD mode only. Never returned to clients.
+  /// AES-256-GCM sealed JSON — CLOUD: { username, password, totpSecret? }; MCP: { type, token?, headerName? }. Never returned to clients.
   credentialsCipher String?
   /// Desktop pairing: short code shown in the console, exchanged once for a device token.
   pairingCode       String?             @unique
