@@ -4,6 +4,7 @@ import { prisma } from '@/lib/prisma';
 import { diffDays, isISODate } from '@/server/dates';
 import { handleRoute, json, parseQuery } from '@/server/http';
 import { propertyAvailability } from '@/server/services/inventory';
+import { LISTED_PROPERTY } from '@/server/concierge/facts';
 
 const query = z.object({
   q: z.string().trim().max(100).optional(),
@@ -24,7 +25,7 @@ export const GET = handleRoute(async (request: NextRequest) => {
 
   const properties = await prisma.property.findMany({
     where: {
-      isActive: true,
+      ...LISTED_PROPERTY,
       ...(text
         ? {
             OR: [

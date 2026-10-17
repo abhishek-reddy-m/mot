@@ -7,6 +7,7 @@ import { handleRoute, json, parseJson } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
 import { propertySchema } from '@/server/schemas';
 import { assertDemoHotelUnchanged } from '@/server/demo';
+import { scheduleConfigSkillSync } from '@/server/skills';
 
 type Params = { params: Promise<{ propertyId: string }> };
 
@@ -48,6 +49,8 @@ export const PUT = handleRoute(async (request: NextRequest, { params }: Params) 
     },
   });
   await recordAudit({ actor, source: 'classic' }, propertyId, 'PROPERTY_UPDATE', `Updated property details for ${updated.name}`);
+  // Amenities, address and contact details are agent skills.
+  scheduleConfigSkillSync(propertyId);
   return json(updated);
 });
 

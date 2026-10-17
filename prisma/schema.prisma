@@ -73,6 +73,8 @@ model Property {
   guestRequests  GuestRequest[]
   pmsConnection  PmsConnection?
   bridgeTasks    BridgeTask[]
+  agentSkills    AgentSkill[]
+  agentApiKeys   AgentApiKey[]
 
   @@map("properties")
 }
@@ -364,10 +366,13 @@ model VoiceAgentConfig {
 /// One voice conversation (usage + outcome), guest or staff.
 model VoiceSession {
   id              String    @id @default(cuid())
-  propertyId      String
+  /// Null only for GLOBAL sessions (the cross-hotel concierge) and concierge rate-limit hits.
+  propertyId      String?
   userId          String?
-  audience        String // GUEST | STAFF
-  channel         String    @default("WEB") // WEB | PHONE
+  audience        String // GUEST | STAFF (SYSTEM for concierge rate-limit hits)
+  /// HOTEL (one hotel's agent, propertyId set) | GLOBAL (the concierge across all hotels)
+  scope           String    @default("HOTEL")
+  channel         String    @default("WEB") // WEB | PHONE | WHATSAPP | RATE_LIMIT (src/server/concierge/rateLimit.ts)
   clientKey       String? // hashed caller (IP or caller ID + property) for guest rate limits
   /// Phone calls: the caller's number as the carrier passed it (callback default).
   callerNumber    String?
@@ -376,7 +381,7 @@ model VoiceSession {
   summary         String?
   startedAt       DateTime  @default(now())
   endedAt         DateTime?
-  property        Property  @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+  property        Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
 
   @@index([propertyId, startedAt])
   @@index([clientKey, startedAt])
@@ -476,4 +481,56 @@ model BridgeTask {
   @@index([connectionId, status, createdAt])
   @@index([propertyId, createdAt])
   @@map("bridge_tasks")
+}
+
+/// A reusable tool for agents. CONFIG skills are generated from a hotel's
+/// settings (src/server/skills); LEARNED ones are recorded by agents; MANUAL
+/// ones are written by people. propertyId null = platform-wide.
+model AgentSkill {
+  id          String    @id @default(cuid())
+  propertyId  String?
+  /// Stable slug, unique per property ("faq-is-parking-free", "rooms").
+  key         String
+  audience    String    @default("ALL") // GUEST | STAFF | ALL
+  kind        String // ANSWER | MACRO | RECIPE
+  title       String
+  /// When to use it — shown to models.
+  description String
+  /// JSON Schema for the inputs (MACRO / RECIPE).
+  parameters  Json?
+  /// ANSWER: { answer } · MACRO: { steps: [{ command }] } · RECIPE: { system, intent, steps, successes?, failures? }
+  body        Json
+  source      String // CONFIG | LEARNED | MANUAL
+  status      String    @default("ACTIVE") // ACTIVE | SUGGESTED | DISABLED
+  uses        Int       @default(0)
+  lastUsedAt  DateTime?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  property    Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@unique([propertyId, key])
+  @@index([propertyId, status])
+  @@map("agent_skills")
+}
+
+/// API keys for trusted integrations (e.g. a partner's AI assistant) that may
+/// book directly. Only the SHA-256 of the key is stored. propertyId null = all
+/// hotels (platform admins only).
+model AgentApiKey {
+  id          String    @id @default(cuid())
+  propertyId  String?
+  name        String
+  /// First ~12 characters of the key, safe to display.
+  prefix      String
+  /// SHA-256 hex of the full key — the key itself is never stored.
+  keyHash     String    @unique
+  scopes      String[] // e.g. ["book"]
+  createdById String?
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+  property    Property? @relation(fields: [propertyId], references: [id], onDelete: Cascade)
+
+  @@map("agent_api_keys")
 }

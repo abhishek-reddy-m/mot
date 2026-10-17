@@ -5,6 +5,7 @@ import { assertPropertyAccess, requireStaff, scopeByProperty } from '@/server/au
 import { notFound } from '@/server/errors';
 import { handleRoute, json, parseJson, parseQuery } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
+import { scheduleConfigSkillSync } from '@/server/skills';
 
 /** GET — room types across the caller's properties (optionally one property). */
 export const GET = handleRoute(async (request: NextRequest) => {
@@ -56,5 +57,6 @@ export const POST = handleRoute(async (request: NextRequest) => {
     include: { property: { select: { id: true, name: true } } },
   });
   await recordAudit({ actor, source: 'classic' }, body.propertyId, 'ROOM_TYPE_CREATE', `Created room type ${roomType.name}`, { roomTypeId: roomType.id });
+  scheduleConfigSkillSync(body.propertyId);
   return json(roomType, { status: 201 });
 });

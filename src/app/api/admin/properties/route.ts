@@ -4,6 +4,7 @@ import { requirePermission, requireStaff, scopeProperties } from '@/server/authz
 import { handleRoute, json, parseJson } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
 import { propertySchema } from '@/server/schemas';
+import { scheduleConfigSkillSync } from '@/server/skills';
 
 /** GET — properties the caller can manage, with room types and booking counts. */
 export const GET = handleRoute(async () => {
@@ -49,5 +50,6 @@ export const POST = handleRoute(async (request: NextRequest) => {
     return p;
   });
   await recordAudit({ actor, source: 'classic' }, property.id, 'PROPERTY_CREATE', `Created property ${property.name}`);
+  scheduleConfigSkillSync(property.id);
   return json(property, { status: 201 });
 });

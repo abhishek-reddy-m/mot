@@ -7,6 +7,7 @@ import { badRequest, conflict, DomainError } from '@/server/errors';
 import { handleRoute, json, parseJson } from '@/server/http';
 import { VOICES } from '@/server/voice/live';
 import { cloudLoginUrlIssue, pmsLoginUrlSchema } from '@/server/schemas';
+import { scheduleConfigSkillSync } from '@/server/skills';
 
 const schema = z.object({
   path: z.enum(['FULL', 'BRIDGE', 'VOICE']).default('FULL'),
@@ -100,6 +101,8 @@ export const POST = handleRoute(async (request: NextRequest) => {
     });
     return { user, property };
   });
+  // The new hotel's rooms, policy and contact details become agent skills.
+  scheduleConfigSkillSync(result.property.id);
 
   const next = body.path === 'VOICE' ? '/admin/voice?welcome=1' : body.path === 'BRIDGE' ? '/admin/connect?welcome=1' : '/admin/dashboard?welcome=1';
   return json({ message: 'Onboarding complete', property: { id: result.property.id, name: result.property.name }, next }, { status: 201 });

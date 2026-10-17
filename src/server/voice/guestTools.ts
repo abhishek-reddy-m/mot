@@ -4,36 +4,17 @@
  */
 import { z } from 'zod';
 import { prisma } from '@/lib/prisma';
-import { HOTEL_TIMEZONE, diffDays, formatDay, hotelToday, isISODate, toISODate } from '../dates';
+import { HOTEL_TIMEZONE, formatDay, hotelToday, isISODate, toISODate } from '../dates';
 import { DomainError, badRequest } from '../errors';
-import { publicSiteUrl } from '../public-url';
-import { propertyAvailability } from '../services/inventory';
 import { policyFor } from '../services/guest';
+import { propertyFacts } from '../concierge/facts';
+import { availabilityOptions, lookupBooking, submitBookingRequest } from '../concierge/shared';
+import { checkoutPath } from '../concierge/urls';
+
+// Hotel facts live with the concierge (shared with the agent API and skills).
+export { propertyFacts };
 
 const isoDate = z.string().refine(isISODate, 'must be YYYY-MM-DD');
-
-export async function propertyFacts(propertyId: string) {
-  const p = await prisma.property.findUniqueOrThrow({
-    where: { id: propertyId },
-    include: { roomTypes: { where: { isActive: true }, orderBy: { basePrice: 'asc' } }, voiceAgent: true },
-  });
-  const faqs = Array.isArray(p.voiceAgent?.faqs) ? (p.voiceAgent!.faqs as { q?: string; a?: string }[]).filter((f) => f?.q && f?.a) : [];
-  return {
-    name: p.name,
-    type: p.type,
-    tagline: p.tagline,
-    description: p.description,
-    address: `${p.address}, ${p.city}, ${p.state} ${p.zipCode}`,
-    phone: p.phone,
-    email: p.email,
-    amenities: p.amenities,
-    check_in: 'from 3:00 PM',
-    check_out: 'by 11:00 AM',
-    cancellation: 'Free cancellation and date changes until 3:00 PM (hotel time) the day before arrival.',
-    room_types: p.roomTypes.map((rt) => ({ id: rt.id, name: rt.name, sleeps: rt.capacity, from_price_per_night: Number(rt.basePrice), amenities: rt.amenities, description: rt.description })),
-    faqs,
-  };
-}
 
 /**
  * Where a guest conversation is happening: the booking page, or the hotel's
@@ -52,25 +33,7 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
 
     case 'check_availability': {
       const a = z.object({ check_in: isoDate, check_out: isoDate, guests: z.number().int().min(1).max(16), rooms: z.number().int().min(1).max(9) }).parse(rawArgs);
-      const today = hotelToday();
-      if (a.check_in < today) return { error: `Check-in can’t be in the past — today is ${formatDay(today, 'weekday')}.` };
-      if (a.check_out <= a.check_in) return { error: 'Check-out must be after check-in.' };
-      if (diffDays(a.check_in, a.check_out) > 30) return { error: 'Online stays are limited to 30 nights; offer to take a message for longer stays.' };
-      const types = await propertyAvailability({ propertyId, checkIn: a.check_in, checkOut: a.check_out, guests: a.guests, rooms: a.rooms });
-      const nights = diffDays(a.check_in, a.check_out);
-      return {
-        stay: `${formatDay(a.check_in, 'weekday')} to ${formatDay(a.check_out, 'weekday')}, ${nights} night${nights > 1 ? 's' : ''}, ${a.guests} guest${a.guests > 1 ? 's' : ''}${a.rooms > 1 ? `, ${a.rooms} rooms` : ''}`,
-        options: types.map((t) => ({
-          room_type_id: t.id,
-          name: t.name,
-          sleeps: t.capacity,
-          fits_party: t.capacity * a.rooms >= a.guests,
-          available: t.available >= a.rooms,
-          rooms_left: t.available,
-          average_per_night: t.quote?.averageNightly ?? null,
-          total: t.quote?.total ?? null,
-        })),
-      };
+      return availabilityOptions(propertyId, { checkIn: a.check_in, checkOut: a.check_out, guests: a.guests, rooms: a.rooms });
     }
 
     case 'start_booking': {
@@ -78,17 +41,13 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
       const a = z.object({ room_type_id: z.string().min(1), check_in: isoDate, check_out: isoDate, guests: z.number().int().min(1).max(16), rooms: z.number().int().min(1).max(9) }).parse(rawArgs);
       const rt = await prisma.roomType.findFirst({ where: { id: a.room_type_id, propertyId, isActive: true }, select: { id: true, name: true } });
       if (!rt) return { error: 'That room type isn’t available here — check availability again.' };
-      const q = new URLSearchParams({ roomTypeId: rt.id, checkIn: a.check_in, checkOut: a.check_out, guests: String(a.guests), rooms: String(a.rooms) });
-      return { opened: true, room: rt.name, url: `/properties/${propertyId}/book?${q}`, say: `I’ve opened the checkout for the ${rt.name} on your screen.` };
+      const url = checkoutPath(propertyId, { roomTypeId: rt.id, checkIn: a.check_in, checkOut: a.check_out, guests: a.guests, rooms: a.rooms });
+      return { opened: true, room: rt.name, url, say: `I’ve opened the checkout for the ${rt.name} on your screen.` };
     }
 
     case 'find_booking': {
       const a = z.object({ confirmation_code: z.string().min(4).max(20), last_name: z.string().min(1).max(60) }).parse(rawArgs);
-      const code = a.confirmation_code.toUpperCase().replace(/[^A-Z0-9]/g, '');
-      const b = await prisma.booking.findFirst({
-        where: { propertyId, code, user: { lastName: { equals: a.last_name.trim(), mode: 'insensitive' } } },
-        include: { roomType: { select: { name: true } } },
-      });
+      const b = await lookupBooking({ propertyId, code: a.confirmation_code, lastName: a.last_name });
       // Same answer for a wrong code or a wrong name: don't confirm either alone.
       if (!b) return { found: false, say: 'I couldn’t find a booking with that code and last name.' };
       const checkIn = toISODate(b.checkIn);
@@ -120,37 +79,19 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
           notes: optionalText(500),
         })
         .parse(rawArgs);
-      const callback = a.phone || channel.callerNumber;
-      if (!callback && !a.email) return { error: 'Ask for an email or a callback number so the team can confirm the booking.' };
-      const today = hotelToday();
-      if (a.check_in < today) return { error: `Check-in can’t be in the past — today is ${formatDay(today, 'weekday')}.` };
-      if (a.check_out <= a.check_in) return { error: 'Check-out must be after check-in.' };
-      if (diffDays(a.check_in, a.check_out) > 30) return { error: 'Stays over 30 nights go through the team — take a message instead.' };
-      const rt = await prisma.roomType.findFirst({ where: { id: a.room_type_id, propertyId, isActive: true }, select: { id: true, name: true, capacity: true } });
-      if (!rt) return { error: 'That room type isn’t available here — check availability again.' };
-      if (a.guests > rt.capacity * a.rooms) return { error: `The ${rt.name} sleeps up to ${rt.capacity} per room — add a room or choose a larger room.` };
-      const option = (await propertyAvailability({ propertyId, checkIn: a.check_in, checkOut: a.check_out, guests: a.guests, rooms: a.rooms })).find((t) => t.id === rt.id);
-      if (!option || option.available < a.rooms) return { error: `The ${rt.name} is no longer free for those dates — check availability again.` };
-      const nights = diffDays(a.check_in, a.check_out);
-      const total = option.quote?.total ?? null;
-      // The same pre-filled checkout the booking page opens: staff send it to the guest to finish online.
-      const q = new URLSearchParams({ roomTypeId: rt.id, checkIn: a.check_in, checkOut: a.check_out, guests: String(a.guests), rooms: String(a.rooms) });
-      const link = `${publicSiteUrl() ?? ''}/properties/${propertyId}/book?${q}`;
-      const message = [
-        `${source === 'WHATSAPP' ? 'WhatsApp' : 'Phone'} booking request: ${rt.name}, ${formatDay(a.check_in, 'weekday')} to ${formatDay(a.check_out, 'weekday')} (${nights} night${nights > 1 ? 's' : ''}), ${a.guests} guest${a.guests > 1 ? 's' : ''}${a.rooms > 1 ? `, ${a.rooms} rooms` : ''}.`,
-        total !== null ? `Quoted total: $${total.toFixed(2)}.` : '',
-        a.notes ? `Notes: ${a.notes}` : '',
-        `Confirm with the guest, then send them this link to finish booking: ${link}`,
-      ]
-        .filter(Boolean)
-        .join(' ');
-      const r = await prisma.guestRequest.create({ data: { propertyId, name: a.name, phone: callback || null, email: a.email || null, message, source } });
-      return {
-        saved: true,
-        reference: r.id.slice(-6).toUpperCase(),
-        quoted_total: total,
-        say: `I’ve sent your request to the team — they’ll confirm and send you a link to finish booking${a.email ? ' by email' : ''}. It isn’t booked until then.`,
-      };
+      return submitBookingRequest(propertyId, {
+        roomTypeId: a.room_type_id,
+        checkIn: a.check_in,
+        checkOut: a.check_out,
+        guests: a.guests,
+        rooms: a.rooms,
+        name: a.name,
+        email: a.email,
+        // On the phone, the caller ID is the callback number unless they gave another.
+        phone: a.phone || channel.callerNumber,
+        notes: a.notes,
+        source,
+      });
     }
 
     case 'leave_message': {

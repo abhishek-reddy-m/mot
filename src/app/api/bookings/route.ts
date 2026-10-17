@@ -7,7 +7,7 @@ import { isStripeConfigured, getStripe } from '@/lib/stripe';
 import { sendBookingConfirmation } from '@/server/email';
 import { handleRoute, parseJson } from '@/server/http';
 import { badRequest, unauthorized } from '@/server/errors';
-import { createBooking } from '@/server/services/bookings';
+import { confirmationEmailAllowed, confirmPayAtProperty, createBooking } from '@/server/services/bookings';
 
 const createBookingSchema = z.object({
   propertyId: z.string().min(1),
@@ -86,14 +86,10 @@ export const POST = handleRoute(async (request: NextRequest) => {
   }
 
   // Pay-at-property bookings are confirmed instantly — the guest is told so.
-  const confirmed = await prisma.booking.update({
-    where: { id: booking.id },
-    data: { status: 'CONFIRMED', statusHistory: { create: { status: 'CONFIRMED', notes: 'Instant confirmation (pay at property)' } } },
-  });
+  const confirmed = await confirmPayAtProperty(booking.id);
 
   // Accounts aren't email-verified: a handful of confirmations per hour is plenty for a real guest.
-  const recentBookings = await prisma.booking.count({ where: { userId: user.id, createdAt: { gte: new Date(Date.now() - 3600_000) } } });
-  if (recentBookings <= 5) await sendBookingConfirmation({
+  if (await confirmationEmailAllowed(user.id)) await sendBookingConfirmation({
     to: user.email,
     guestName: `${user.firstName} ${user.lastName}`.trim() || user.email,
     propertyName: booking.property.name,

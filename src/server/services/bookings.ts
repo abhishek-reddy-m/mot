@@ -192,6 +192,20 @@ export async function createBooking(input: CreateBookingInput): Promise<BookingW
   throw new DomainError(503, 'BUSY', 'The hotel is busy right now — please try again.');
 }
 
+/** Pay-at-property bookings are confirmed instantly — the guest is told so. */
+export async function confirmPayAtProperty(bookingId: string) {
+  return prisma.booking.update({
+    where: { id: bookingId },
+    data: { status: 'CONFIRMED', statusHistory: { create: { status: 'CONFIRMED', notes: 'Instant confirmation (pay at property)' } } },
+  });
+}
+
+/** Accounts aren't email-verified: a handful of confirmations per hour is plenty for a real guest. */
+export async function confirmationEmailAllowed(userId: string): Promise<boolean> {
+  const recentBookings = await prisma.booking.count({ where: { userId, createdAt: { gte: new Date(Date.now() - 3600_000) } } });
+  return recentBookings <= 5;
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------

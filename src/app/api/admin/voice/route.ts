@@ -8,6 +8,7 @@ import { LIVE_MODEL, VOICES } from '@/server/voice/live';
 import { voiceAvailable, voiceProvider } from '@/server/voice/provider';
 import { elevenLabsConfigured } from '@/server/voice/elevenlabs';
 import { assertDemoHotelUnchanged } from '@/server/demo';
+import { scheduleConfigSkillSync } from '@/server/skills';
 
 const DEFAULTS = { enabled: true, voice: 'marin', greeting: null, instructions: null, faqs: [], handoffPhone: null, guestWidget: true };
 
@@ -76,5 +77,7 @@ export const PUT = handleRoute(async (request: NextRequest) => {
     update: clean,
   });
   await recordAudit({ actor, source: 'classic' }, propertyId, 'VOICE_SETTINGS', 'Updated voice agent settings');
+  // FAQs become agent skills.
+  scheduleConfigSkillSync(propertyId);
   return json(config);
 });
