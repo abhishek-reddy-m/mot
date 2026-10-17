@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Kbd } from '@/components/ui/primitives';
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from '@/components/ui/sheet';
 import { AgentPanel } from '@/components/agent/AgentPanel';
+import { ShortcutStarters } from '@/components/agent/ShortcutStarters';
 import { AgentOrb } from '@/components/agent/Timeline';
 import { useConsole } from './ConsoleProvider';
 import { navFor } from './nav';
@@ -71,6 +72,9 @@ export function CommandSheet() {
                     </li>
                   ))}
                 </ul>
+                <div className="mx-auto max-w-md text-left">
+                  <ShortcutStarters send={send} compact />
+                </div>
                 {pages.length > 0 && (
                   <nav aria-label="Go to" className="mx-auto mt-8 max-w-md border-t pt-5 text-left">
                     <p className="px-1 text-2xs font-semibold uppercase tracking-wider text-muted-foreground">Go to</p>

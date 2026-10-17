@@ -4,6 +4,9 @@ import { requireStaff } from '@/server/authz';
 import { confirmPlan } from '@/server/agent/engine';
 import { handleRoute, json, parseJson } from '@/server/http';
 
+/** Confirmed PMS changes through an MCP server run inside this request (and may finish after it). */
+export const maxDuration = 60;
+
 /**
  * POST /api/agent/confirm { token } — carry out a plan the agent proposed.
  * The token is HMAC-signed for this user, expires after 10 minutes and can

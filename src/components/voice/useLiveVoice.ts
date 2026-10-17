@@ -23,11 +23,12 @@ export function useLiveVoice(options: VoiceOptions): VoiceController {
   const openai = useOpenAIVoice(options);
   const elevenlabs = useElevenLabsVoice(options);
   const provider = data?.voiceProvider;
+  const preload = options.preload ?? true;
 
   // Load the ElevenLabs SDK ahead of the tap, so its iOS audio unlock sees the gesture.
   React.useEffect(() => {
-    if (provider === 'elevenlabs') void import('@elevenlabs/client').catch(() => undefined);
-  }, [provider]);
+    if (provider === 'elevenlabs' && preload) void import('@elevenlabs/client').catch(() => undefined);
+  }, [provider, preload]);
 
   const chosen = provider === 'elevenlabs' ? elevenlabs : openai;
   const active = busy(openai) ? openai : busy(elevenlabs) ? elevenlabs : chosen;

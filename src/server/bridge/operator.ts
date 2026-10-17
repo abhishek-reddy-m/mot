@@ -33,14 +33,22 @@ export type OperatorAction = Record<string, unknown> & { type: string };
 export type OperatorNext =
   | { kind: 'actions'; responseId: string; callId: string; actions: OperatorAction[] }
   | { kind: 'credential'; responseId: string; callId: string; field: 'username' | 'password' | 'totp' }
-  | { kind: 'done'; responseId: string | null; status: 'DONE' | 'FAILED' | 'NEEDS_HELP'; summary: string };
+  /** `steps`: the screens/buttons/fields the model says it used (kept server-side for recipes, never sent to the connector). */
+  | { kind: 'done'; responseId: string | null; status: 'DONE' | 'FAILED' | 'NEEDS_HELP'; summary: string; steps?: string[] };
+
+/** A recipe that worked before for the same kind of task (see recipes.ts), offered as guidance. */
+export interface OperatorRecipe {
+  intent: string;
+  steps: string[];
+}
 
 export interface OperatorPending {
   callId: string;
   type: 'computer' | 'credential';
 }
 
-function instructionsFor(task: BridgeTask, c: PmsConnection & { property?: { name: string } }, canLogIn: boolean) {
+/** The operator's opening instructions for a task (exported for tests). */
+export function operatorInstructions(task: BridgeTask, c: PmsConnection & { property?: { name: string } }, canLogIn: boolean, recipe?: OperatorRecipe | null) {
   const readOnly = task.kind === 'LOOKUP';
   return [
     `You operate ${c.system}, the property-management system of ${c.property?.name ?? 'a hotel'}, in a web browser on behalf of the hotel's staff.`,
@@ -51,14 +59,33 @@ function instructionsFor(task: BridgeTask, c: PmsConnection & { property?: { nam
       ? 'If a login screen appears, click the username field and call fill_credential("username"), then the password field and fill_credential("password"); use fill_credential("totp") for a one-time code.'
       : `If you see a login screen, stop and reply NEEDS_HELP asking the staff to sign in to the ${PRODUCT_NAME} browser window.`,
     'If anything is ambiguous (two guests with the same name, a missing room, an unexpected warning), stop and reply NEEDS_HELP with the question.',
+    ...(recipe?.steps.length
+      ? [
+          `Last time this worked for "${recipe.intent}" in ${c.system} (the screens may have changed — check each one, and follow the task and the rules above if they differ):`,
+          ...recipe.steps.slice(0, 12).map((step, i) => `${i + 1}. ${step}`),
+        ]
+      : []),
     'When finished, reply with ONE short paragraph that starts with "DONE:", "NEEDS_HELP:" or "FAILED:" and states exactly what you saw or changed (names, dates, room numbers, amounts).',
+    'Then add a last line that starts with "STEPS:" listing the screens, tabs, buttons and fields you used, in order, separated by " > ", in generic words only — no names, codes, dates, numbers or amounts (for example: "STEPS: Front desk > Arrivals tab > search box > guest row > Check in button > Save").',
   ].join('\n');
 }
 
-function parseFinal(text: string): { status: 'DONE' | 'FAILED' | 'NEEDS_HELP'; summary: string } {
-  const t = text.trim();
+/** Splits the model's final reply into status, summary and the generic STEPS line (if any). */
+export function parseFinal(text: string): { status: 'DONE' | 'FAILED' | 'NEEDS_HELP'; summary: string; steps?: string[] } {
+  let t = text.trim();
+  let steps: string[] | undefined;
+  const stepsAt = t.search(/(?:^|\n)\s*STEPS\s*:/i);
+  if (stepsAt >= 0) {
+    const raw = t.slice(stepsAt).replace(/^\s*STEPS\s*:\s*/i, '');
+    steps = raw
+      .split(/\s*(?:>|→|\n|;|\d+\.\s)\s*/)
+      .map((x) => x.replace(/^[-•*]\s*/, '').trim())
+      .filter((x) => x && x.length <= 200)
+      .slice(0, 20);
+    t = t.slice(0, stepsAt).trim();
+  }
   const m = t.match(/^(DONE|FAILED|NEEDS_HELP)\s*:\s*/i);
-  if (m) return { status: m[1].toUpperCase() as 'DONE' | 'FAILED' | 'NEEDS_HELP', summary: t.slice(m[0].length).slice(0, 1500) };
+  if (m) return { status: m[1].toUpperCase() as 'DONE' | 'FAILED' | 'NEEDS_HELP', summary: t.slice(m[0].length).slice(0, 1500), ...(steps?.length ? { steps } : {}) };
   return { status: 'NEEDS_HELP', summary: (t || 'The operator stopped without a result.').slice(0, 1500) };
 }
 
@@ -73,6 +100,8 @@ export async function operatorStep(input: {
   currentUrl?: string;
   previousResponseId?: string | null;
   pending?: OperatorPending | null;
+  /** A recipe that worked before for this kind of task (first turn only). */
+  recipe?: OperatorRecipe | null;
 }): Promise<OperatorNext> {
   const canLogIn = input.connection.mode === 'CLOUD' && !!input.connection.credentialsCipher;
   const computerTool =
@@ -100,7 +129,7 @@ export async function operatorStep(input: {
       {
         role: 'user',
         content: [
-          { type: 'input_text', text: `${instructionsFor(input.task, input.connection, canLogIn)}${input.currentUrl ? `\nCurrent page: ${input.currentUrl}` : ''}` },
+          { type: 'input_text', text: `${operatorInstructions(input.task, input.connection, canLogIn, input.recipe)}${input.currentUrl ? `\nCurrent page: ${input.currentUrl}` : ''}` },
           { type: 'input_image', image_url: input.screenshot, detail: 'auto' },
         ],
       },

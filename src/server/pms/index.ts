@@ -13,7 +13,8 @@
  */
 export { connectMcp, disconnectMcp, getMcpStatus, isMcpConnection, probeMcp, refreshTools, testMcp, clientFor, type ConnectMcpInput, type McpAuthInput, type McpStatusView } from './connection';
 export { executeMcpTask, isChangeKind, toolAllowed, CHANGE_KINDS, MAX_TOOL_CALLS, TASK_TIMEOUT_MS, PMS_MCP_MODEL, type ExecuteOptions, type McpCallRecord, type McpTaskInput, type McpTaskResult } from './executor';
-export { runMcpBridgeTask, runQueuedMcpTasks, persistResult } from './run';
+export { runMcpBridgeTask, runQueuedMcpTasks, persistResult, scheduleMcpTask, runMcpTaskInline } from './run';
+export { displayUrl } from './url-guard';
 export { CONTRACT, CONTRACT_VERSION, EVENT_TYPES, contractDocument, coverage, matchContract, adaptArgs, isReadOnlyTool, isForbiddenTool, type ContractOperation, type ContractOperationName, type ContractMapping } from './contract';
 export { eventsSecret, eventsUrl, eventsPath, signEvent, verifyEventSignature, recordPmsEvent, summariseEvent, EVENT_SIGNATURE_HEADER, EVENT_TIMESTAMP_HEADER, EVENT_TOLERANCE_SECONDS, EVENT_MAX_BYTES } from './events';
 export { listCachedTools, deleteCachedTools, PMS_TOOL_KIND, PMS_TOOL_SOURCE, PMS_TOOL_KEY_PREFIX, type CachedPmsTool, type PmsToolBody } from './tools';

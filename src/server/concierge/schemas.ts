@@ -82,11 +82,16 @@ export const conciergeSchemas = {
       })
       .describe('The guest the booking is for'),
     notes: optionalText(1000).describe('Special requests, passed to the hotel'),
-    source: z.string().trim().min(1).max(80).describe('Set by the server from the API key, not the end user: who booked it, for the hotel’s booking history, e.g. "Muse (API key hk_live_ab12…)"'),
+    source: z.string().trim().min(1).max(80).describe('Set by the server from the API key, not the end user: who booked it, for the hotel’s booking history, e.g. "Muse (API key ho_live_ab12…)"'),
   }),
   findBooking: z.object({
     code: z.string().trim().min(4).max(20).describe('Confirmation code from the booking confirmation'),
     lastName: z.string().trim().min(1).max(60).describe('Guest’s last name as booked'),
+  }),
+  askHotel: z.object({
+    propertyId: id('Hotel id from searchHotels'),
+    question: z.string().trim().max(300).optional().describe('The guest’s question in their own words, e.g. "Is parking free?" or "can I bring my dog"'),
+    topic: z.string().trim().max(80).optional().describe('A topic key from the hotel’s answers (e.g. "policies", "amenities", "contact") to get that answer directly'),
   }),
 } as const;
 
@@ -100,6 +105,7 @@ export type BookingLinkInput = z.input<typeof conciergeSchemas.bookingLink>;
 export type RequestBookingInput = z.input<typeof conciergeSchemas.requestBooking>;
 export type CreateBookingInput = z.input<typeof conciergeSchemas.createBooking>;
 export type FindBookingInput = z.input<typeof conciergeSchemas.findBooking>;
+export type AskHotelInput = z.input<typeof conciergeSchemas.askHotel>;
 
 // ---------------------------------------------------------------------------
 // zod → JSON Schema (the subset these schemas use)
@@ -202,4 +208,5 @@ export const conciergeJsonSchemas = {
   requestBooking: zodToJsonSchema(conciergeSchemas.requestBooking.omit({ source: true })),
   createBooking: zodToJsonSchema(conciergeSchemas.createBooking.omit({ source: true })),
   findBooking: zodToJsonSchema(conciergeSchemas.findBooking),
+  askHotel: zodToJsonSchema(conciergeSchemas.askHotel),
 } satisfies Record<ConciergeOperation, JsonSchema>;

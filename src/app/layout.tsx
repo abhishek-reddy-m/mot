@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Inter, Fraunces } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/Providers";
+import { VoiceDock } from "@/components/voice/VoiceDock";
 import { PRODUCT_NAME, PRODUCT_DESCRIPTION } from "@/config/product";
 import { BRAND_HEX } from "@/components/brand/colors";
 import { siteUrl } from "@/components/brand/site-url";
@@ -70,7 +71,10 @@ export default function RootLayout({
         >
           Skip to content
         </a>
-        <Providers>{children}</Providers>
+        <Providers>
+          {/* One voice for the whole guest site: mounted here so a call survives page changes (hotel → checkout → booking). */}
+          <VoiceDock>{children}</VoiceDock>
+        </Providers>
       </body>
     </html>
   );

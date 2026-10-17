@@ -7,11 +7,48 @@
  * Nobody else claims MCP tasks: connectors only claim their own connection
  * and the cloud worker only claims CLOUD ones (services/bridge.ts).
  */
+import { after } from 'next/server';
 import { Prisma, type BridgeTask } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { executeMcpTask, isChangeKind, type ExecuteOptions, type McpTaskResult } from './executor';
 
 const STALE_RUNNING_MS = 5 * 60 * 1000;
+
+const logFailure = (taskId: string) => (e: unknown) => console.error(`[pms-mcp] task ${taskId} failed to run:`, e);
+
+/**
+ * Run an MCP task after the current response is sent (Next.js `after`), or
+ * right away outside a request. Safe to call more than once: the task is
+ * claimed atomically, so only one run happens.
+ */
+export function scheduleMcpTask(taskId: string): void {
+  const run = () => runMcpBridgeTask(taskId).then(() => undefined, logFailure(taskId));
+  try {
+    after(run);
+  } catch {
+    void run();
+  }
+}
+
+/**
+ * Run an MCP task now and wait up to `waitMs` for it, so the caller can show
+ * a finished result. If it takes longer it keeps running after the response
+ * (kept alive with `after`). Returns true when it finished in time.
+ */
+export async function runMcpTaskInline(taskId: string, waitMs = 15_000): Promise<boolean> {
+  const run = runMcpBridgeTask(taskId).then(() => true, (e) => (logFailure(taskId)(e), true));
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const finished = await Promise.race([run, new Promise<false>((resolve) => (timer = setTimeout(() => resolve(false), waitMs)))]);
+  clearTimeout(timer);
+  if (!finished) {
+    try {
+      after(run);
+    } catch {
+      /* outside a request: the promise keeps running */
+    }
+  }
+  return finished;
+}
 
 /**
  * Claim one QUEUED task on an MCP connection, execute it and persist the

@@ -3,7 +3,7 @@ import { prisma } from '@/lib/prisma';
 import { DomainError } from '@/server/errors';
 import { PHONE_WEBHOOK_HEADER, verifyPhoneWebhook } from '@/server/voice/elevenlabs';
 import { guestToolOutput } from '@/server/voice/guestTools';
-import { PHONE_TOOLS, verifyVoiceToken } from '@/server/voice/live';
+import { PHONE_TOOLS, verifyVoiceToken, voiceTokenScope } from '@/server/voice/live';
 
 export const dynamic = 'force-dynamic';
 
@@ -34,7 +34,8 @@ export async function POST(request: NextRequest) {
   } catch (e) {
     return reply({ error: e instanceof DomainError ? e.message : 'This call’s session is invalid.' });
   }
-  if (t.aud !== 'GUEST' || (t.ch !== 'PHONE' && t.ch !== 'WHATSAPP')) return reply({ error: 'This session isn’t a phone call or WhatsApp chat.' });
+  if (t.aud !== 'GUEST' || (t.ch !== 'PHONE' && t.ch !== 'WHATSAPP') || voiceTokenScope(t) !== 'HOTEL' || !t.pid) return reply({ error: 'This session isn’t a phone call or WhatsApp chat.' });
+  const propertyId = t.pid;
 
   // Count the call up front; a real conversation never needs this many lookups.
   const session = await prisma.voiceSession
@@ -43,5 +44,5 @@ export async function POST(request: NextRequest) {
   if (!session) return reply({ error: 'This call has ended.' });
   if (session.toolCalls > MAX_TOOL_CALLS) return reply({ error: 'This call has made a lot of lookups already — offer to take a message for the team instead.' });
 
-  return reply(await guestToolOutput(t.pid, name, args, { kind: 'PHONE', callerNumber: session.callerNumber, via: t.ch }));
+  return reply(await guestToolOutput(propertyId, name, args, { kind: 'PHONE', callerNumber: session.callerNumber, via: t.ch }));
 }

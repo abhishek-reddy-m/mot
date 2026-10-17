@@ -10,6 +10,7 @@ import { policyFor } from '../services/guest';
 import { propertyFacts } from '../concierge/facts';
 import { availabilityOptions, lookupBooking, submitBookingRequest } from '../concierge/shared';
 import { checkoutPath } from '../concierge/urls';
+import { useSkill as runSkill } from '../skills';
 
 // Hotel facts live with the concierge (shared with the agent API and skills).
 export { propertyFacts };
@@ -92,6 +93,20 @@ export async function runGuestTool(propertyId: string, name: string, rawArgs: un
         notes: a.notes,
         source,
       });
+    }
+
+    case 'use_skill': {
+      // The hotel's saved answers and tools (AgentSkill); phone calls are pinned to their hotel.
+      const a = z.object({ key: z.string().trim().min(1).max(80), arguments: z.string().max(4000).nullish() }).parse(rawArgs);
+      let values: unknown = {};
+      if (a.arguments?.trim()) {
+        try {
+          values = JSON.parse(a.arguments);
+        } catch {
+          return { error: 'arguments must be a JSON object, e.g. {"date":"2026-11-14"}.' };
+        }
+      }
+      return runSkill(propertyId, a.key, values, { audience: 'GUEST' });
     }
 
     case 'leave_message': {

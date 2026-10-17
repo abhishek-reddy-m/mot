@@ -6,10 +6,16 @@ import { voiceProvider } from '@/server/voice/provider';
 import { startElevenLabsConversation } from '@/server/voice/elevenlabs';
 import { openVoiceSession } from '@/server/voice/sessions';
 
-const query = z.object({ propertyId: z.string().min(1), audience: z.enum(['guest', 'staff']).default('guest') });
+// No propertyId (or scope=global) on a guest session: the HotelOne concierge across every listed hotel.
+const query = z.object({
+  propertyId: z.string().min(1).max(64).optional(),
+  audience: z.enum(['guest', 'staff']).default('guest'),
+  scope: z.enum(['hotel', 'global']).optional(),
+});
 
 /**
- * POST /api/voice/elevenlabs/session?propertyId&audience — ElevenLabs. Returns
+ * POST /api/voice/elevenlabs/session?propertyId&audience&scope — ElevenLabs
+ * (a hotel's front desk, or the all-hotels concierge without propertyId). Returns
  * a single-use signed URL for the private agent, the hotel's prompt and
  * greeting (sent as overrides), the client tools to register, and the signed
  * token the browser uses for this session's tool calls.
@@ -17,7 +23,7 @@ const query = z.object({ propertyId: z.string().min(1), audience: z.enum(['guest
 export const POST = handleRoute(async (request: NextRequest) => {
   const q = parseQuery(request, query);
   if (voiceProvider() !== 'elevenlabs') throw new DomainError(503, 'VOICE_DISABLED', 'The ElevenLabs voice line isn’t switched on.');
-  const session = await openVoiceSession(request, q, async (ctx) => {
+  const session = await openVoiceSession(request, { propertyId: q.propertyId, audience: q.audience, scope: q.scope === 'global' ? 'GLOBAL' : 'HOTEL' }, async (ctx) => {
     const { conversationId, ...result } = await startElevenLabsConversation({ audience: ctx.audience, prompts: ctx.prompts, firstMessage: ctx.firstMessage, tools: ctx.tools });
     return { externalId: conversationId, result };
   });

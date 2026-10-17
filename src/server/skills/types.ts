@@ -36,6 +36,10 @@ export interface RecipeBody {
   steps: string[];
   successes?: number;
   failures?: number;
+  /** Failures in a row since the last success (RECIPE_MAX_FAIL_STREAK switches it off). */
+  failStreak?: number;
+  /** Set when it was switched off automatically after failing too often (ISO time). */
+  autoDisabledAt?: string;
 }
 export type SkillBody = AnswerBody | MacroBody | RecipeBody;
 
@@ -135,8 +139,64 @@ export const skillBodySchemas = {
     steps: z.array(z.string().trim().min(1).max(1000)).min(1).max(40),
     successes: z.number().int().min(0).optional(),
     failures: z.number().int().min(0).optional(),
+    failStreak: z.number().int().min(0).optional(),
+    autoDisabledAt: z.string().max(40).optional(),
   }),
 } as const;
+
+/** A recipe that fails this many times in a row is switched off automatically. */
+export const RECIPE_MAX_FAIL_STREAK = 3;
+
+/** True for the kinds this module can store and use (other modules keep their own kinds in the same table). */
+export function isSkillKind(kind: string): kind is SkillKind {
+  return (SKILL_KINDS as readonly string[]).includes(kind);
+}
+
+// Control characters (newline and tab handled separately), zero-width and bidirectional overrides.
+const CONTROL = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u200b-\u200f\u2028\u2029\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff]/g;
+
+/**
+ * Cleans text stored in a skill: drops control, zero-width and bidi-override
+ * characters and tidies whitespace. `multiline` keeps line breaks (at most
+ * one blank line in a row); otherwise everything becomes one line.
+ */
+export function cleanSkillText(text: string, opts: { multiline?: boolean } = {}): string {
+  const s = String(text ?? '').replace(/\r\n?/g, '\n').replace(/\t/g, ' ').replace(CONTROL, '');
+  if (!opts.multiline) return s.replace(/\s+/g, ' ').trim();
+  return s
+    .split('\n')
+    .map((l) => l.replace(/ {2,}/g, ' ').trimEnd())
+    .join('\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
+/**
+ * Text that goes into a model prompt (catalog lines): one line, no markdown
+ * headings, code fences, HTML-ish tags or chat-role prefixes that could pose
+ * as instructions, capped at `max` characters.
+ */
+export function promptSafe(text: string, max: number): string {
+  let s = cleanSkillText(String(text ?? '').replace(/^\s{0,3}#{1,6}\s+/gm, ''))
+    .replace(/`{3,}/g, ' ')
+    .replace(/<\/?[a-z][^>]{0,80}>/gi, ' ')
+    .replace(/\b(system|assistant|developer|user)\s*:/gi, '$1 -')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (s.length > max) s = `${s.slice(0, Math.max(0, max - 1)).trimEnd()}…`;
+  return s;
+}
+
+/** Applies `cleanSkillText` to every text field of a body of the given kind (unknown shapes pass through). */
+export function cleanSkillBody(kind: string, body: unknown): unknown {
+  if (!body || typeof body !== 'object') return body;
+  const b = body as Record<string, unknown>;
+  const str = (v: unknown, multiline = false) => (typeof v === 'string' ? cleanSkillText(v, { multiline }) : v);
+  if (kind === 'ANSWER') return { ...b, answer: str(b.answer, true) };
+  if (kind === 'MACRO' && Array.isArray(b.steps)) return { ...b, steps: b.steps.map((s) => (s && typeof s === 'object' ? { ...(s as object), command: str((s as { command?: unknown }).command) } : s)) };
+  if (kind === 'RECIPE') return { ...b, system: str(b.system), intent: str(b.intent), steps: Array.isArray(b.steps) ? b.steps.map((s) => str(s)) : b.steps };
+  return body;
+}
 
 /** Fields every skill write validates (body is checked per kind). */
 export const skillFieldsSchema = z.object({

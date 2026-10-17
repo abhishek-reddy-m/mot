@@ -16,6 +16,8 @@
  * - Callers that are public should also call `consumeRateLimit` per client.
  * - Authorisation (API keys, scopes) is the caller's job: `createBooking` is
  *   for trusted keys only.
+ * - `askHotel` answers guests' questions from the hotel's ANSWER skills, so
+ *   whatever a hotel configures is answerable without code changes.
  */
 import { ZodError } from 'zod';
 import { DomainError } from '../errors';
@@ -32,6 +34,7 @@ export {
   type CreateBookingResult,
   type FindBookingResult,
 } from './booking';
+export { askHotel, type AskHotelResult, type HotelAnswer } from './answers';
 export { consumeRateLimit, RATE_LIMIT_CHANNEL, type RateLimitResult } from './rateLimit';
 export {
   conciergeSchemas,
@@ -46,6 +49,7 @@ export {
   type RequestBookingInput,
   type CreateBookingInput,
   type FindBookingInput,
+  type AskHotelInput,
 } from './schemas';
 export { CURRENCY, HOTEL_POLICY, LISTED_PROPERTY, propertyFacts, type PropertyFacts } from './facts';
 export { MAX_NIGHTS, type AvailabilityOption, type AvailabilityResult, type BookingRequestSaved } from './shared';

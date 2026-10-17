@@ -7,12 +7,26 @@
  */
 import { createHash } from 'crypto';
 import type { Prisma } from '@prisma/client';
+import { PRODUCT_NAME } from '@/config/product';
 import { prisma } from '@/lib/prisma';
 import { roleLabel } from '@/lib/status';
 import { assertPropertyAccess, getActor, hasPropertyAccess, requireStaff } from '../authz';
-import { DomainError, notFound } from '../errors';
+import { DomainError, badRequest, notFound } from '../errors';
+import { skillCatalogText } from '../skills';
 import { guestContext } from './guestTools';
-import { GUEST_TOOLS, PHONE_TOOLS, STAFF_TOOLS, guestPrompts, signVoiceToken, staffPrompts, type FunctionToolSpec } from './live';
+import {
+  CONCIERGE_TOOLS,
+  GUEST_TOOLS,
+  PHONE_TOOLS,
+  STAFF_TOOLS,
+  conciergePrompts,
+  guestPrompts,
+  signVoiceToken,
+  staffPrompts,
+  type FunctionToolSpec,
+  type VoiceScope,
+} from './live';
+import { conciergeVoiceAvailable } from './provider';
 
 const MINUTE = 60_000;
 const since = (ms: number) => ({ gte: new Date(Date.now() - ms) });
@@ -23,9 +37,25 @@ interface Limit {
   message: string;
 }
 
+/** The hotel's guest answers for its voice prompt; a skills hiccup never stops a call. */
+async function guestSkills(propertyId: string): Promise<string> {
+  try {
+    return await skillCatalogText(propertyId, 'GUEST', { kinds: ['ANSWER'], maxChars: 2000 });
+  } catch (e) {
+    console.error('voice: skill catalog unavailable', e);
+    return '';
+  }
+}
+
+/** The caller's IP as the edge saw it (rate-limit key only, hashed before it is stored). */
+const clientIp = (request: Request) => request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
+
 export interface VoiceSessionContext {
   audience: 'guest' | 'staff';
-  property: { id: string; name: string };
+  /** HOTEL: one hotel's agent. GLOBAL: the HotelOne concierge (no property). */
+  scope: VoiceScope;
+  /** Null for GLOBAL sessions. */
+  property: { id: string; name: string } | null;
   /** The hotel's chosen GPT-Live voice name. */
   voice: string;
   /** Voice-facing and task-facing instructions. */
@@ -77,9 +107,12 @@ async function reserve<T>(data: Prisma.VoiceSessionUncheckedCreateInput, limits:
  */
 export async function openVoiceSession<T>(
   request: Request,
-  q: { propertyId: string; audience: 'guest' | 'staff' },
+  q: { propertyId?: string | null; audience: 'guest' | 'staff'; scope?: VoiceScope },
   start: (ctx: VoiceSessionContext) => Promise<{ externalId: string | null; result: T }>,
 ): Promise<{ result: T; token: string }> {
+  // Guests anywhere but a hotel's own pages talk to the HotelOne concierge.
+  if (q.audience === 'guest' && (q.scope === 'GLOBAL' || !q.propertyId)) return openConciergeSession(request, start);
+  if (!q.propertyId) throw badRequest('propertyId is required.');
   const property = await prisma.property.findFirst({
     where: { id: q.propertyId, isActive: true },
     select: { id: true, name: true, voiceAgent: true },
@@ -94,7 +127,8 @@ export async function openVoiceSession<T>(
     assertPropertyAccess(actor, property.id);
     const ctx: VoiceSessionContext = {
       audience: 'staff',
-      property,
+      scope: 'HOTEL',
+      property: { id: property.id, name: property.name },
       voice,
       prompts: staffPrompts({ name: property.name, userName: actor.name, role: roleLabel(actor.role), ...today }),
       firstMessage: `Hi ${actor.name.split(' ')[0]} — what do you need?`,
@@ -105,17 +139,24 @@ export async function openVoiceSession<T>(
       [{ where: { userId: actor.userId, audience: 'STAFF', startedAt: since(60 * MINUTE) }, max: 30, message: 'That’s a lot of voice sessions this hour — give it a few minutes, or type instead.' }],
       () => start(ctx),
     );
-    return { result: session.result, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'STAFF', uid: actor.userId }) };
+    return { result: session.result, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'STAFF', uid: actor.userId, sc: 'HOTEL' }) };
   }
 
   if (cfg && (!cfg.enabled || !cfg.guestWidget)) throw new DomainError(403, 'VOICE_OFF', `${property.name} isn’t taking voice calls online right now.`);
-  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || request.headers.get('x-real-ip') || 'unknown';
-  const clientKey = createHash('sha256').update(`${ip}|${property.id}`).digest('hex').slice(0, 32);
+  const clientKey = createHash('sha256').update(`${clientIp(request)}|${property.id}`).digest('hex').slice(0, 32);
   const ctx: VoiceSessionContext = {
     audience: 'guest',
-    property,
+    scope: 'HOTEL',
+    property: { id: property.id, name: property.name },
     voice,
-    prompts: guestPrompts({ name: property.name, greeting: cfg?.greeting, houseRules: cfg?.instructions, handoffPhone: cfg?.handoffPhone, ...today }),
+    prompts: guestPrompts({
+      name: property.name,
+      greeting: cfg?.greeting,
+      houseRules: cfg?.instructions,
+      handoffPhone: cfg?.handoffPhone,
+      skills: await guestSkills(property.id),
+      ...today,
+    }),
     firstMessage: cfg?.greeting?.trim() || `Hi, thanks for calling ${property.name}. How can I help?`,
     tools: GUEST_TOOLS,
   };
@@ -126,7 +167,47 @@ export async function openVoiceSession<T>(
     if (viewer && viewer.role !== 'CUSTOMER' && hasPropertyAccess(viewer, property.id)) throw e;
     throw new DomainError(502, 'VOICE_UPSTREAM', `${property.name}’s voice line isn’t available right now — please try again later${cfg?.handoffPhone ? ` or call ${cfg.handoffPhone}` : ''}.`);
   });
-  return { result: session.result, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null }) };
+  return { result: session.result, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null, sc: 'HOTEL' }) };
+}
+
+/**
+ * The HotelOne concierge: one voice for every listed hotel, started from the
+ * platform's own pages. GLOBAL sessions have no property; they're limited per
+ * caller and by their own hourly ceiling (on top of the booking-site one), so
+ * concierge traffic can't use up the hotels' own voice lines.
+ */
+async function openConciergeSession<T>(
+  request: Request,
+  start: (ctx: VoiceSessionContext) => Promise<{ externalId: string | null; result: T }>,
+): Promise<{ result: T; token: string }> {
+  if (!conciergeVoiceAvailable()) throw new DomainError(403, 'VOICE_OFF', `The ${PRODUCT_NAME} voice concierge isn’t available right now.`);
+  const clientKey = createHash('sha256').update(`${clientIp(request)}|GLOBAL`).digest('hex').slice(0, 32);
+  const ctx: VoiceSessionContext = {
+    audience: 'guest',
+    scope: 'GLOBAL',
+    property: null,
+    voice: process.env.VOICE_CONCIERGE_VOICE || 'marin',
+    prompts: conciergePrompts({ product: PRODUCT_NAME, ...guestContext() }),
+    firstMessage: `Hi, I’m ${PRODUCT_NAME}’s AI concierge. Where would you like to stay, and when?`,
+    tools: CONCIERGE_TOOLS,
+  };
+  const limits: Limit[] = [
+    { where: { clientKey, startedAt: since(10 * MINUTE) }, max: 6, message: 'Too many calls in a short time — please try again in a few minutes.' },
+    {
+      // Propertyless rows also hold the concierge rate limiter's hits (channel RATE_LIMIT): count real web sessions only.
+      where: { propertyId: null, scope: 'GLOBAL', audience: 'GUEST', channel: 'WEB', startedAt: since(60 * MINUTE) },
+      max: Number(process.env.VOICE_CONCIERGE_MAX_SESSIONS_PER_HOUR || 120),
+      message: 'The concierge is very busy right now — please try again shortly.',
+    },
+  ];
+  const session = await reserve({ propertyId: null, audience: 'GUEST', scope: 'GLOBAL', channel: 'WEB', clientKey }, limits, () => start(ctx)).catch(async (e) => {
+    // The provider's reason is for platform admins checking the line, not for guests.
+    if (!(e instanceof DomainError) || e.code !== 'VOICE_UPSTREAM') throw e;
+    const viewer = await getActor().catch(() => null);
+    if (viewer?.role === 'ADMIN') throw e;
+    throw new DomainError(502, 'VOICE_UPSTREAM', 'The concierge isn’t available right now — please try again later.');
+  });
+  return { result: session.result, token: signVoiceToken({ sid: session.id, pid: null, aud: 'GUEST', uid: null, sc: 'GLOBAL' }) };
 }
 
 /**
@@ -177,6 +258,7 @@ export async function openPhoneSession(input: {
   if (!line?.enabled || (cfg && !cfg.enabled)) throw new DomainError(403, 'VOICE_OFF', `${property.name} isn’t taking calls on this line right now.`);
   const ctx: VoiceSessionContext = {
     audience: 'guest',
+    scope: 'HOTEL',
     property: { id: property.id, name: property.name },
     voice: cfg?.voice ?? 'marin',
     prompts: guestPrompts({
@@ -184,6 +266,7 @@ export async function openPhoneSession(input: {
       greeting: cfg?.greeting,
       houseRules: cfg?.instructions,
       phone: { callerNumber: input.callerNumber, canTransfer: !!line.transferNumber && !whatsapp, whatsapp },
+      skills: await guestSkills(property.id),
       ...guestContext(),
     }),
     // The hotel's greeting is written for calls ("Thanks for calling…"); WhatsApp gets a neutral one.
@@ -200,5 +283,5 @@ export async function openPhoneSession(input: {
     async () => ({ externalId: input.externalId, result: null }),
   );
   // Calls last 10 minutes at most; a WhatsApp chat can go on through the day.
-  return { ctx, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null, ch: channel }, whatsapp ? 24 * 60 * MINUTE : 20 * MINUTE) };
+  return { ctx, token: signVoiceToken({ sid: session.id, pid: property.id, aud: 'GUEST', uid: null, ch: channel, sc: 'HOTEL' }, whatsapp ? 24 * 60 * MINUTE : 20 * MINUTE) };
 }

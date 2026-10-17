@@ -18,6 +18,7 @@ const COLUMNS = [
     title: 'For travellers',
     links: [
       { href: '/properties', label: 'Find a stay' },
+      { href: '/assistants', label: 'Book with AI assistants' },
       { href: '/dashboard', label: 'My trips' },
       { href: '/register', label: 'Create an account' },
     ],

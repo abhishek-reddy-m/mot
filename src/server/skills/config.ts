@@ -9,7 +9,7 @@ import { after } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { money } from '@/lib/status';
 import { HOTEL_POLICY, cleanFaqs } from '../concierge/facts';
-import { skillKey, type AnswerBody, type SkillAudience } from './types';
+import { cleanSkillText, skillKey, type AnswerBody, type SkillAudience } from './types';
 
 /** A generated answer skill. */
 interface ConfigSkill {
@@ -65,11 +65,15 @@ async function desiredSkills(propertyId: string): Promise<ConfigSkill[] | null> 
 
   const used = new Set<string>();
   for (const f of cleanFaqs(p.voiceAgent?.faqs)) {
-    const base = `faq-${skillKey(f.q, 52)}`;
+    // FAQ text is typed by hotel staff and read by models: one-line questions, no control characters.
+    const q = cleanSkillText(f.q);
+    const a = cleanSkillText(f.a, { multiline: true });
+    if (!q || !a) continue;
+    const base = `faq-${skillKey(q, 52)}`;
     let key = base;
     for (let i = 2; used.has(key); i++) key = `${base}-${i}`;
     used.add(key);
-    out.push({ key, title: clip(f.q.trim(), 120), description: clip(`Hotel FAQ. Use when a guest asks: "${f.q.trim()}"`, 500), audience: 'GUEST', kind: 'ANSWER', body: { answer: clip(f.a.trim(), 4000) } });
+    out.push({ key, title: clip(q, 120), description: clip(`Hotel FAQ. Use when a guest asks: "${q.replace(/"/g, '”')}"`, 500), audience: 'GUEST', kind: 'ANSWER', body: { answer: clip(a, 4000) } });
   }
 
   const hotelAmenities = p.amenities.map((a) => a.trim()).filter(Boolean);

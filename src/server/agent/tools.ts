@@ -103,6 +103,8 @@ export function statusLine(intent: Intent): string {
       return 'Finding the reservation…';
     case 'help':
       return 'Here’s what I can do…';
+    case 'unknown':
+      return 'Thinking…';
     default:
       return 'Working on it…';
   }
@@ -406,7 +408,8 @@ export async function runRead(ctx: ToolCtx, intent: Intent): Promise<ReadOutput>
               '• **Guests:** “check in the Smiths, quiet room on a high floor”, “check out room 201”, “add a note to K7Q2MD: late arrival”\n' +
               '• **Rooms:** “which rooms need cleaning?”, “mark 203 clean”, “room 106 out of order — broken AC”\n' +
               '• **Housekeeping:** “auto-assign housekeeping”, “have Rosa clean 303”\n' +
-              '• **Revenue:** “availability next Friday for 2 nights”, “forecast the next 3 weekends”, “raise weekend rates 10%”',
+              '• **Revenue:** “availability next Friday for 2 nights”, “forecast the next 3 weekends”, “raise weekend rates 10%”\n' +
+              '• **Hotel questions:** “is parking free?”, “what’s our cancellation policy?” — answered from your saved answers',
           },
           { type: 'suggestions', items: ['brief me', 'who’s arriving today?', 'which rooms need cleaning?', 'forecast the next 3 weekends'] },
         ],
@@ -414,7 +417,7 @@ export async function runRead(ctx: ToolCtx, intent: Intent): Promise<ReadOutput>
     default:
       return {
         blocks: [
-          { type: 'text', text: 'I didn’t quite catch that. Here are some things I can do — or switch to Classic for the full screens.' },
+          { type: 'text', text: 'I didn’t quite catch that. Here are some things I can do — or switch to Classic for the full screens. If it’s a question about the hotel, a manager can add the answer on the Skills page and I’ll know it next time.' },
           { type: 'suggestions', items: ['brief me', 'who’s arriving today?', 'which rooms need cleaning?', 'help'] },
         ],
       };

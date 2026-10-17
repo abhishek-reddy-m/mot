@@ -5,6 +5,9 @@ import { refreshTools } from '@/server/pms';
 import { limitOutbound, pmsProperty } from '@/server/pms/guard';
 import { propertyOnlySchema } from '@/server/pms/schemas';
 
+/** Listing a PMS MCP server’s tools can take up to ~30 s. */
+export const maxDuration = 60;
+
 /** POST { propertyId } — re-read the PMS's tool list and re-cache it as skills. */
 export const POST = handleRoute(async (request: NextRequest) => {
   const actor = await requireStaff('bridge.manage');

@@ -6,6 +6,9 @@ import { notFound } from '@/server/errors';
 import { handleRoute, json, parseJson } from '@/server/http';
 import { taskView, updateTaskByStaff } from '@/server/services/bridge';
 
+/** Retried tasks for an MCP-connected PMS run right after this response. */
+export const maxDuration = 60;
+
 type Params = { params: Promise<{ taskId: string }> };
 
 /** GET — one bridge task (the agent's live card polls this). */

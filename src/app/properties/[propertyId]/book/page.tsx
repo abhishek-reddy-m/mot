@@ -19,6 +19,7 @@ import { Callout, EmptyState, Skeleton } from '@/components/ui/primitives';
 import { SegmentedControl } from '@/components/ui/segmented';
 import { SmartImage } from '@/components/ui/smart-image';
 import { PublicDemoNote } from '@/components/guest/PublicDemoNote';
+import { useVoicePage, type VoiceActionResult } from '@/components/voice/page-context';
 import { GuestShell } from '../../_components/guest-shell';
 import { usePropertyShell } from '../../_components/property-shell';
 import { plural, price, shiftDay } from '../../_components/format';
@@ -34,6 +35,24 @@ interface PublicProperty {
 }
 
 type PaymentMethod = 'pay_at_property' | 'stripe';
+
+/** The new-guest form; lives in Checkout so links (guestName/guestEmail/guestPhone) and the voice agent can fill it. */
+interface GuestForm {
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  password: string;
+}
+
+/** ["name", "email", "a password"] → "name, email and a password". */
+const listWords = (words: string[]) => (words.length > 1 ? `${words.slice(0, -1).join(', ')} and ${words.at(-1)}` : (words[0] ?? ''));
+
+/** "Jamie Lee Smith" → first "Jamie", last "Lee Smith". */
+function splitName(full: string): { firstName: string; lastName: string } {
+  const [firstName = '', ...rest] = full.trim().split(/\s+/);
+  return { firstName, lastName: rest.join(' ') };
+}
 
 const STEPS = ['Room and dates', 'Your details', 'Review and book'] as const;
 
@@ -112,9 +131,8 @@ function Section({ id, title, description, done, children }: { id: string; title
   );
 }
 
-function GuestAuth({ onDone }: { onDone: () => void }) {
+function GuestAuth({ onDone, form, setForm }: { onDone: () => void; form: GuestForm; setForm: React.Dispatch<React.SetStateAction<GuestForm>> }) {
   const [mode, setMode] = React.useState<'register' | 'signin'>('register');
-  const [form, setForm] = React.useState({ firstName: '', lastName: '', email: '', phone: '', password: '' });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const { update } = useSession();
@@ -227,13 +245,20 @@ function Checkout() {
     roomTypeId && checkIn && checkOut ? `/api/quote?roomTypeId=${roomTypeId}&checkIn=${checkIn}&checkOut=${checkOut}&guests=${guests}&rooms=${rooms}` : null,
     fetcher
   );
-  const { data: config } = useSWR<{ stripeEnabled: boolean }>('/api/config', fetcher);
+  const { data: config } = useSWR<{ stripeEnabled: boolean; emailEnabled?: boolean }>('/api/config', fetcher);
   const [payment, setPayment] = React.useState<PaymentMethod>('pay_at_property');
   const [notes, setNotes] = React.useState('');
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState('');
   const [needDetails, setNeedDetails] = React.useState(false);
   const confirmRef = React.useRef<HTMLButtonElement>(null);
+  // Agent links pre-fill the guest's details (guestName, guestEmail, guestPhone).
+  const [guestForm, setGuestForm] = React.useState<GuestForm>(() => ({
+    ...splitName(params.get('guestName') ?? ''),
+    email: params.get('guestEmail') ?? '',
+    phone: params.get('guestPhone') ?? '',
+    password: '',
+  }));
 
   const rt = p?.roomTypes.find((r) => r.id === roomTypeId);
   const signedIn = status === 'authenticated';
@@ -247,31 +272,109 @@ function Checkout() {
     if (signedIn) setNeedDetails(false);
   }, [signedIn]);
 
-  async function confirm() {
-    if (!signedIn) {
-      // Validate on click instead of a disabled button: show where to go next.
-      setNeedDetails(true);
-      document.getElementById('details')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      setTimeout(() => document.querySelector<HTMLInputElement>('#details input:not([type="hidden"])')?.focus({ preventScroll: true }), 350);
-      return;
-    }
+  /** Show where to go next instead of a disabled button: the details form, focused. */
+  function askForDetails(focus = true) {
+    setNeedDetails(true);
+    document.getElementById('details')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    if (focus) setTimeout(() => document.querySelector<HTMLInputElement>('#details input:not([type="hidden"])')?.focus({ preventScroll: true }), 350);
+  }
+
+  /** Book it (the guest is signed in). Pay-at-hotel bookings go to the booking page; card payments to Stripe. */
+  async function submit(): Promise<{ ok: true; id: string; code: string | null } | { ok: false; error: string }> {
     setBusy(true);
     setError('');
     try {
-      const r = await api<{ requiresPayment: boolean; checkoutUrl?: string; booking: { id: string } }>('/api/bookings', {
+      const r = await api<{ requiresPayment: boolean; checkoutUrl?: string; booking: { id: string; code?: string | null } }>('/api/bookings', {
         method: 'POST',
         json: { propertyId, roomTypeId, checkIn, checkOut, guests, rooms, notes: notes.trim() || null, paymentMethod: method },
       });
       if (r.requiresPayment && r.checkoutUrl) {
         window.location.href = r.checkoutUrl;
-        return;
+        return { ok: false, error: 'Opening the card payment page.' };
       }
       router.push(`/bookings/${r.booking.id}?new=1`);
+      return { ok: true, id: r.booking.id, code: r.booking.code ?? null };
     } catch (e) {
-      setError((e as Error).message);
+      const message = (e as Error).message;
+      setError(message);
       setBusy(false);
+      return { ok: false, error: message };
     }
   }
+
+  async function confirm() {
+    if (!signedIn) return askForDetails();
+    await submit();
+  }
+
+  // The voice agent (the site's voice dock) sees this order and can fill in details and book on a spoken yes.
+  const roomName = rt?.name ?? quote?.roomTypeName;
+  const total = quote ? price(quote.total, quote.currency ?? 'USD') : null;
+  useVoicePage({
+    kind: 'checkout',
+    propertyId,
+    propertyName: name,
+    brand: p?.primaryColor ?? shell?.primaryColor,
+    stay: checkIn && checkOut ? { checkIn, checkOut, guests, rooms } : null,
+    summary:
+      roomTypeId && checkIn && checkOut
+        ? [
+            `checkout for ${roomName ? `the ${roomName}` : 'a room'}${name ? ` at ${name}` : ''}, ${fmtRange(checkIn, checkOut)}, ${plural(guests, 'guest')}${rooms > 1 ? `, ${plural(rooms, 'room')}` : ''}${total ? `, total ${total}` : ''}`,
+            unavailable ? 'this room just sold out for these dates' : '',
+            status === 'loading' ? '' : signedIn ? `signed in as ${session?.user?.name ?? session?.user?.email}` : 'not signed in yet',
+            method === 'stripe' ? 'card payment selected' : 'paying at the hotel',
+          ]
+            .filter(Boolean)
+            .join('; ')
+        : 'checkout, but no room or dates are chosen yet',
+    actions: {
+      fillGuest: ({ name: guestName, phone, notes: requests }): VoiceActionResult => {
+        const filled: string[] = [];
+        if (requests) {
+          setNotes(requests.slice(0, 1000));
+          filled.push('special requests');
+        }
+        if (signedIn) {
+          return {
+            ok: true,
+            message: `${filled.length ? `Filled in ${filled.join(' and ')}. ` : ''}The guest is signed in as ${session?.user?.name ?? session?.user?.email}, so their name and email come from their account.`,
+          };
+        }
+        const next = { ...guestForm, ...(guestName ? splitName(guestName) : {}), ...(phone ? { phone } : {}) };
+        if (guestName) filled.push('name');
+        if (phone) filled.push('phone');
+        setGuestForm(next);
+        if (guestName || phone) askForDetails(false);
+        const missing = [!next.firstName || !next.lastName ? 'first and last name' : '', !next.email ? 'email' : '', 'a password'].filter(Boolean);
+        return {
+          ok: true,
+          message: `${filled.length ? `Filled in ${filled.join(' and ')}. ` : ''}To book, the guest needs to add their ${listWords(missing)} under “Your details” on screen (or choose “I have an account” and sign in).`,
+          missing,
+        };
+      },
+      confirmBooking: async (): Promise<VoiceActionResult> => {
+        if (busy) return { ok: false, error: 'It’s already booking — wait a moment.' };
+        if (quoteError) return { ok: false, error: `The price couldn’t be checked: ${(quoteError as Error).message}` };
+        if (!quote) return { ok: false, error: 'The price is still loading — try again in a moment.' };
+        if (unavailable) return { ok: false, error: 'This room just sold out for these dates — offer to check other rooms or dates.' };
+        if (method === 'stripe') {
+          return { ok: false, error: 'Card payment is selected. Ask the guest to tap “Continue to payment” on screen, or to choose “Pay at the hotel” so you can book it. Never take card details by voice.' };
+        }
+        if (!signedIn) {
+          askForDetails();
+          return { ok: false, error: 'The guest isn’t signed in yet. Ask them to finish “Your details” on screen — email and a password, or sign in — then you can book it.', needs: 'sign in' };
+        }
+        const r = await submit();
+        if (!r.ok) return { ok: false, error: r.error };
+        return {
+          ok: true,
+          message: `Booked — pay at the hotel. Confirmation code ${r.code ?? 'on screen'}. Their booking page is opening now${config?.emailEnabled ? ' and a confirmation email is on its way' : ''}.`,
+          code: r.code,
+          total: quote.total,
+        };
+      },
+    },
+  });
 
   if (!roomTypeId || !checkIn || !checkOut) {
     return (
@@ -337,7 +440,7 @@ function Checkout() {
                       Add your details to finish booking — it takes a few seconds.
                     </Callout>
                   )}
-                  <GuestAuth onDone={() => setTimeout(() => confirmRef.current?.focus(), 100)} />
+                  <GuestAuth form={guestForm} setForm={setGuestForm} onDone={() => setTimeout(() => confirmRef.current?.focus(), 100)} />
                 </>
               )}
             </Section>
@@ -418,6 +521,8 @@ function Checkout() {
               )}
               <Button
                 ref={confirmRef}
+                // The voice launcher moves up instead of covering this button as it scrolls past.
+                data-voice-avoid
                 variant="brand"
                 size="lg"
                 // A long total wraps under the label on the narrowest phones instead of widening the page.
@@ -439,7 +544,8 @@ function Checkout() {
 
           {/* Summary */}
           <aside className="order-1 lg:order-2" aria-labelledby="summary-title">
-            <div className="overflow-hidden rounded-2xl border bg-card shadow-soft lg:sticky lg:top-24">
+            {/* From lg up the voice launcher folds (or moves up) instead of covering the order summary. */}
+            <div data-voice-avoid="desktop" className="overflow-hidden rounded-2xl border bg-card shadow-soft lg:sticky lg:top-24">
               <SmartImage src={rt?.photos[0]?.url} alt="" aspectRatio="16 / 9" sizes="400px" className="hidden w-full sm:block" />
               <div className="p-5">
                 <div className="flex items-start gap-3">

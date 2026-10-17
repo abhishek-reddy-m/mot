@@ -5,8 +5,11 @@
  * account — one for guests, one for staff — with our hotel tools registered
  * as *client* tools: ElevenLabs asks the browser to run them, and the
  * browser calls the same HotelOne endpoints GPT-Live uses (signed voice token
- * for guests; the permission-checked agent pipeline for staff). Hotel
- * specifics (name, today's date, house rules, greeting) are sent per
+ * for guests; the permission-checked agent pipeline for staff). The guest
+ * agent serves both a hotel's own front desk and the all-hotels concierge, so
+ * it carries every booking-site tool (GUEST_AGENT_TOOLS); the prompt sent per
+ * conversation says which apply, and the server refuses the rest. Hotel
+ * specifics (name, today's date, house rules, skills, greeting) are sent per
  * conversation as prompt overrides. Agents and tools are re-synced whenever
  * their configuration in this file changes (tracked by a hash).
  *
@@ -29,7 +32,7 @@ import { PRODUCT_NAME, PRODUCT_URL } from '@/config/product';
 import { prisma } from '@/lib/prisma';
 import { DomainError, notFound } from '../errors';
 import { configuredPublicUrl, publicSiteUrl } from '../public-url';
-import { GUEST_TOOLS, PHONE_TOOLS, STAFF_TOOLS, deriveVoiceKey, sameKey, type FunctionToolSpec } from './live';
+import { GUEST_AGENT_TOOLS, PHONE_TOOLS, STAFF_TOOLS, deriveVoiceKey, sameKey, type FunctionToolSpec } from './live';
 
 const DEFAULT_BASE = 'https://api.elevenlabs.io';
 const BASE = (process.env.ELEVENLABS_API_BASE || DEFAULT_BASE).replace(/\/$/, '');
@@ -191,7 +194,7 @@ function agentConfig(audience: Audience, toolIds: string[]) {
         language: 'en',
         // The real, hotel-specific prompt arrives per conversation as an override.
         prompt: {
-          prompt: guest ? 'You are a hotel’s voice front desk. Use your tools for every fact.' : 'You are a hotel’s hands-free staff assistant. Use the front_desk tool for every request.',
+          prompt: guest ? 'You are a hotel booking voice assistant. Use your tools for every fact.' : 'You are a hotel’s hands-free staff assistant. Use the front_desk tool for every request.',
           llm: LLM,
           temperature: 0.3,
           tool_ids: toolIds,
@@ -407,7 +410,7 @@ async function syncAgent(audience: Audience): Promise<string> {
   const own = ownAgent(audience);
   if (own) return own; // bring-your-own agent: managed in ElevenLabs
 
-  const specs = audience === 'guest' ? GUEST_TOOLS : STAFF_TOOLS;
+  const specs = audience === 'guest' ? GUEST_AGENT_TOOLS : STAFF_TOOLS;
   const desiredHash = hash({ tools: specs.map((s) => toolConfig(s, audience)), agent: agentConfig(audience, []) });
   return provisionAgent(agentKey(audience), desiredHash, async (tx) => {
     const toolIds: string[] = [];
@@ -611,7 +614,9 @@ export async function startElevenLabsConversation(input: {
       agentId = await syncAgent(input.audience);
       signed = await signedUrlFor(agentId);
     }
-    return { ...signed, prompt: singleModelPrompt(input.prompts), firstMessage: input.firstMessage, tools: input.tools.map((t) => t.name) };
+    // The browser registers every tool the agent has, so a stray call gets a clear answer instead of an SDK error.
+    const tools = input.audience === 'guest' ? GUEST_AGENT_TOOLS : input.tools;
+    return { ...signed, prompt: singleModelPrompt(input.prompts), firstMessage: input.firstMessage, tools: tools.map((t) => t.name) };
   } catch (e) {
     if (e instanceof DomainError) throw e;
     console.error('ElevenLabs conversation start failed:', e instanceof ElevenLabsError ? `${e.status} ${e.detail}` : e);

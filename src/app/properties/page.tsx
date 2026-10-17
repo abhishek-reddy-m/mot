@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Callout, EmptyState, Skeleton } from '@/components/ui/primitives';
 import { SmartImage } from '@/components/ui/smart-image';
 import { StaySearch, defaultStay, type StayQuery } from '@/components/guest/StaySearch';
+import { useVoicePage } from '@/components/voice/page-context';
 import { GuestShell } from './_components/guest-shell';
 import { plural, price } from './_components/format';
 
@@ -191,6 +192,15 @@ function Directory() {
   const bookable = sorted.filter((p) => !blocker(p, query)).length;
   const multiRoom = sorted.filter((p) => blocker(p, query)?.kind === 'capacity').length;
   const searching = isValidating && !!data;
+
+  // The voice concierge knows what the guest is browsing.
+  useVoicePage({
+    kind: 'directory',
+    stay: query.dated ? { checkIn: query.checkIn, checkOut: query.checkOut, guests: query.guests, rooms: 1 } : null,
+    summary: `the list of hotels${query.q ? ` matching “${query.q}”` : ''}${query.dated ? ` for ${fmtRange(query.checkIn, query.checkOut)}` : ''}, ${plural(query.guests, 'guest')}${
+      data ? ` — ${plural(sorted.length, 'hotel')} shown${sorted.length ? `: ${sorted.slice(0, 5).map((p) => `${p.name} (${p.city})`).join(', ')}${sorted.length > 5 ? '…' : ''}` : ''}` : ''
+    }`,
+  });
 
   return (
     <>

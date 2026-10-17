@@ -6,6 +6,7 @@ import { badRequest, notFound } from '@/server/errors';
 import { handleRoute, json, parseJson, parseQuery } from '@/server/http';
 import { recordAudit } from '@/server/services/audit';
 import { PMS_SYSTEMS, connectionView, getConnection, listTasks, taskView, upsertConnection } from '@/server/services/bridge';
+import { deleteCachedTools } from '@/server/pms';
 import { OPERATOR_MODEL, operatorConfigured } from '@/server/bridge/operator';
 import { vaultAvailable } from '@/server/vault';
 import { cloudLoginUrlIssue, pmsLoginUrlSchema } from '@/server/schemas';
@@ -33,7 +34,11 @@ const putSchema = z.object({
   loginUrl: pmsLoginUrlSchema,
 });
 
-/** PUT — choose the PMS and how HotelOne reaches it (desktop connector or cloud browser). */
+/**
+ * PUT — choose the PMS and how HotelOne reaches it (desktop connector or
+ * cloud browser). MCP connections are set up with POST /api/admin/pms/connect,
+ * which tests the server first; this route never accepts mode MCP.
+ */
 export const PUT = handleRoute(async (request: NextRequest) => {
   const actor = await requireStaff('bridge.manage');
   const body = await parseJson(request, putSchema);
@@ -51,7 +56,7 @@ export const PATCH = handleRoute(async (request: NextRequest) => {
   const propertyId = await resolvePropertyId(actor, body.propertyId);
   const c = await getConnection(propertyId);
   if (!c) throw notFound('PMS connection');
-  const ready = c.mode === 'CLOUD' ? !!c.credentialsCipher : !!c.deviceTokenHash;
+  const ready = c.mode === 'CLOUD' ? !!c.credentialsCipher : c.mode === 'MCP' ? !!c.loginUrl : !!c.deviceTokenHash;
   const updated = await prisma.pmsConnection.update({ where: { id: c.id }, data: { status: body.paused ? 'PAUSED' : ready ? 'CONNECTED' : 'PENDING' } });
   await recordAudit({ actor, source: 'classic' }, propertyId, 'BRIDGE_SETUP', body.paused ? `Paused the ${c.system} bridge` : `Resumed the ${c.system} bridge`);
   return json(connectionView(updated));
@@ -69,6 +74,7 @@ export const DELETE = handleRoute(async (request: NextRequest) => {
     prisma.bridgeTask.updateMany({ where: { connectionId: c.id, status: { in: ['QUEUED', 'NEEDS_HELP'] } }, data: { status: 'CANCELLED', finishedAt: new Date() } }),
     prisma.pmsConnection.delete({ where: { id: c.id } }),
   ]);
+  if (c.mode === 'MCP') await deleteCachedTools(propertyId);
   await recordAudit({ actor, source: 'classic' }, propertyId, 'BRIDGE_SETUP', `Disconnected ${c.system}`);
   return json({ ok: true });
 });

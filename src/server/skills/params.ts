@@ -69,6 +69,38 @@ export function validateSkillArgs(key: string, parameters: SkillParameters | nul
   return out;
 }
 
+/**
+ * A skill's input names in the order its steps use them (JSONB doesn't keep
+ * the parameters' key order), then any declared but unused ones.
+ */
+export function inputNames(kind: SkillKind, body: SkillBody, parameters: SkillParameters | null): string[] {
+  const declared = Object.keys(parameters?.properties ?? {});
+  const used = (kind === 'MACRO' || kind === 'RECIPE') ? placeholdersIn(kind, body).filter((n) => declared.includes(n)) : [];
+  return [...used, ...declared.filter((n) => !used.includes(n)).sort()];
+}
+
+/**
+ * Parameters for a MACRO/RECIPE body: one required text input per {param}
+ * it uses, keeping `previous` definitions for names still in use. Null when
+ * the body has no placeholders (or for ANSWER skills).
+ */
+export function parametersFor(kind: SkillKind, body: SkillBody, previous?: SkillParameters | null): SkillParameters | null {
+  const names = placeholdersIn(kind, body);
+  if (!names.length) return null;
+  const properties: SkillParameters['properties'] = {};
+  for (const n of names.slice(0, 20)) properties[n] = previous?.properties?.[n] ?? { type: 'string', description: PARAM_HINTS[n] ?? PARAM_HINTS[n.replace(/\d+$/, '')] ?? `Value for {${n}}` };
+  const keptRequired = (previous?.required ?? []).filter((r) => r in properties);
+  const fresh = names.filter((n) => n in properties && !previous?.properties?.[n]);
+  return { type: 'object', properties, required: [...new Set([...keptRequired, ...fresh])] };
+}
+
+/** Plain descriptions for the placeholders agents create most. */
+export const PARAM_HINTS: Record<string, string> = {
+  guest: 'The guest: name, room number or confirmation code',
+  room: 'Room number',
+  date: 'A date, like 2026-10-20 or “tomorrow”',
+};
+
 /** Replaces {param} placeholders with argument values; a placeholder without a value is a DomainError 400. */
 export function fillPlaceholders(key: string, text: string, args: SkillArgs): string {
   return text.replace(PLACEHOLDER, (_m, name: string) => {

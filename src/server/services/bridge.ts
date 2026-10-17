@@ -11,14 +11,27 @@
  *
  * The agent never acts in the PMS on its own: reads are queued as lookups,
  * changes go through the usual signed plan → confirm before being queued.
+ *
+ * Tasks that finish well teach a RECIPE skill (bridge/recipes.ts) that the
+ * operator gets for the next task of the same kind.
+ *
+ *  • MCP — the PMS vendor's own MCP server (src/server/pms). Set up through
+ *    /api/admin/pms, not upsertConnection. Its tasks run on our server right
+ *    after they're queued (no browser), with the same look-up / confirmed-
+ *    change rules.
  */
 import { randomInt } from 'crypto';
 import { PRODUCT_NAME } from '@/config/product';
 import { prisma } from '@/lib/prisma';
-import { Prisma, type PmsConnection } from '@prisma/client';
+import { Prisma, type BridgeTask, type PmsConnection } from '@prisma/client';
+import type { OperatorAction } from '../bridge/operator';
+import { appendLog, describeActions, learnFromTask, screenOf, type BridgePayload } from '../bridge/recipes';
 import { requirePermission, type Actor } from '../authz';
 import { badRequest, conflict, DomainError, forbidden, notFound } from '../errors';
 import { open, randomToken, seal, sha256, vaultAvailable } from '../vault';
+import { scheduleMcpTask } from '../pms/run';
+import { deleteCachedTools } from '../pms/tools';
+import { displayUrl } from '../pms/url-guard';
 import { recordAudit, type OpContext } from './audit';
 
 export const PMS_SYSTEMS = ['Cloudbeds', 'Mews', 'Oracle OPERA Cloud', 'Little Hotelier', 'RoomRaccoon', 'eZee Absolute', 'innRoad', 'WebRezPro', 'SkyTouch', 'Hotelogix', 'Other'] as const;
@@ -40,7 +53,8 @@ export function connectionView(c: PmsConnection | null) {
     system: c.system,
     mode: c.mode,
     status: c.status,
-    loginUrl: c.loginUrl,
+    // An MCP address can carry a key in its query: shown without query values.
+    loginUrl: c.mode === 'MCP' ? displayUrl(c.loginUrl) : c.loginUrl,
     hasCredentials: !!c.credentialsCipher,
     deviceName: c.deviceName,
     devicePaired: !!c.deviceTokenHash,
@@ -71,6 +85,8 @@ export async function upsertConnection(ctx: OpContext, propertyId: string, input
       ...(modeChanged ? { status: 'PENDING', credentialsCipher: null, deviceTokenHash: null, deviceName: null, pairingCode: null, pairingExpiresAt: null, lastError: null } : {}),
     },
   });
+  // Leaving MCP: the PMS's cached tools no longer apply.
+  if (existing?.mode === 'MCP') await deleteCachedTools(propertyId);
   await prisma.property.update({ where: { id: propertyId }, data: { setupPath: 'BRIDGE' } });
   await recordAudit(ctx, propertyId, 'BRIDGE_SETUP', `${existing ? 'Updated' : 'Connected'} ${input.system} (${input.mode === 'CLOUD' ? 'cloud browser' : 'desktop connector'})`);
   return c;
@@ -158,15 +174,19 @@ export async function enqueueTask(ctx: OpContext, propertyId: string, input: { k
   const c = await getConnection(propertyId);
   if (!c) throw badRequest('Connect your PMS first (Your PMS → Connect).');
   if (c.status === 'PAUSED') throw conflict('The bridge is paused. Resume it on the Your PMS page.');
-  // Every task drives paid computer-use steps (≤ MAX_STEPS each): hourly budget per property.
+  // Browser tasks drive paid computer-use steps (≤ MAX_STEPS each); MCP tasks are a few API calls,
+  // so they get a roomier hourly budget per property.
+  const mcp = c.mode === 'MCP';
   const lastHour = await prisma.bridgeTask.count({ where: { propertyId, createdAt: { gte: new Date(Date.now() - 3600_000) } } });
-  if (lastHour >= Number(process.env.BRIDGE_MAX_TASKS_PER_HOUR || 30)) {
+  if (lastHour >= Number((mcp ? process.env.PMS_MCP_MAX_TASKS_PER_HOUR : process.env.BRIDGE_MAX_TASKS_PER_HOUR) || (mcp ? 120 : 30))) {
     throw new DomainError(429, 'RATE_LIMITED', `That’s ${lastHour} PMS tasks in the last hour — the hourly limit. Try again shortly.`);
   }
   const task = await prisma.bridgeTask.create({
     data: { propertyId, connectionId: c.id, kind: input.kind, instruction: input.instruction.slice(0, 1000), payload: input.payload ?? {}, requestedById: ctx.actor.userId },
   });
   await recordAudit(ctx, propertyId, 'BRIDGE_TASK', `Sent to ${c.system}: “${input.instruction.slice(0, 120)}”`, { taskId: task.id });
+  // MCP: run it on our server right after this response (callers may also run it inline first).
+  if (mcp) scheduleMcpTask(task.id);
   return { task, connection: c };
 }
 
@@ -201,12 +221,36 @@ export async function loadTaskForCaller(caller: BridgeCaller, taskId: string) {
 export async function finishTask(caller: BridgeCaller, taskId: string, input: { status: 'DONE' | 'FAILED' | 'NEEDS_HELP'; summary?: string; error?: string }) {
   const task = await loadTaskForCaller(caller, taskId);
   if (task.status !== 'RUNNING') throw conflict('This task is no longer running.');
+  // The model's generic STEPS line is for recipes only; it never shows up in the task's result.
+  const summary = input.summary?.split(/\n\s*STEPS\s*:/i)[0].trim() || null;
   const updated = await prisma.bridgeTask.update({
     where: { id: task.id },
-    data: { status: input.status, result: { summary: input.summary ?? null }, error: input.error ?? null, finishedAt: new Date() },
+    data: { status: input.status, result: { summary }, error: input.error ?? null, finishedAt: new Date() },
   });
   if (input.status === 'FAILED' && input.error) await prisma.pmsConnection.update({ where: { id: task.connectionId }, data: { lastError: input.error.slice(0, 300) } });
+  // Learn (or count) the recipe for this kind of task. Never fails the report.
+  await learnFromTask({ ...updated, connection: task.connection });
   return updated;
+}
+
+/**
+ * Logs one operator step in the task's payload, in generic words only
+ * (screen path without ids or query, "click", "type the guest name"…), and
+ * keeps the model's final STEPS line — the raw material for a recipe.
+ */
+export async function logOperatorStep(
+  task: Pick<BridgeTask, 'id' | 'instruction' | 'payload'>,
+  input: { currentUrl?: string; next: { kind: 'actions'; actions: OperatorAction[] } | { kind: 'credential'; field: string } | { kind: 'done'; steps?: string[] } | { kind: 'limit' }; recipeKey?: string | null },
+) {
+  let payload = { ...((task.payload ?? {}) as BridgePayload) };
+  if (input.recipeKey && !payload.recipeKey) payload.recipeKey = input.recipeKey;
+  const screen = screenOf(input.currentUrl);
+  if (input.next.kind === 'actions') payload = appendLog(payload, screen, describeActions(input.next.actions, task.instruction));
+  else if (input.next.kind === 'credential') payload = appendLog(payload, screen, [input.next.field === 'totp' ? 'enter the one-time code' : `sign in (${input.next.field})`]);
+  else if (input.next.kind === 'done' && input.next.steps?.length) payload.reportedSteps = input.next.steps.slice(0, 20).map((s) => s.slice(0, 200));
+  else if (input.next.kind === 'limit') payload.stepLimit = true;
+  await prisma.bridgeTask.update({ where: { id: task.id }, data: { payload: payload as Prisma.InputJsonValue } });
+  return payload;
 }
 
 export async function listTasks(propertyId: string, limit = 30) {
@@ -214,13 +258,16 @@ export async function listTasks(propertyId: string, limit = 30) {
 }
 
 export function taskView(t: Awaited<ReturnType<typeof listTasks>>[number]) {
-  const result = (t.result ?? {}) as { summary?: string | null };
+  const result = (t.result ?? {}) as { summary?: string | null; via?: string; calls?: unknown[] };
   return {
     id: t.id,
     kind: t.kind,
     instruction: t.instruction,
     status: t.status,
     summary: result.summary ?? null,
+    /** 'mcp' when it ran through the PMS's MCP server, with how many PMS calls it made. */
+    via: result.via ?? null,
+    pmsCalls: Array.isArray(result.calls) ? result.calls.length : null,
     error: t.error,
     createdAt: t.createdAt.toISOString(),
     startedAt: t.startedAt?.toISOString() ?? null,
@@ -231,7 +278,7 @@ export type BridgeTaskView = ReturnType<typeof taskView>;
 
 export async function updateTaskByStaff(actor: Actor, taskId: string, action: 'cancel' | 'retry') {
   requirePermission(actor, 'bridge.use');
-  const t = await prisma.bridgeTask.findUnique({ where: { id: taskId } });
+  const t = await prisma.bridgeTask.findUnique({ where: { id: taskId }, include: { connection: { select: { mode: true } } } });
   if (!t) throw notFound('Task');
   if (actor.propertyIds !== 'ALL' && !actor.propertyIds.includes(t.propertyId)) throw forbidden('Not your property.');
   if (action === 'cancel') {
@@ -239,5 +286,7 @@ export async function updateTaskByStaff(actor: Actor, taskId: string, action: 'c
     return prisma.bridgeTask.update({ where: { id: t.id }, data: { status: 'CANCELLED', finishedAt: new Date() } });
   }
   if (!['FAILED', 'NEEDS_HELP', 'CANCELLED'].includes(t.status)) throw conflict('Only finished tasks can be retried.');
-  return prisma.bridgeTask.update({ where: { id: t.id }, data: { status: 'QUEUED', error: null, result: Prisma.JsonNull, startedAt: null, finishedAt: null } });
+  const retried = await prisma.bridgeTask.update({ where: { id: t.id }, data: { status: 'QUEUED', error: null, result: Prisma.JsonNull, startedAt: null, finishedAt: null } });
+  if (t.connection.mode === 'MCP') scheduleMcpTask(t.id);
+  return retried;
 }

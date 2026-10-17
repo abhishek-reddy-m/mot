@@ -23,6 +23,8 @@ export interface SignedPlanPayload {
   exp: number;
   title: string;
   steps: PlanStep[];
+  /** The command's normalised shape, logged as `okShape` when the plan runs (shortcut suggestions). */
+  shape?: { shape: string; template: string };
 }
 
 const TTL_MS = 10 * 60 * 1000;
@@ -35,7 +37,7 @@ function secret(): string {
 
 const b64url = (buf: Buffer) => buf.toString('base64url');
 
-export function signPlan(input: { userId: string; propertyId: string; title: string; steps: PlanStep[] }): { token: string; expiresAt: string } {
+export function signPlan(input: { userId: string; propertyId: string; title: string; steps: PlanStep[]; shape?: { shape: string; template: string } }): { token: string; expiresAt: string } {
   const payload: SignedPlanPayload = {
     v: 1,
     uid: input.userId,
@@ -44,6 +46,7 @@ export function signPlan(input: { userId: string; propertyId: string; title: str
     exp: Date.now() + TTL_MS,
     title: input.title,
     steps: input.steps,
+    ...(input.shape ? { shape: { shape: input.shape.shape.slice(0, 300), template: input.shape.template.slice(0, 300) } } : {}),
   };
   const body = b64url(Buffer.from(JSON.stringify(payload)));
   const sig = b64url(createHmac('sha256', secret()).update(body).digest());

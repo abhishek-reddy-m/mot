@@ -6,6 +6,9 @@ import { runAgent } from '@/server/agent/engine';
 import { DomainError } from '@/server/errors';
 import { handleRoute, parseJson } from '@/server/http';
 
+/** PMS look-ups through an MCP server run inside this request (and may finish after it). */
+export const maxDuration = 60;
+
 const schema = z.object({
   propertyId: z.string().min(1),
   message: z.string().trim().min(1).max(600),
@@ -17,6 +20,8 @@ const schema = z.object({
       lastRoomNumber: z.string().optional(),
     })
     .default({}),
+  /** Earlier messages in this conversation, oldest first — what "save that as a shortcut" saves. */
+  recent: z.array(z.string().trim().min(1).max(600)).max(12).default([]),
 });
 
 /**
@@ -34,7 +39,7 @@ export const POST = handleRoute(async (request: NextRequest) => {
     async start(controller) {
       const send = (e: AgentEvent) => controller.enqueue(encoder.encode(JSON.stringify(e) + '\n'));
       try {
-        for await (const event of runAgent({ actor, propertyId: body.propertyId, message: body.message, memory: body.context })) {
+        for await (const event of runAgent({ actor, propertyId: body.propertyId, message: body.message, memory: body.context, recent: body.recent })) {
           send(event);
         }
       } catch (e) {

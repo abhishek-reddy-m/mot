@@ -6,6 +6,9 @@ import { testMcp } from '@/server/pms';
 import { DEMO_LOCK_MESSAGE, limitOutbound, pmsProperty } from '@/server/pms/guard';
 import { testSchema } from '@/server/pms/schemas';
 
+/** Testing a PMS MCP server can take up to ~30 s. */
+export const maxDuration = 60;
+
 /**
  * POST { propertyId, url?, auth? } — initialize + tools/list. With url/auth
  * it tests an address before saving (the Connect form); without, it tests

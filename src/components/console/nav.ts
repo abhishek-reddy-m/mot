@@ -1,4 +1,6 @@
 import {
+  Bot,
+  Zap,
   BadgeDollarSign,
   BedDouble,
   Building2,
@@ -59,7 +61,9 @@ const GROUPS: NavGroup[] = [
     label: 'Setup',
     items: [
       { label: 'Rooms', href: '/admin/room-types', icon: BedDouble, paths: ALL },
+      { label: 'Skills', href: '/admin/skills', icon: Zap, paths: ALL },
       { label: 'Properties', href: '/admin/properties', icon: Building2, paths: ALL },
+      { label: 'AI assistants', href: '/admin/assistants', icon: Bot, paths: ALL },
       { label: 'Team', href: '/admin/users', icon: Users, paths: ALL },
       { label: 'Activity', href: '/admin/activity', icon: History, paths: ALL },
       { label: 'Settings', href: '/admin/settings', icon: Settings2, paths: ALL },

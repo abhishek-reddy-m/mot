@@ -16,6 +16,7 @@ import { Callout, EmptyState, Skeleton } from '@/components/ui/primitives';
 import { SmartImage } from '@/components/ui/smart-image';
 import { BookingStatusBadge } from '@/components/hotel/badges';
 import { brandScope } from '@/components/guest/brand';
+import { useVoicePage } from '@/components/voice/page-context';
 import { GuestShell } from '@/app/properties/_components/guest-shell';
 import { plural, price } from '@/app/properties/_components/format';
 
@@ -154,6 +155,14 @@ export default function TripsPage() {
     .sort((a, b) => b.checkIn.localeCompare(a.checkIn));
   const cancelled = (data ?? []).filter((t) => t.status === 'CANCELLED' || t.status === 'NO_SHOW').sort((a, b) => b.checkIn.localeCompare(a.checkIn));
   const [next, ...later] = upcoming;
+
+  // The voice concierge knows the guest is looking at their trips (and the next one).
+  useVoicePage({
+    kind: 'trips',
+    summary: data
+      ? `their trips: ${plural(upcoming.length, 'upcoming stay')}${next ? `, next at ${next.property.name} on ${fmtDay(next.checkIn, 'weekday')} (confirmation ${next.code ?? 'on screen'})` : ''}`
+      : 'their trips',
+  });
 
   return (
     <GuestShell>

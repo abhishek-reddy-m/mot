@@ -3,7 +3,9 @@
  *
  * Reads are answered immediately from live data. Writes from the whole
  * message are gathered into ONE signed plan the person confirms. Every
- * command is audit-logged. A language-model engine can be plugged in via
+ * command is audit-logged. Hotel questions are answered from the hotel's
+ * saved answers, and shortcuts (skills.ts) expand into ordinary commands
+ * that go through the same pipeline — a shortcut never skips confirmation. A language-model engine can be plugged in via
  * llm.ts; it must use the same tools and the same plan/confirm contract.
  */
 import { PRODUCT_NAME } from '@/config/product';
@@ -15,17 +17,113 @@ import { hotelToday } from '../dates';
 import { recordAudit } from '../services/audit';
 import { enqueueTask, getConnection } from '../services/bridge';
 import { bookingInclude, toBookingSummary } from '../services/mappers';
+import { looksLikeQuestion } from '../skills';
 import { runWithLLM } from './llm';
 import { parseMessage, WRITE_KINDS, type Intent } from './nlu';
 import { claimPlan, signPlan, verifyPlan, type PlanStep } from './plan';
-import { bookingActions, executeStep, followUps, maxRisk, planWrite, runRead, statusLine, type PlanOutput } from './tools';
+import {
+  answerFromSkills,
+  expandShortcut,
+  hasWrites,
+  hintFor,
+  loadShortcuts,
+  matchShortcut,
+  maybeSuggestShortcut,
+  parseSkillCommand,
+  recentCommandsFromAudit,
+  saveShortcut,
+  shortcutListBlocks,
+  suggestionBlocks,
+  trackableShape,
+} from './skills';
+import { bookingActions, executeStep, followUps, maxRisk, planWrite, runRead, statusLine, type PlanOutput, type ToolCtx } from './tools';
 
 export interface AgentRunInput {
   actor: Actor;
   propertyId: string;
   message: string;
   memory: AgentContextState;
+  /** Earlier messages in this conversation, oldest first ("save that as a shortcut"). */
+  recent?: string[];
 }
+
+/** What a run gathers while it works through intents: memory, planned changes, and whether anything needed a person. */
+interface RunState {
+  memory: AgentContextState;
+  steps: PlanStep[];
+  warnings: string[];
+  risk: PlanOutput['risk'];
+  aborted: boolean;
+  /** An error or clarifying question came back (the command didn't simply work). */
+  problem: boolean;
+}
+
+const newState = (memory: AgentContextState): RunState => ({ memory: { ...memory }, steps: [], warnings: [], risk: 'low', aborted: false, problem: false });
+
+/** Reads answer right away; writes are gathered into the state for one signed plan. */
+async function* runIntents(ctx: ToolCtx, intents: Intent[], state: RunState, opts: { extraSuggestions?: string[] } = {}): AsyncGenerator<AgentEvent> {
+  for (const intent of intents) {
+    yield { type: 'status', text: statusLine(intent) };
+    if (WRITE_KINDS.has(intent.kind)) {
+      if (state.aborted) continue;
+      const out = await planWrite({ ...ctx, memory: state.memory }, intent);
+      for (const b of out.blocks ?? []) {
+        if (b.type === 'error' || b.type === 'clarify') state.problem = true;
+        yield { type: 'block', block: b };
+      }
+      Object.assign(state.memory, out.memory ?? {});
+      if (out.abort) {
+        state.aborted = true;
+        continue;
+      }
+      state.steps.push(...out.steps);
+      state.warnings.push(...out.warnings);
+      state.risk = maxRisk(state.risk, out.risk);
+    } else {
+      const out = await runRead({ ...ctx, memory: state.memory }, intent);
+      for (const b of out.blocks) {
+        if (b.type === 'error' || b.type === 'clarify') state.problem = true;
+        const block = b.type === 'suggestions' && opts.extraSuggestions?.length ? { ...b, items: [...new Set([...b.items.slice(0, 3), ...opts.extraSuggestions])].slice(0, 6) } : b;
+        yield { type: 'block', block };
+      }
+      Object.assign(state.memory, out.memory ?? {});
+    }
+  }
+}
+
+/** Signs the gathered writes into one plan (or says they were held back). Returns the plan title. */
+async function* finishPlan(
+  ctx: ToolCtx,
+  state: RunState,
+  intents: Intent[],
+  opts: { titlePrefix?: string; shape?: { shape: string; template: string } } = {}
+): AsyncGenerator<AgentEvent, string | undefined> {
+  if (state.steps.length && !state.aborted) {
+    const base = state.steps.length === 1 ? state.steps[0].summary : titleFor(intents, state.steps);
+    const planTitle = opts.titlePrefix ? `${opts.titlePrefix}: ${base}` : base;
+    const { token, expiresAt } = signPlan({ userId: ctx.actor.userId, propertyId: ctx.propertyId, title: planTitle, steps: state.steps, shape: opts.shape });
+    const block: AgentBlock = {
+      type: 'plan',
+      plan: {
+        token,
+        title: planTitle,
+        steps: state.steps.map((s) => ({ summary: s.summary, detail: s.detail })),
+        warnings: [...new Set(state.warnings)],
+        risk: state.risk,
+        confirmLabel: state.steps.length === 1 ? 'Confirm' : `Confirm ${state.steps.length} changes`,
+        expiresAt,
+      },
+    };
+    yield { type: 'block', block };
+    return planTitle;
+  }
+  if (state.steps.length && state.aborted) {
+    yield { type: 'block', block: { type: 'text', text: 'I’ve held off on the other changes until that’s sorted.' } };
+  }
+  return undefined;
+}
+
+const onlyUnknown = (intents: Intent[]) => intents.length > 0 && intents.every((i) => i.kind === 'unknown');
 
 export async function* runAgent(input: AgentRunInput): AsyncGenerator<AgentEvent> {
   const started = Date.now();
@@ -42,12 +140,122 @@ export async function* runAgent(input: AgentRunInput): AsyncGenerator<AgentEvent
   }
   const message = input.message.trim().slice(0, 600);
   const today = hotelToday();
-  const ctx = { actor, propertyId, propertyName: property.name, today, memory: { ...input.memory }, message };
+  const ctx: ToolCtx = { actor, propertyId, propertyName: property.name, today, memory: { ...input.memory }, message };
+  const bridged = property.setupPath === 'BRIDGE';
+  const audit = (summary: string, data: Record<string, unknown>) => recordAudit({ actor, source: 'agent' }, propertyId, 'COMMAND', summary, { message: message.slice(0, 300), ...data });
+  const done = (engine: 'deterministic' | 'llm' = 'deterministic'): AgentEvent => ({ type: 'done', engine, ms: Date.now() - started });
 
-  // Hotels that kept their own PMS: the agent works it through the bridge.
-  if (property.setupPath === 'BRIDGE') {
-    yield* runBridged(input, message, today);
-    yield { type: 'done', engine: 'deterministic', ms: Date.now() - started };
+  // --- Skills: save, list and run shortcuts --------------------------------
+  const skillCmd = parseSkillCommand(message);
+  if (skillCmd?.kind === 'save') {
+    yield { type: 'status', text: 'Saving the shortcut…' };
+    const recent = input.recent?.length ? input.recent : await recentCommandsFromAudit(actor, propertyId);
+    for (const block of await saveShortcut({ actor, propertyId, name: skillCmd.name, count: skillCmd.count, recent, today })) yield { type: 'block', block };
+    yield { type: 'context', context: ctx.memory };
+    await audit(`Asked: “${message.slice(0, 160)}”`, { intents: ['saveShortcut'], engine: 'skills' });
+    yield done();
+    return;
+  }
+  if (skillCmd?.kind === 'list') {
+    yield { type: 'status', text: 'Looking up your shortcuts…' };
+    for (const block of await shortcutListBlocks(actor, propertyId)) yield { type: 'block', block };
+    yield { type: 'context', context: ctx.memory };
+    await audit(`Asked: “${message.slice(0, 160)}”`, { intents: ['listShortcuts'], engine: 'skills' });
+    yield done();
+    return;
+  }
+  const shortcuts = await loadShortcuts(propertyId);
+  const hit = !shortcuts.length ? null : skillCmd?.kind === 'run' ? matchShortcut(skillCmd.text, shortcuts) : matchShortcut(message, shortcuts, { implicit: true });
+  if (skillCmd?.kind === 'run' && skillCmd.explicit && !hit) {
+    yield { type: 'block', block: { type: 'text', text: `I don’t have a shortcut called “${skillCmd.text.slice(0, 60)}”.` } };
+    for (const block of await shortcutListBlocks(actor, propertyId)) yield { type: 'block', block };
+    yield { type: 'context', context: ctx.memory };
+    await audit(`Asked: “${message.slice(0, 160)}”`, { intents: ['runShortcut'], engine: 'skills' });
+    yield done();
+    return;
+  }
+  if (hit) {
+    yield { type: 'status', text: `Running “${hit.skill.title}”…` };
+    const exp = await expandShortcut(propertyId, hit.skill, hit.rest);
+    if (!exp.ok) {
+      for (const block of exp.blocks) yield { type: 'block', block };
+      yield { type: 'context', context: ctx.memory };
+      await audit(`Asked: “${message.slice(0, 160)}”`, { intents: ['runShortcut'], shortcut: hit.skill.key, engine: 'skills' });
+      yield done();
+      return;
+    }
+    const n = exp.steps.length;
+    yield {
+      type: 'block',
+      block: { type: 'text', text: `Running the shortcut **${hit.skill.title}**${n > 1 ? ` — ${n} steps` : ''}:${n === 1 ? ` “${exp.steps[0]}”` : ''}` },
+    };
+    if (bridged) {
+      yield* runBridged(input, exp.steps.join(', then '), today);
+      yield done();
+      return;
+    }
+    const state = newState(input.memory);
+    const all: Intent[] = [];
+    for (const [i, step] of exp.steps.entries()) {
+      if (parseSkillCommand(step)) {
+        yield { type: 'block', block: { type: 'text', text: `Skipped step ${i + 1} (“${step}”) — a shortcut can’t run another shortcut.` } };
+        continue;
+      }
+      const intents = parseMessage(step, today);
+      all.push(...intents);
+      if (n > 1) yield { type: 'block', block: { type: 'text', text: `**Step ${i + 1} of ${n}:** ${step}` } };
+      if (onlyUnknown(intents)) {
+        const ans = await answerFromSkills(actor, propertyId, step);
+        if (ans) {
+          for (const block of ans.blocks.filter((b) => b.type === 'text').slice(0, 1)) yield { type: 'block', block };
+          continue;
+        }
+        state.problem = true;
+        yield { type: 'block', block: { type: 'error', text: `I didn’t understand step ${i + 1} (“${step}”). Edit the shortcut on the Skills page.` } };
+        continue;
+      }
+      yield* runIntents({ ...ctx, message: step }, intents, state);
+    }
+    const planTitle = yield* finishPlan(ctx, state, all, { titlePrefix: hit.skill.title });
+    if (!state.steps.length) yield { type: 'block', block: { type: 'result', ok: !state.problem, title: state.problem ? `“${hit.skill.title}” needs a look` : `Ran “${hit.skill.title}”`, lines: exp.steps.map((s) => `${state.problem ? '○' : '✓'} ${s}`) } };
+    yield { type: 'context', context: state.memory };
+    await audit(planTitle ? `Ran the shortcut “${hit.skill.title}” → proposed ${planTitle}` : `Ran the shortcut “${hit.skill.title}”`, { intents: all.map((i) => i.kind), shortcut: hit.skill.key, engine: 'skills' });
+    yield done();
+    return;
+  }
+
+  // Hotels that kept their own PMS: the agent works it through the bridge (hotel questions come from saved answers).
+  if (bridged) {
+    const parsed = parseMessage(message, today);
+    if (parsed.length && parsed.every((i) => i.kind === 'help')) {
+      const connection = await getConnection(propertyId);
+      const system = connection?.system ?? 'your PMS';
+      yield {
+        type: 'block',
+        block: {
+          type: 'text',
+          text:
+            `I work in **${system}** for you. Look-ups go straight through, and I **always ask before changing anything** there.\n` +
+            '• **Look up:** “who’s arriving today?”, “find the reservation for Grace Okafor”, “which rooms are dirty?”\n' +
+            '• **Change:** “check in Jordan Smith into room 204”, “add a note to Smith: late arrival”\n' +
+            '• **Hotel questions:** “is parking free?” — answered from your saved answers',
+        },
+      };
+      for (const block of await shortcutListBlocks(actor, propertyId, { forHelp: true })) if (block.type !== 'suggestions') yield { type: 'block', block };
+      yield { type: 'block', block: { type: 'suggestions', items: [...new Set(['who’s arriving today?', 'is parking free?', ...shortcuts.slice(0, 2).map((s) => hintFor(s).command)])] } };
+      await audit(`Asked: “${message.slice(0, 160)}”`, { intents: ['help'], engine: 'skills' });
+      yield done();
+      return;
+    }
+    const lookupOnly = parsed.every((i) => i.kind === 'find') && looksLikeQuestion(message);
+    const ans = onlyUnknown(parsed) || lookupOnly ? await answerFromSkills(actor, propertyId, message, lookupOnly ? { minScore: 2 } : {}) : null;
+    if (ans) {
+      for (const block of ans.blocks) yield { type: 'block', block };
+      await audit(`Asked: “${message.slice(0, 160)}”`, { intents: ['answer'], skill: ans.key, engine: 'skills' });
+    } else {
+      yield* runBridged(input, message, today);
+    }
+    yield done();
     return;
   }
 
@@ -55,71 +263,52 @@ export async function* runAgent(input: AgentRunInput): AsyncGenerator<AgentEvent
   const llm = await runWithLLM(ctx);
   if (llm) {
     for (const e of llm) yield e;
-    yield { type: 'done', engine: 'llm', ms: Date.now() - started };
+    yield done('llm');
     return;
   }
 
   const intents = parseMessage(message, today);
-  const memory: AgentContextState = { ...input.memory };
-  const steps: PlanStep[] = [];
-  const warnings: string[] = [];
-  let risk: PlanOutput['risk'] = 'low';
-  let aborted = false;
 
-  for (const intent of intents) {
-    yield { type: 'status', text: statusLine(intent) };
-    if (WRITE_KINDS.has(intent.kind)) {
-      if (aborted) continue;
-      const out = await planWrite({ ...ctx, memory }, intent);
-      for (const b of out.blocks ?? []) yield { type: 'block', block: b };
-      Object.assign(memory, out.memory ?? {});
-      if (out.abort) {
-        aborted = true;
-        continue;
-      }
-      steps.push(...out.steps);
-      warnings.push(...out.warnings);
-      risk = maxRisk(risk, out.risk);
-    } else {
-      const out = await runRead({ ...ctx, memory }, intent);
-      for (const b of out.blocks) yield { type: 'block', block: b };
-      Object.assign(memory, out.memory ?? {});
+  // Questions about the hotel: answered from its saved answers ("where is the hotel?" reads like a guest look-up, so it needs a strong match).
+  const lookupOnly = intents.every((i) => i.kind === 'find') && looksLikeQuestion(message);
+  if (onlyUnknown(intents) || lookupOnly) {
+    const ans = await answerFromSkills(actor, propertyId, message, lookupOnly ? { minScore: 2 } : {});
+    if (ans) {
+      for (const block of ans.blocks) yield { type: 'block', block };
+      yield { type: 'context', context: ctx.memory };
+      await audit(`Asked: “${message.slice(0, 160)}”`, { intents: ['answer'], skill: ans.key, engine: 'skills' });
+      yield done();
+      return;
     }
   }
 
-  let planTitle: string | undefined;
-  if (steps.length && !aborted) {
-    planTitle = steps.length === 1 ? steps[0].summary : titleFor(intents, steps);
-    const { token, expiresAt } = signPlan({ userId: actor.userId, propertyId, title: planTitle, steps });
-    const block: AgentBlock = {
-      type: 'plan',
-      plan: {
-        token,
-        title: planTitle,
-        steps: steps.map((s) => ({ summary: s.summary, detail: s.detail })),
-        warnings: [...new Set(warnings)],
-        risk,
-        confirmLabel: steps.length === 1 ? 'Confirm' : `Confirm ${steps.length} changes`,
-        expiresAt,
-      },
-    };
-    yield { type: 'block', block };
-  } else if (steps.length && aborted) {
-    yield { type: 'block', block: { type: 'text', text: 'I’ve held off on the other changes until that’s sorted.' } };
-  }
+  const isHelp = intents.some((i) => i.kind === 'help');
+  const hints = isHelp || onlyUnknown(intents) ? shortcuts.slice(0, 3).map(hintFor) : [];
+  const state = newState(input.memory);
+  yield* runIntents(ctx, intents, state, { extraSuggestions: hints.map((h) => h.command) });
+  if (isHelp) for (const block of await shortcutListBlocks(actor, propertyId, { forHelp: true })) if (block.type !== 'suggestions') yield { type: 'block', block };
 
-  const isOnlyUnknown = intents.length === 1 && intents[0].kind === 'unknown';
-  if (!steps.length && !isOnlyUnknown) {
+  const shape = trackableShape(message, intents, today);
+  const writes = hasWrites(intents);
+  const planTitle = yield* finishPlan(ctx, state, intents, { shape: writes && shape ? shape : undefined });
+
+  if (!state.steps.length && !onlyUnknown(intents) && !isHelp) {
     yield { type: 'block', block: { type: 'suggestions', items: followUps(intents) } };
   }
-  yield { type: 'context', context: memory };
+  yield { type: 'context', context: state.memory };
 
-  await recordAudit({ actor, source: 'agent' }, propertyId, 'COMMAND', planTitle ? `Asked: “${message.slice(0, 120)}” → proposed ${planTitle}` : `Asked: “${message.slice(0, 160)}”`, {
-    message: message.slice(0, 300),
+  // A read that simply worked counts towards a shortcut suggestion now; a change counts once it's confirmed.
+  const okShape = shape && !writes && !state.problem ? shape : null;
+  await audit(planTitle ? `Asked: “${message.slice(0, 120)}” → proposed ${planTitle}` : `Asked: “${message.slice(0, 160)}”`, {
+    ...(okShape ? { okShape: okShape.shape } : {}),
     intents: intents.map((i) => i.kind),
     engine: 'deterministic',
   });
-  yield { type: 'done', engine: 'deterministic', ms: Date.now() - started };
+  if (okShape) {
+    const suggested = await maybeSuggestShortcut(actor, propertyId, okShape);
+    if (suggested) for (const block of suggestionBlocks(actor, suggested)) yield { type: 'block', block };
+  }
+  yield done();
 }
 
 async function* runBridged(input: AgentRunInput, message: string, today: string): AsyncGenerator<AgentEvent> {
@@ -218,10 +407,12 @@ export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmR
     }
   }
   await recordAudit(ctx, plan.pid, 'PLAN_EXECUTED', `${failed ? 'Partly carried out' : 'Carried out'}: ${plan.title}`, {
+    ...(!failed && plan.shape ? { okShape: plan.shape.shape } : {}),
     nonce: plan.nonce,
     steps: plan.steps.map((s) => s.summary),
     ok: !failed,
   });
+  const suggested = !failed && plan.shape ? await maybeSuggestShortcut(actor, plan.pid, plan.shape) : null;
 
   const blocks: AgentBlock[] = [
     {
@@ -256,5 +447,6 @@ export async function confirmPlan(actor: Actor, token: string): Promise<ConfirmR
   if (tools.has('set_out_of_order')) next.push('show out-of-order rooms');
   if (!next.length) next.push('brief me');
   blocks.push({ type: 'suggestions', items: [...new Set(next)].slice(0, 3) });
+  if (suggested) blocks.push(...suggestionBlocks(actor, suggested));
   return { blocks, context };
 }

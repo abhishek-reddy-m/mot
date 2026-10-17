@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import type { Caption, VoiceOptions, VoiceState } from './types';
+import { MAX_CAPTIONS, canStart, sessionQuery, type Caption, type VoiceController, type VoiceOptions, type VoiceState } from './types';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -10,7 +10,7 @@ const uid = () => Math.random().toString(36).slice(2, 10);
  * channel carries captions and delegated tool calls, which we execute in
  * our own code and answer with response.item.create + response.create.
  */
-export function useOpenAIVoice({ propertyId, audience, onToolCall, onStateChange }: VoiceOptions) {
+export function useOpenAIVoice({ propertyId, audience, scope, onToolCall, onStateChange }: VoiceOptions): VoiceController {
   const [state, setStateRaw] = React.useState<VoiceState>('idle');
   const [error, setError] = React.useState<string | null>(null);
   const [captions, setCaptions] = React.useState<Caption[]>([]);
@@ -43,7 +43,7 @@ export function useOpenAIVoice({ propertyId, audience, onToolCall, onStateChange
     setCaptions((cs) => {
       const last = cs[cs.length - 1];
       if (last && last.role === role) return [...cs.slice(0, -1), { ...last, text: last.text + delta }];
-      return [...cs.slice(-11), { id: uid(), role, text: delta.trimStart() }];
+      return [...cs.slice(-(MAX_CAPTIONS - 1)), { id: uid(), role, text: delta.trimStart() }];
     });
 
   const send = (event: Record<string, unknown>) => {
@@ -169,7 +169,7 @@ export function useOpenAIVoice({ propertyId, audience, onToolCall, onStateChange
   }
 
   const start = React.useCallback(async () => {
-    if (!propertyId || state === 'connecting' || state === 'live') return;
+    if (!canStart({ propertyId, audience, scope }) || state === 'connecting' || state === 'live') return;
     setError(null);
     setCaptions([]);
     doneCalls.current.clear();
@@ -209,7 +209,7 @@ export function useOpenAIVoice({ propertyId, audience, onToolCall, onStateChange
           }
         });
       });
-      const res = await fetch(`/api/voice/session?propertyId=${encodeURIComponent(propertyId)}&audience=${audience}`, {
+      const res = await fetch(`/api/voice/session?${sessionQuery({ propertyId, audience, scope })}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/sdp' },
         body: peer.localDescription?.sdp ?? '',
@@ -224,7 +224,7 @@ export function useOpenAIVoice({ propertyId, audience, onToolCall, onStateChange
       finish('error');
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyId, audience, state]);
+  }, [propertyId, audience, scope, state]);
 
   const stop = React.useCallback(() => {
     if (state === 'idle') return;
@@ -241,7 +241,12 @@ export function useOpenAIVoice({ propertyId, audience, onToolCall, onStateChange
     setMuted(next);
   }, [muted]);
 
+  // A note for the reasoning model (no reply): added to the conversation, no response.create.
+  const sendContext = React.useCallback((text: string) => {
+    send({ type: 'response.item.create', item: { type: 'message', role: 'developer', content: [{ type: 'input_text', text }] } });
+  }, []);
+
   React.useEffect(() => () => cleanup(), [cleanup]);
 
-  return { state, error, captions, muted, level, agentSpeaking, working, start, stop, toggleMute, clearError: () => setError(null) };
+  return { state, error, captions, muted, level, agentSpeaking, working, start, stop, toggleMute, clearError: () => setError(null), sendContext };
 }

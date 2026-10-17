@@ -159,3 +159,56 @@ export interface ActivityEntry {
   source: 'agent' | 'classic' | 'system';
   summary: string;
 }
+
+// ---------------------------------------------------------------------------
+// Agent skills (GET /api/admin/skills)
+// ---------------------------------------------------------------------------
+
+export type SkillKindDTO = 'ANSWER' | 'MACRO' | 'RECIPE';
+export type SkillSourceDTO = 'CONFIG' | 'LEARNED' | 'MANUAL';
+export type SkillStatusDTO = 'ACTIVE' | 'SUGGESTED' | 'DISABLED';
+export type SkillAudienceDTO = 'GUEST' | 'STAFF' | 'ALL';
+
+/** One agent skill as the Skills page shows it. */
+export interface SkillView {
+  id: string;
+  key: string;
+  kind: SkillKindDTO;
+  source: SkillSourceDTO;
+  status: SkillStatusDTO;
+  audience: SkillAudienceDTO;
+  title: string;
+  description: string;
+  /** ANSWER: what agents say. */
+  answer?: string;
+  /** MACRO: commands; RECIPE: instructions. */
+  steps?: string[];
+  /** RECIPE: the PMS it works and what it achieves. */
+  system?: string;
+  intent?: string;
+  /** RECIPE: how runs went. */
+  successes?: number;
+  failures?: number;
+  failStreak?: number;
+  /** RECIPE: switched itself off after failing too often. */
+  autoDisabled?: boolean;
+  /** MACRO: input names ({guest}, {room}…) and how to say it. */
+  inputs: string[];
+  example?: string;
+  uses: number;
+  lastUsedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string | null;
+  /** CONFIG: where to change it. */
+  editIn?: { label: string; href: string } | null;
+}
+
+export interface SkillsResponse {
+  skills: SkillView[];
+  /** Tools the hotel's PMS exposes (managed on the PMS page). */
+  pmsTools: number;
+  canManage: boolean;
+  /** Why guest-facing answers can't be changed here (public demo), or null. */
+  guestAnswersLocked: string | null;
+}

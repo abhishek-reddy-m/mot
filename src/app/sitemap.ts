@@ -7,6 +7,7 @@ export const revalidate = 3600;
 const STATIC_PAGES: { path: string; priority: number; changeFrequency: MetadataRoute.Sitemap[number]['changeFrequency'] }[] = [
   { path: '/', priority: 1, changeFrequency: 'weekly' },
   { path: '/properties', priority: 0.9, changeFrequency: 'daily' },
+  { path: '/assistants', priority: 0.6, changeFrequency: 'monthly' },
   { path: '/about', priority: 0.5, changeFrequency: 'monthly' },
   { path: '/contact', priority: 0.5, changeFrequency: 'monthly' },
   { path: '/login', priority: 0.3, changeFrequency: 'yearly' },

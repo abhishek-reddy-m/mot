@@ -33,6 +33,7 @@ import { useConsole, usePropertyUrl } from '@/components/console/ConsoleProvider
 import { Badge } from '@/components/ui/badge';
 import { IconTile, Skeleton } from '@/components/ui/primitives';
 import { AgentPanel } from './AgentPanel';
+import { ShortcutStarters } from './ShortcutStarters';
 import { AgentOrb } from './Timeline';
 import type { AgentController } from './useAgent';
 
@@ -109,6 +110,7 @@ function Hero({ send }: { send: (cmd: string) => void }) {
           </motion.li>
         ))}
       </ul>
+      <ShortcutStarters send={send} />
       <p className="mt-6 flex items-start gap-2 text-xs leading-relaxed text-muted-foreground">
         <ShieldCheck className="mt-px size-4 shrink-0 text-success" aria-hidden />
         <span>

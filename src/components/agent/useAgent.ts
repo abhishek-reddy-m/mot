@@ -108,6 +108,11 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
       if (busy) return { blocks: [], error: 'Still working on the previous request.' };
       const collected: AgentBlock[] = [];
       let failure: string | undefined;
+      // What this conversation already asked (for "save that as a shortcut"): commands that didn't fail.
+      const recent = turns
+        .filter((t, i) => t.role === 'user' && t.text && !turns[i + 1]?.error)
+        .map((t) => (t.text as string).slice(0, 600))
+        .slice(-10);
       const userTurn: AgentTurn = { id: uid(), role: 'user', text: message, blocks: [], at: Date.now(), via: opts.via };
       const agentTurn: AgentTurn = { id: uid(), role: 'agent', blocks: [], pending: true, status: 'Thinking…', at: Date.now() };
       setTurns((ts) => [...ts, userTurn, agentTurn]);
@@ -119,7 +124,7 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
         const res = await fetch('/api/agent/command', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ propertyId, message, context }),
+          body: JSON.stringify({ propertyId, message, context, recent }),
           signal: controller.signal,
         });
         if (!res.ok || !res.body) {
@@ -168,7 +173,7 @@ export function useAgent(propertyId: string | undefined, opts: { onChange?: () =
       }
       return { blocks: collected, error: failure };
     },
-    [propertyId, busy, context]
+    [propertyId, busy, context, turns]
   );
 
   const stop = React.useCallback(() => abortRef.current?.abort(), []);

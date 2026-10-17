@@ -1,7 +1,7 @@
 'use client';
 
 import * as React from 'react';
-import type { Caption, VoiceController, VoiceOptions, VoiceState } from './types';
+import { MAX_CAPTIONS, canStart, sessionQuery, type Caption, type VoiceController, type VoiceOptions, type VoiceState } from './types';
 
 const uid = () => Math.random().toString(36).slice(2, 10);
 
@@ -18,6 +18,7 @@ interface LiveConversation {
   endSession(): Promise<void>;
   setMicMuted(muted: boolean): void;
   getInputVolume(): number;
+  sendContextualUpdate(text: string): void;
 }
 
 const friendly = (message: string) => message.replace(/^Server error:\s*/i, '').trim() || 'The voice line reported an error.';
@@ -29,7 +30,7 @@ const friendly = (message: string) => message.replace(/^Server error:\s*/i, '').
  * the same HotelOne endpoints as GPT-Live, so permission checks and confirm
  * plans are unchanged.
  */
-export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateChange }: VoiceOptions): VoiceController {
+export function useElevenLabsVoice({ propertyId, audience, scope, onToolCall, onStateChange }: VoiceOptions): VoiceController {
   const [state, setStateRaw] = React.useState<VoiceState>('idle');
   const [error, setError] = React.useState<string | null>(null);
   const [captions, setCaptions] = React.useState<Caption[]>([]);
@@ -56,7 +57,7 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
     stateCb.current?.(s);
   }, []);
 
-  const addCaption = (role: Caption['role'], text: string) => setCaptions((cs) => [...cs.slice(-11), { id: uid(), role, text }]);
+  const addCaption = (role: Caption['role'], text: string) => setCaptions((cs) => [...cs.slice(-(MAX_CAPTIONS - 1)), { id: uid(), role, text }]);
 
   const finish = React.useCallback(
     (next: VoiceState = 'idle') => {
@@ -86,9 +87,11 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
   );
 
   const start = React.useCallback(async () => {
-    if (!propertyId || state === 'connecting' || state === 'live') return;
+    if (!canStart({ propertyId, audience, scope }) || state === 'connecting' || state === 'live') return;
     const seq = ++session.current;
     const current = () => seq === session.current;
+    // Past our own server, failures are the audio connection's (the SDK's wording isn't for guests).
+    let connecting = false;
     setError(null);
     setCaptions([]);
     toolCount.current = 0;
@@ -101,7 +104,7 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
       probe.getTracks().forEach((t) => t.stop());
       if (!current()) return;
 
-      const res = await fetch(`/api/voice/elevenlabs/session?propertyId=${encodeURIComponent(propertyId)}&audience=${audience}`, { method: 'POST' });
+      const res = await fetch(`/api/voice/elevenlabs/session?${sessionQuery({ propertyId, audience, scope })}`, { method: 'POST' });
       const body = (await res.json().catch(() => ({}))) as SessionResponse;
       if (!res.ok || !body.signedUrl || !body.token) throw new Error(body.error || 'Couldn’t start the voice line.');
       // Hung up while we were connecting: close the usage row and stop here.
@@ -134,6 +137,7 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
       // Loaded on demand: the SDK (and its WebRTC dependency) only ships when someone talks.
       const { Conversation } = await import('@elevenlabs/client');
       if (!current()) return abandon();
+      connecting = true;
       const started = await Conversation.startSession({
         signedUrl: body.signedUrl,
         overrides: { agent: { prompt: { prompt: body.prompt }, firstMessage: body.firstMessage } },
@@ -178,11 +182,16 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
     } catch (e) {
       if (!current()) return;
       const err = e as Error;
-      setError(err.name === 'NotAllowedError' ? 'Microphone access was blocked. Allow it in your browser to talk.' : err.message || 'Couldn’t start the voice line.');
+      setError(
+        err.name === 'NotAllowedError'
+          ? 'Microphone access was blocked. Allow it in your browser to talk.'
+          : connecting
+            ? 'The voice line couldn’t connect just now. Check your internet connection and try again.'
+            : err.message || 'Couldn’t start the voice line.'
+      );
       finish('error');
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [propertyId, audience, state, finish, setState]);
+  }, [propertyId, audience, scope, state, finish, setState]);
 
   const stop = React.useCallback(() => {
     if (state === 'idle') return;
@@ -197,6 +206,14 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
     setMuted(next);
   }, []);
 
+  const sendContext = React.useCallback((text: string) => {
+    try {
+      conversation.current?.sendContextualUpdate(text);
+    } catch {
+      /* the socket closed between checks: nothing to tell */
+    }
+  }, []);
+
   React.useEffect(
     () => () => {
       session.current += 1;
@@ -207,5 +224,5 @@ export function useElevenLabsVoice({ propertyId, audience, onToolCall, onStateCh
     []
   );
 
-  return { state, error, captions, muted, level, agentSpeaking, working, start, stop, toggleMute, clearError: () => setError(null) };
+  return { state, error, captions, muted, level, agentSpeaking, working, start, stop, toggleMute, clearError: () => setError(null), sendContext };
 }

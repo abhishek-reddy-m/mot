@@ -33,6 +33,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { IconTile } from '@/components/ui/primitives';
 import { AgentDemo } from '@/components/marketing/AgentDemo';
+import { TalkToConcierge } from '@/components/voice/VoiceDock';
 import { SiteFooter } from '@/components/guest/SiteFooter';
 import { cn } from '@/lib/utils';
 import { PRODUCT_NAME, PRODUCT_SUPPORT_EMAIL, PRODUCT_TAGLINE } from '@/config/product';
@@ -253,6 +254,8 @@ export default function LandingPage() {
                   </li>
                 ))}
               </ul>
+              {/* Travellers: talk to the HotelOne concierge (the site's voice dock) — say a place and dates. */}
+              <TalkToConcierge className="mt-8 max-w-xl" />
             </div>
 
             <div className="relative min-w-0 lg:ml-4">

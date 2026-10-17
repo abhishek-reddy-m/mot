@@ -7,6 +7,7 @@ import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { motion, useReducedMotion } from 'framer-motion';
 import {
   ArrowLeft,
+  AudioLines,
   BadgeCheck,
   BedDouble,
   CalendarX2,
@@ -32,7 +33,8 @@ import { Callout, EmptyState, Skeleton } from '@/components/ui/primitives';
 import { SmartImage } from '@/components/ui/smart-image';
 import { StaySearch, defaultStay, type StayQuery } from '@/components/guest/StaySearch';
 import { brandScope } from '@/components/guest/brand';
-import { GuestVoice } from '@/components/voice/GuestVoice';
+import { useVoicePage } from '@/components/voice/page-context';
+import { useVoiceDock } from '@/components/voice/VoiceDock';
 import { GuestShell } from '../_components/guest-shell';
 import { usePropertyShell } from '../_components/property-shell';
 import { plural, price } from '../_components/format';
@@ -347,6 +349,38 @@ function PropertyPage() {
   const brandColor = p?.primaryColor ?? shell?.primaryColor;
   const scope = brandScope(brandColor);
   const directoryHref = `/properties?${new URLSearchParams({ checkIn: stay.checkIn, checkOut: stay.checkOut, guests: String(stay.guests) })}`;
+  const dock = useVoiceDock();
+
+  // The voice front desk (the dock in the root layout) sees this stay and can re-price the page or open checkout.
+  const voiceRooms = (avail?.roomTypes ?? []).map((r) => ({ id: r.id, name: r.name, sleeps: r.capacity, available: roomState(r) === 'bookable', nightly: r.quote?.averageNightly ?? null, total: r.quote?.total ?? null }));
+  const voiceCheapest = voiceRooms.filter((r) => r.available && r.nightly !== null).sort((a, b) => a.nightly! - b.nightly!)[0];
+  useVoicePage({
+    kind: 'hotel',
+    propertyId,
+    propertyName: name,
+    brand: brandColor,
+    stay: { checkIn: stay.checkIn, checkOut: stay.checkOut, guests: stay.guests, rooms: stay.rooms ?? 1 },
+    roomOptions: voiceRooms,
+    summary: name
+      ? `${name}’s page, showing ${fmtRange(stay.checkIn, stay.checkOut)} for ${plural(stay.guests, 'guest')}${(stay.rooms ?? 1) > 1 ? `, ${plural(stay.rooms ?? 1, 'room')}` : ''}${
+          avail ? (voiceCheapest ? ` — from ${price(Math.round(voiceCheapest.nightly!))} a night (${voiceCheapest.name})` : ' — nothing left for these dates') : ''
+        }`
+      : null,
+    // Phones: clear the fixed booking bar (≈69px + safe area) at the bottom of the page.
+    bottomOffset: p ? 64 : 0,
+    actions: {
+      // Re-price the room list for the dates the guest asked about (no scroll: the guest may be reading).
+      setStay: (v) => {
+        const q = new URLSearchParams({ checkIn: v.checkIn, checkOut: v.checkOut, guests: String(v.guests), rooms: String(v.rooms) });
+        router.replace(`/properties/${propertyId}?${q}`, { scroll: false });
+      },
+      selectRoom: (roomTypeId, v) => {
+        const s = v ?? { checkIn: stay.checkIn, checkOut: stay.checkOut, guests: stay.guests, rooms: stay.rooms ?? 1 };
+        const q = new URLSearchParams({ roomTypeId, checkIn: s.checkIn, checkOut: s.checkOut, guests: String(s.guests), rooms: String(s.rooms) });
+        router.push(`/properties/${propertyId}/book?${q}`);
+      },
+    },
+  });
 
   if (error) {
     return (
@@ -380,12 +414,7 @@ function PropertyPage() {
     .sort((a, b) => order[roomState(byId.get(a.rt.id))] - order[roomState(byId.get(b.rt.id))] || a.i - b.i)
     .map((x) => x.rt);
   const rooms = stay.rooms ?? 1;
-  const voice = p?.voice?.available;
-  // The voice front desk re-prices the page for the dates it was asked about.
-  const onVoiceStay = (v: { checkIn: string; checkOut: string; guests: number; rooms: number }) => {
-    const q = new URLSearchParams({ checkIn: v.checkIn, checkOut: v.checkOut, guests: String(v.guests), rooms: String(v.rooms) });
-    router.replace(`/properties/${propertyId}?${q}`, { scroll: false });
-  };
+  const voice = p?.voice?.available && dock?.available;
 
   const header = (
     <div>
@@ -406,9 +435,7 @@ function PropertyPage() {
       className={cn('lg:pb-0', p ? (voice ? 'pb-40' : 'pb-24') : '')}
       after={
         <>
-          {/* Phones: the floating "Talk to us" button above the booking bar. From lg up it sits in the booking card instead. */}
-          {p && voice && <GuestVoice propertyId={p.id} propertyName={p.name} onStay={onVoiceStay} className="lg:hidden" />}
-          {/* Phone booking bar */}
+          {/* Phone booking bar (the voice dock's "Talk to us" sits above it: see bottomOffset). */}
           {p && (
             <div className="fixed inset-x-0 bottom-0 z-40 border-t bg-surface/95 px-4 pt-3 shadow-float backdrop-blur pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:hidden">
               <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
@@ -602,7 +629,8 @@ function PropertyPage() {
 
           {/* Booking summary (desktop) */}
           <aside className="hidden lg:block" aria-label="Your stay">
-            <div className="sticky top-24 space-y-3">
+            {/* data-voice-avoid: the voice launcher folds (or moves up) instead of covering this card. */}
+            <div data-voice-avoid className="sticky top-24 space-y-3">
               <div className="rounded-2xl border bg-card p-5 shadow-lifted">
                 <div className="min-h-[3.75rem]" aria-live="polite">
                   {cheapest?.quote ? (
@@ -642,14 +670,14 @@ function PropertyPage() {
                 <Lock className="h-3.5 w-3.5" aria-hidden />
                 {(p?.isDemo ?? shell?.isDemo) ? 'Demo hotel — nothing is charged' : 'Secure booking · no booking fees'}
               </p>
-              {p && voice && (
+              {p && voice && dock && (
                 <div className="rounded-2xl border bg-card p-4 shadow-xs">
                   <p className="text-sm font-semibold">Questions before you book?</p>
                   <p className="mt-0.5 text-sm text-muted-foreground">Talk to the front desk — an AI voice that knows today’s rooms and prices.</p>
-                  {/* Same voice front desk as the phone button; here it's an inline button so it never covers the card. */}
-                  <div className="mt-3">
-                    <GuestVoice propertyId={p.id} propertyName={p.name} onStay={onVoiceStay} variant="inline" className="hidden lg:inline-flex" />
-                  </div>
+                  {/* Opens the site's one voice dock (the call keeps going as you move to checkout). */}
+                  <Button type="button" variant="outline" className="mt-3 h-11 w-full rounded-xl" onClick={dock.start} onPointerEnter={dock.prepare} onFocus={dock.prepare}>
+                    <AudioLines className="text-brand" aria-hidden /> Talk to us
+                  </Button>
                 </div>
               )}
             </div>

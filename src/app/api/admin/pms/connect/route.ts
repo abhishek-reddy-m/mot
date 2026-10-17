@@ -5,6 +5,9 @@ import { connectMcp } from '@/server/pms';
 import { DEMO_LOCK_MESSAGE, limitOutbound, pmsProperty } from '@/server/pms/guard';
 import { connectSchema } from '@/server/pms/schemas';
 
+/** Testing a PMS MCP server can take up to ~30 s. */
+export const maxDuration = 60;
+
 /**
  * POST { propertyId, system, url, auth } — connect the hotel's PMS through
  * its vendor's MCP server. The server is tested first (initialize +

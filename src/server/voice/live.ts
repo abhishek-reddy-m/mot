@@ -130,14 +130,32 @@ export async function checkVoiceModels(): Promise<{ model: string; role: string;
 // Voice session tokens: bind a browser to one voice session for tool calls.
 // ---------------------------------------------------------------------------
 
+/** HOTEL: one hotel's front desk (pid set). GLOBAL: the HotelOne concierge across every listed hotel (pid null; web guests only). */
+export type VoiceScope = 'HOTEL' | 'GLOBAL';
+
 export interface VoiceTokenPayload {
   sid: string; // VoiceSession id
-  pid: string; // property
+  /** The hotel; null only for GLOBAL (concierge) sessions. */
+  pid: string | null;
   aud: 'GUEST' | 'STAFF';
   uid: string | null;
   /** Set for phone calls and WhatsApp (tools run server to server, with the phone tool set). */
   ch?: 'PHONE' | 'WHATSAPP';
+  /** Absent on tokens minted before the concierge existed: those are HOTEL. */
+  sc?: VoiceScope;
   exp: number;
+}
+
+/** A verified token's scope (older tokens carry none and are HOTEL). */
+export const voiceTokenScope = (t: Pick<VoiceTokenPayload, 'sc'>): VoiceScope => (t.sc === 'GLOBAL' ? 'GLOBAL' : 'HOTEL');
+
+/** A HOTEL session's verified token: its property is always set. */
+export type HotelVoiceToken = VoiceTokenPayload & { pid: string };
+
+/** Narrows a verified token to one hotel, or refuses (GLOBAL tokens can't use hotel-only endpoints). */
+export function requireHotelToken(t: VoiceTokenPayload): HotelVoiceToken {
+  if (voiceTokenScope(t) !== 'HOTEL' || !t.pid) throw forbidden('This voice session isn’t tied to a hotel.');
+  return t as HotelVoiceToken;
 }
 
 function secret(): string {
@@ -172,6 +190,9 @@ export function verifyVoiceToken(token: string): VoiceTokenPayload {
   if (given.length !== expected.length || !timingSafeEqual(given, expected)) throw forbidden('Voice session is invalid.');
   const p = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as VoiceTokenPayload;
   if (Date.now() > p.exp) throw forbidden('This voice session has ended. Start a new one.');
+  // Only web guest concierge sessions may lack a hotel.
+  const global = voiceTokenScope(p) === 'GLOBAL';
+  if (global ? p.pid !== null || p.aud !== 'GUEST' || !!p.ch : !p.pid) throw forbidden('Voice session is invalid.');
   return p;
 }
 
@@ -253,31 +274,198 @@ const REQUEST_BOOKING: FunctionToolSpec = {
   strict: true,
 };
 
-/** What the hotel's phone line can do: the guest tools, with phone booking requests instead of on-screen checkout. */
-export const PHONE_TOOLS: FunctionToolSpec[] = [PROPERTY_INFO, CHECK_AVAILABILITY, REQUEST_BOOKING, FIND_BOOKING, LEAVE_MESSAGE];
+const SKILL_ARGUMENTS = {
+  type: ['string', 'null'],
+  description: 'The skill’s inputs as a JSON object in text, e.g. {"date":"2026-11-14"}. Empty for skills without inputs.',
+};
 
+/** A hotel's saved answers and tools (AgentSkill), on the phone line: the call is pinned to one hotel. */
+const PHONE_USE_SKILL: FunctionToolSpec = {
+  type: 'function',
+  name: 'use_skill',
+  description: 'Use one of the hotel’s skills — saved answers and tools its team set up — by its key from the list in your instructions. Returns the exact answer to give.',
+  parameters: obj({ key: { type: 'string', description: 'Skill key, e.g. "faq-parking"' }, arguments: SKILL_ARGUMENTS }, ['key', 'arguments']),
+  strict: true,
+};
+
+/**
+ * What the hotel's phone line can do: the guest tools, with phone booking
+ * requests instead of on-screen checkout. Wire contract: these become webhook
+ * tools on every hotel's phone agent at ElevenLabs — add tools, but keep
+ * existing names and arguments.
+ */
+export const PHONE_TOOLS: FunctionToolSpec[] = [PROPERTY_INFO, CHECK_AVAILABILITY, REQUEST_BOOKING, FIND_BOOKING, LEAVE_MESSAGE, PHONE_USE_SKILL];
+
+// --- Booking site (the voice dock) ---------------------------------------------
+// One set of definitions serves both scopes: on a hotel's own pages (HOTEL)
+// property_id is left empty and other hotels are refused; the all-hotels
+// concierge (GLOBAL) passes ids from search_hotels. open_hotel, start_booking,
+// fill_guest_details and confirm_booking change what is on the guest's screen
+// and run (or finish) in the browser.
+
+const propertyId = (description = 'Hotel id from search_hotels. Leave empty on a hotel’s own line (it means that hotel).') => ({ type: ['string', 'null'], description });
+const guests = { type: 'integer', minimum: 1, maximum: 16, description: 'Total guests' };
+const rooms = { type: 'integer', minimum: 1, maximum: 9, description: 'Rooms needed' };
+
+const SEARCH_HOTELS: FunctionToolSpec = {
+  type: 'function',
+  name: 'search_hotels',
+  description:
+    'Find hotels on HotelOne by place (city, state, zip or area) or by name. With both dates, each result has live availability, the cheapest price per night and the stay total. Returns up to 5 hotels, best matches first.',
+  parameters: obj(
+    {
+      location: { type: ['string', 'null'], description: 'Where the guest wants to stay, e.g. "Santa Cruz, CA"' },
+      query: { type: ['string', 'null'], description: 'A hotel name or other words to match, if the guest named one' },
+      check_in: { type: ['string', 'null'], description: 'Arrival date (YYYY-MM-DD), if known' },
+      check_out: { type: ['string', 'null'], description: 'Departure date (YYYY-MM-DD), if known' },
+      guests,
+      rooms,
+    },
+    ['location', 'query', 'check_in', 'check_out', 'guests', 'rooms']
+  ),
+  strict: true,
+};
+
+const WEB_PROPERTY_INFO: FunctionToolSpec = {
+  type: 'function',
+  name: 'get_property_info',
+  description:
+    'One hotel’s facts: description, amenities, address, phone, check-in/out times, cancellation policy, room types with base prices, and the hotel’s own answers to common questions (skills). Call before answering any question about a hotel.',
+  parameters: obj({ property_id: propertyId() }, ['property_id']),
+  strict: true,
+};
+
+const WEB_CHECK_AVAILABILITY: FunctionToolSpec = {
+  type: 'function',
+  name: 'check_availability',
+  description: 'Live availability and exact prices at one hotel for a stay. Always call this before quoting a price or saying a room is free. When that hotel’s page is on screen, its room list updates to these dates.',
+  parameters: obj(
+    { property_id: propertyId(), check_in: date('Arrival date'), check_out: date('Departure date, after check_in'), guests, rooms },
+    ['property_id', 'check_in', 'check_out', 'guests', 'rooms']
+  ),
+  strict: true,
+};
+
+const OPEN_HOTEL: FunctionToolSpec = {
+  type: 'function',
+  name: 'open_hotel',
+  description: 'Open a hotel’s page on the guest’s screen (photos, rooms and prices), with the stay filled in when you know the dates. Use when the guest wants to see a hotel from search_hotels.',
+  parameters: obj(
+    {
+      property_id: { type: 'string', description: 'Hotel id from search_hotels' },
+      check_in: { type: ['string', 'null'], description: 'Arrival date (YYYY-MM-DD), if known' },
+      check_out: { type: ['string', 'null'], description: 'Departure date (YYYY-MM-DD), if known' },
+      guests: { type: ['integer', 'null'], minimum: 1, maximum: 16, description: 'Total guests, if known' },
+      rooms: { type: ['integer', 'null'], minimum: 1, maximum: 9, description: 'Rooms needed, if known' },
+    },
+    ['property_id', 'check_in', 'check_out', 'guests', 'rooms']
+  ),
+  strict: true,
+};
+
+const WEB_START_BOOKING: FunctionToolSpec = {
+  type: 'function',
+  name: 'start_booking',
+  description:
+    'Open the hotel’s secure checkout on the guest’s screen with the chosen room, dates and party filled in. Use once the guest has picked a room from check_availability and you have repeated the room, dates and total back. Never take card details by voice.',
+  parameters: obj(
+    {
+      property_id: propertyId(),
+      room_type_id: { type: 'string', description: 'room_type_id from check_availability' },
+      check_in: date('Arrival date'),
+      check_out: date('Departure date'),
+      guests,
+      rooms,
+    },
+    ['property_id', 'room_type_id', 'check_in', 'check_out', 'guests', 'rooms']
+  ),
+  strict: true,
+};
+
+const FILL_GUEST_DETAILS: FunctionToolSpec = {
+  type: 'function',
+  name: 'fill_guest_details',
+  description:
+    'Fill in the guest’s details on the checkout page that is open on their screen: full name, phone and special requests. Only works on checkout. Says what is still missing (for example, signing in). Never ask for card details.',
+  parameters: obj(
+    {
+      name: { type: ['string', 'null'], description: 'Guest’s first and last name' },
+      phone: { type: ['string', 'null'], description: 'Guest’s phone number' },
+      notes: { type: ['string', 'null'], description: 'Special requests for the hotel (arrival time, a quiet room…)' },
+    },
+    ['name', 'phone', 'notes']
+  ),
+  strict: true,
+};
+
+const CONFIRM_BOOKING: FunctionToolSpec = {
+  type: 'function',
+  name: 'confirm_booking',
+  description:
+    'Book the room shown on the open checkout page, paying at the hotel. Call ONLY after you have read back that exact room, dates and total and the guest has clearly said yes to it in this conversation. If the guest must sign in first, or card payment is selected, it tells you what they need to tap on screen.',
+  parameters: obj({}, []),
+  strict: true,
+};
+
+const WEB_LEAVE_MESSAGE: FunctionToolSpec = {
+  type: 'function',
+  name: 'leave_message',
+  description: 'Pass a message or callback request to a hotel’s team (special requests, group bookings, anything you can’t resolve).',
+  parameters: obj(
+    {
+      property_id: propertyId('Hotel id from search_hotels — required in the all-hotels concierge. Leave empty on a hotel’s own line.'),
+      name: { type: 'string' },
+      phone: { type: ['string', 'null'], description: 'Callback number if given' },
+      email: { type: ['string', 'null'] },
+      message: { type: 'string', description: 'What the guest needs, in one or two sentences' },
+    },
+    ['property_id', 'name', 'phone', 'email', 'message']
+  ),
+  strict: true,
+};
+
+const WEB_USE_SKILL: FunctionToolSpec = {
+  type: 'function',
+  name: 'use_skill',
+  description: 'Use one of a hotel’s skills — saved answers and tools its team set up — by key (from your instructions or get_property_info). Returns the exact answer to give.',
+  parameters: obj({ property_id: propertyId(), key: { type: 'string', description: 'Skill key, e.g. "faq-parking"' }, arguments: SKILL_ARGUMENTS }, ['property_id', 'key', 'arguments']),
+  strict: true,
+};
+
+/** Tools that run in the browser only (the server can't see or change the guest's screen). */
+export const CLIENT_ONLY_TOOLS = new Set(['fill_guest_details', 'confirm_booking']);
+
+/** A hotel's front desk on its own booking pages (HOTEL web sessions). */
 export const GUEST_TOOLS: FunctionToolSpec[] = [
-  PROPERTY_INFO,
-  CHECK_AVAILABILITY,
-  {
-    type: 'function',
-    name: 'start_booking',
-    description: 'Open the secure checkout on the guest’s screen with the chosen room and dates pre-filled. The guest finishes booking there; never take card details by voice.',
-    parameters: obj(
-      {
-        room_type_id: { type: 'string', description: 'id from check_availability' },
-        check_in: date('Arrival date'),
-        check_out: date('Departure date'),
-        guests: { type: 'integer', minimum: 1, maximum: 16 },
-        rooms: { type: 'integer', minimum: 1, maximum: 9 },
-      },
-      ['room_type_id', 'check_in', 'check_out', 'guests', 'rooms']
-    ),
-    strict: true,
-  },
+  WEB_PROPERTY_INFO,
+  WEB_CHECK_AVAILABILITY,
+  WEB_START_BOOKING,
+  FILL_GUEST_DETAILS,
+  CONFIRM_BOOKING,
   FIND_BOOKING,
-  LEAVE_MESSAGE,
+  WEB_LEAVE_MESSAGE,
+  WEB_USE_SKILL,
 ];
+
+/** The HotelOne concierge across every listed hotel (GLOBAL web sessions). */
+export const CONCIERGE_TOOLS: FunctionToolSpec[] = [
+  SEARCH_HOTELS,
+  WEB_PROPERTY_INFO,
+  WEB_CHECK_AVAILABILITY,
+  OPEN_HOTEL,
+  WEB_START_BOOKING,
+  FILL_GUEST_DETAILS,
+  CONFIRM_BOOKING,
+  FIND_BOOKING,
+  WEB_LEAVE_MESSAGE,
+  WEB_USE_SKILL,
+];
+
+/**
+ * Every booking-site tool, for the one ElevenLabs guest agent that serves
+ * both scopes (its prompt, sent per conversation, says which apply).
+ */
+export const GUEST_AGENT_TOOLS: FunctionToolSpec[] = [...new Map([...CONCIERGE_TOOLS, ...GUEST_TOOLS].map((t) => [t.name, t])).values()];
 
 export const STAFF_TOOLS: FunctionToolSpec[] = [
   {
@@ -317,6 +505,8 @@ export function guestPrompts(p: {
   handoffPhone?: string | null;
   /** A call to the hotel's phone line (or a WhatsApp chat or call) rather than the booking page. */
   phone?: { callerNumber: string | null; canTransfer: boolean; whatsapp?: boolean };
+  /** The hotel's active guest answer skills (skillCatalogText), so the agent knows what it can answer. */
+  skills?: string | null;
 }) {
   const phone = p.phone;
   const whatsapp = !!phone?.whatsapp;
@@ -369,15 +559,65 @@ export function guestPrompts(p: {
     '- Quote exact prices from check_availability. If nothing fits, say so and suggest other dates or a message to the team.',
     phone
       ? '- To book: once the guest picks a room from check_availability, get their full name and an email for the booking link, then call request_booking. Tell them the team will confirm and send a link to finish booking — it isn’t booked until then.'
-      : '- To book, call start_booking with the chosen room type; tell the guest the checkout has opened on their screen.',
+      : '- To book: when the guest picks a room, repeat the room, dates, guests and total from check_availability, then call start_booking — the checkout opens on their screen.',
+    phone ? '' : WEB_CHECKOUT_RULES,
     '- Existing bookings: find_booking needs the confirmation code and last name. Guests can change dates or cancel free until 3 PM the day before arrival on their booking page.',
     '- Anything you cannot do (group rates, complaints, special arrangements): leave_message with their name and callback details.',
+    phone ? '' : `- You only speak for ${p.name}: never suggest, compare or look up other hotels. Leave property_id empty in every tool — it means ${p.name}.`,
+    phone ? '' : PAGE_UPDATE_RULE,
     caller ? `- Callback details: use ${caller}.` : '',
     whatsapp ? '- Reply with one or two short sentences.' : '- Reply with one or two short sentences for the voice to say.',
     p.houseRules ? `House rules from the hotel:\n${p.houseRules}` : '',
+    p.skills?.trim()
+      ? `The hotel’s saved answers (skills). For these topics call use_skill with the key and give its answer; get_property_info also lists them:\n${p.skills.trim()}`
+      : '',
   ]
     .filter(Boolean)
     .join('\n');
+  return { instructions, backendInstructions };
+}
+
+/** How the booking-site voice finishes a booking on the guest's screen (both scopes). */
+const WEB_CHECKOUT_RULES = [
+  '- On checkout: fill_guest_details can fill in the guest’s name, phone and special requests. When they want to book, read back the room, dates and total shown on checkout and ask “Shall I book it?”.',
+  '- Call confirm_booking only after a clear yes to that exact room, dates and total in this conversation. It books pay-at-the-hotel. If it says the guest must sign in, or that card payment is selected, tell them exactly what to tap on screen. Never take card details by voice.',
+].join('\n');
+
+/** Page updates the browser sends while the guest moves around the site. */
+const PAGE_UPDATE_RULE = '- Messages starting with [Page] say what is on the guest’s screen right now. Use them to stay in step; don’t read them out.';
+
+/**
+ * The HotelOne concierge (GLOBAL scope): one voice for every listed hotel,
+ * on the platform's own pages (home, directory, trips). Finds stays,
+ * opens hotels and checkout on screen, and books only on a clear yes.
+ */
+export function conciergePrompts(p: { product: string; today: string; timezone: string }) {
+  const instructions = [
+    `You are the ${p.product} concierge: a friendly voice assistant that helps people find and book a room at the independent hotels on ${p.product}. Warm, calm and brief.`,
+    `Open with a short welcome: say you’re ${p.product}’s AI concierge and ask where and when they’d like to stay.`,
+    'Speak in short sentences. Ask for what is missing — where, which dates, how many guests — one question at a time.',
+    'Say prices as natural amounts ("one hundred and eighty-nine dollars a night"). Repeat dates back before acting on them.',
+    'Whenever the guest asks about hotels, rooms, prices, availability, policies or a booking, delegate — never answer facts from memory.',
+    'If you are waiting on a result, say a brief natural filler ("let me look").',
+    'Offer at most three hotels at a time, each with its name, town and price.',
+    'Never ask for card numbers. Bookings are completed on the guest’s screen.',
+    'If the guest wants a person, offer to take a message for the hotel’s team.',
+    'If asked, say you are an AI assistant.',
+  ].join('\n');
+  const backendInstructions = [
+    `You find and book hotels on ${p.product} for the voice concierge. Today is ${p.today} (${p.timezone}). Resolve relative dates ("this Friday", "next weekend") against today.`,
+    'Rules:',
+    '- Facts come only from tools. Never invent hotels, prices, availability, amenities or policies.',
+    '- Finding a stay: call search_hotels with the place and, once known, check_in, check_out and guests. Present at most three options with their price per night (or stay total). If nothing fits, say so and suggest other dates or a nearby place.',
+    '- Questions about one hotel: get_property_info with its property_id; its skills are the hotel’s own answers (use_skill gives one by key).',
+    '- To show a hotel on screen, call open_hotel. Use check_availability for its rooms and exact prices.',
+    '- To book: confirm the hotel, room, dates, guests and total with the guest, then call start_booking — the checkout opens on their screen.',
+    WEB_CHECKOUT_RULES,
+    '- Existing bookings: find_booking needs the confirmation code and last name.',
+    '- Anything you can’t do (group rates, special arrangements): leave_message with the hotel’s property_id, the guest’s name and a phone number or email.',
+    `${PAGE_UPDATE_RULE} When a hotel’s page is open, its property_id is in the update.`,
+    '- Reply with one or two short sentences for the voice to say.',
+  ].join('\n');
   return { instructions, backendInstructions };
 }
 

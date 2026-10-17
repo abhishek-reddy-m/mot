@@ -14,8 +14,14 @@ import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { DomainError, badRequest, forbidden, notFound } from '../errors';
 import { ensureConfigSkills } from './config';
-import { fillPlaceholders, placeholdersIn, validateSkillArgs } from './params';
+import { fillPlaceholders, parametersFor, placeholdersIn, validateSkillArgs } from './params';
 import {
+  RECIPE_MAX_FAIL_STREAK,
+  SKILL_KINDS,
+  cleanSkillBody,
+  cleanSkillText,
+  isSkillKind,
+  promptSafe,
   skillBodySchemas,
   skillFieldsSchema,
   skillKey,
@@ -35,10 +41,11 @@ import {
 
 export * from './types';
 export { syncConfigSkills, ensureConfigSkills, scheduleConfigSkillSync, type ConfigSyncResult } from './config';
-export { validateSkillArgs, fillPlaceholders, placeholdersIn, type SkillArgs } from './params';
+export { validateSkillArgs, fillPlaceholders, placeholdersIn, parametersFor, inputNames, PARAM_HINTS, type SkillArgs } from './params';
+export { rankAnswerSkills, matchTokens, looksLikeQuestion, type SkillMatch } from './match';
 
 const audienceFilter = (audience?: AgentAudience) => (audience ? { audience: { in: [audience, 'ALL'] } } : {});
-const ORDER = [{ uses: 'desc' }, { title: 'asc' }] satisfies Prisma.AgentSkillOrderByWithRelationInput[];
+const ORDER = [{ uses: 'desc' }, { lastUsedAt: { sort: 'desc', nulls: 'last' } }, { title: 'asc' }] satisfies Prisma.AgentSkillOrderByWithRelationInput[];
 
 /** Keeps one skill per key, preferring the hotel's own over a platform-wide one. */
 function preferHotel(rows: Skill[]): Skill[] {
@@ -88,11 +95,12 @@ export interface SkillCatalogEntry {
 /**
  * The ACTIVE skills an agent may use at a hotel (its own plus platform-wide;
  * null = platform-wide only), most used first, for tool lists and prompts.
- * Generates the hotel's CONFIG skills on first use.
+ * Only kinds `useSkill` can run (ANSWER, MACRO, RECIPE) unless `kinds` says
+ * otherwise. Generates the hotel's CONFIG skills on first use.
  */
 export async function skillCatalog(propertyId: string | null, audience: AgentAudience, opts: { kinds?: SkillKind[] } = {}): Promise<SkillCatalogEntry[]> {
   if (propertyId) await ensureConfigSkills(propertyId);
-  const skills = await listSkills(propertyId, { audience, status: ['ACTIVE'], kinds: opts.kinds, includePlatform: true });
+  const skills = await listSkills(propertyId, { audience, status: ['ACTIVE'], kinds: opts.kinds?.length ? opts.kinds : [...SKILL_KINDS], includePlatform: true });
   return skills.map((s) => ({ key: s.key, title: s.title, description: s.description, kind: s.kind, parameters: s.parameters }));
 }
 
@@ -100,7 +108,8 @@ export async function skillCatalog(propertyId: string | null, audience: AgentAud
  * `skillCatalog` as a short bullet list for a prompt, most used first,
  * capped at `maxChars` (default 2,500) with a "…and N more" line. One line per
  * skill: `- key: title [kind] — description Inputs: a (required), b.`
- * Empty string when there are none.
+ * Titles and descriptions are made prompt-safe (one line, no headings, tags
+ * or role prefixes, capped). Empty string when there are none.
  */
 export async function skillCatalogText(propertyId: string | null, audience: AgentAudience, opts: { kinds?: SkillKind[]; maxChars?: number } = {}): Promise<string> {
   const max = opts.maxChars ?? 2500;
@@ -110,7 +119,7 @@ export async function skillCatalogText(propertyId: string | null, audience: Agen
   for (const [i, s] of entries.entries()) {
     const required = new Set(s.parameters?.required ?? []);
     const inputs = Object.keys(s.parameters?.properties ?? {}).map((p) => (required.has(p) ? `${p} (required)` : p));
-    let line = `- ${s.key}: ${s.title}${s.kind === 'ANSWER' ? '' : ` [${s.kind.toLowerCase()}]`} — ${s.description}${inputs.length ? ` Inputs: ${inputs.join(', ')}.` : ''}`;
+    let line = `- ${s.key}: ${promptSafe(s.title, 120)}${s.kind === 'ANSWER' ? '' : ` [${s.kind.toLowerCase()}]`} — ${promptSafe(s.description, 220)}${inputs.length ? ` Inputs: ${inputs.join(', ')}.` : ''}`;
     if (line.length > 300) line = `${line.slice(0, 299)}…`;
     // Keep room for the "…and N more" line unless this is the last skill.
     const more = entries.length - i - 1;
@@ -155,9 +164,10 @@ export async function useSkill(propertyId: string | null, key: string, args: unk
   if (!skill) throw notFound(`Skill "${key}"`);
   if (skill.status !== 'ACTIVE') throw new DomainError(409, 'SKILL_INACTIVE', `The skill "${key}" isn’t active${skill.status === 'SUGGESTED' ? ' yet — a manager needs to approve it' : ''}.`);
   if (skill.audience !== 'ALL' && skill.audience !== ctx.audience) throw forbidden(`The skill "${key}" is for ${skill.audience.toLowerCase()} agents.`);
+  if (!isSkillKind(skill.kind) || !skillBodySchemas[skill.kind].safeParse(skill.body).success) throw badRequest(`The skill "${key}" can’t be used here.`);
   let result: UseSkillResult;
   if (skill.kind === 'ANSWER') {
-    result = { kind: 'ANSWER', key: skill.key, title: skill.title, answer: skill.body.answer };
+    result = { kind: 'ANSWER', key: skill.key, title: skill.title, answer: cleanSkillText(skill.body.answer, { multiline: true }) };
   } else {
     const values = validateSkillArgs(key, skill.parameters, args);
     const fill = (t: string) => fillPlaceholders(key, t, values);
@@ -194,12 +204,22 @@ export interface UpsertSkillInput {
   createdById?: string | null;
 }
 
-/** Validates a skill write; DomainError 400 with every problem. */
-function validated(input: UpsertSkillInput) {
+/** Largest skill body (as JSON) we store, whatever its kind. */
+const MAX_BODY_CHARS = 20_000;
+
+/** Validates a skill write (text cleaned first); DomainError 400 with every problem. */
+function validated(raw: UpsertSkillInput) {
+  const input: UpsertSkillInput = {
+    ...raw,
+    title: cleanSkillText(raw.title ?? ''),
+    description: cleanSkillText(raw.description ?? ''),
+    body: cleanSkillBody(raw.kind, raw.body) as SkillBody,
+  };
   const key = input.key?.trim() || skillKey(input.title);
   const problems: string[] = [];
   const keyCheck = skillKeySchema.safeParse(key);
   if (!keyCheck.success) problems.push(`key ${keyCheck.error.issues[0].message}`);
+  if (JSON.stringify(raw.body ?? null).length > MAX_BODY_CHARS) problems.push(`body is too long (at most ${MAX_BODY_CHARS} characters)`);
   const fields = skillFieldsSchema.safeParse(input);
   if (!fields.success) problems.push(...fields.error.issues.map((i) => `${i.path.join('.')} ${i.message}`));
   const kind = fields.success ? fields.data.kind : input.kind;
@@ -301,14 +321,76 @@ export async function recordLearnedSkill(input: LearnedSkillInput): Promise<Skil
 }
 
 /**
- * Counts a RECIPE run's outcome in its body (successes / failures), so
- * agents can prefer recipes that work. DomainError 404 / 400 (not a recipe).
+ * Counts a RECIPE run's outcome in its body (successes / failures and the
+ * failures in a row), so agents can prefer recipes that work. A recipe that
+ * fails RECIPE_MAX_FAIL_STREAK (3) times in a row is switched off
+ * (DISABLED, with `autoDisabledAt`); a success resets the streak.
+ * DomainError 404 / 400 (not a recipe).
  */
 export async function recordRecipeOutcome(propertyId: string | null, key: string, success: boolean): Promise<Skill> {
   const skill = await getSkill(propertyId, key);
   if (!skill) throw notFound(`Skill "${key}"`);
   if (skill.kind !== 'RECIPE') throw badRequest(`The skill "${key}" isn’t a recipe.`);
-  const body: RecipeBody = { ...skill.body, successes: (skill.body.successes ?? 0) + (success ? 1 : 0), failures: (skill.body.failures ?? 0) + (success ? 0 : 1) };
-  const row = await prisma.agentSkill.update({ where: { id: skill.id }, data: { body: json(body), lastUsedAt: new Date() } });
+  const failStreak = success ? 0 : (skill.body.failStreak ?? 0) + 1;
+  const switchOff = !success && failStreak >= RECIPE_MAX_FAIL_STREAK && skill.status === 'ACTIVE';
+  const body: RecipeBody = {
+    ...skill.body,
+    successes: (skill.body.successes ?? 0) + (success ? 1 : 0),
+    failures: (skill.body.failures ?? 0) + (success ? 0 : 1),
+    failStreak,
+    ...(switchOff ? { autoDisabledAt: new Date().toISOString() } : {}),
+  };
+  const row = await prisma.agentSkill.update({ where: { id: skill.id }, data: { body: json(body), lastUsedAt: new Date(), ...(switchOff ? { status: 'DISABLED' } : {}) } });
   return toSkill(row);
+}
+
+/** Changes to an existing skill (`updateSkill`). Omitted fields stay as they are. */
+export interface SkillPatch {
+  title?: string;
+  description?: string;
+  audience?: SkillAudience;
+  body?: SkillBody;
+  /** Default: derived from the body's {placeholders}, keeping matching old definitions. */
+  parameters?: SkillParameters | null;
+  status?: SkillStatus;
+}
+
+/**
+ * Edits a skill in place, keeping its key and source (a CONFIG skill turns
+ * MANUAL so settings syncs leave it alone). Validates like `upsertSkill`.
+ * Turning a recipe back on clears its failure streak. DomainError 404 / 400.
+ */
+export async function updateSkill(id: string, patch: SkillPatch): Promise<Skill> {
+  const current = await getSkillById(id);
+  if (!current) throw notFound('Skill');
+  if (!isSkillKind(current.kind)) throw badRequest('This skill is managed elsewhere and can’t be edited here.');
+  const onlyStatus = Object.entries(patch).every(([k, v]) => k === 'status' || v === undefined);
+  if (onlyStatus) {
+    // A plain on/off switch keeps the source (a CONFIG answer stays CONFIG).
+    if (!patch.status || patch.status === current.status) return current;
+    const updated = await setSkillStatus(id, patch.status);
+    if (updated.kind !== 'RECIPE') return updated;
+    const { autoDisabledAt: _auto, ...rest } = updated.body;
+    void _auto;
+    return toSkill(await prisma.agentSkill.update({ where: { id }, data: { body: json({ ...rest, failStreak: 0 }) } }));
+  }
+  let body = (patch.body ?? current.body) as SkillBody;
+  if (current.kind === 'RECIPE') {
+    const b = body as RecipeBody;
+    const prev = current.body;
+    body = { ...b, successes: prev.successes, failures: prev.failures, failStreak: prev.failStreak, autoDisabledAt: prev.autoDisabledAt };
+    if (patch.status && patch.status !== current.status) body = { ...(body as RecipeBody), failStreak: 0, autoDisabledAt: undefined };
+  }
+  const parameters = patch.parameters !== undefined ? patch.parameters : parametersFor(current.kind, body, current.parameters);
+  return upsertSkill({
+    propertyId: current.propertyId,
+    key: current.key,
+    title: patch.title ?? current.title,
+    description: patch.description ?? current.description,
+    kind: current.kind,
+    audience: patch.audience ?? current.audience,
+    body,
+    parameters,
+    status: patch.status,
+  });
 }

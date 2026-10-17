@@ -22,6 +22,7 @@ import {
   Plus,
   RotateCcw,
   ShieldCheck,
+  Sparkles,
   Trash2,
   XCircle,
   type LucideIcon,
@@ -76,7 +77,7 @@ interface GuestRequest {
   phone: string | null;
   email: string | null;
   message: string;
-  /** VOICE (booking page) | PHONE | WHATSAPP */
+  /** VOICE (booking page) | PHONE | WHATSAPP | AGENT (outside AI assistant) */
   source: string;
   status: 'NEW' | 'DONE';
   createdAt: string;
@@ -383,6 +384,8 @@ const SOURCE: Record<string, { label: string; icon: LucideIcon }> = {
   PHONE: { label: 'Phone call', icon: Phone },
   WHATSAPP: { label: 'WhatsApp', icon: MessageCircle },
   VOICE: { label: 'Booking page', icon: Globe },
+  // Outside AI assistants (agent API / MCP) asking on a guest's behalf.
+  AGENT: { label: 'AI assistant', icon: Sparkles },
 };
 
 function Requests() {
