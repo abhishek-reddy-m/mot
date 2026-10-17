@@ -469,8 +469,9 @@ model AgentConversation {
   id        String           @id @default(cuid())
   userId    String
   title     String?
-  // Claude Messages API history, append-only
-  messages  Json             @default("[]")
+  // Claude Messages API history, append-only. Stored as text (not jsonb, which
+  // reorders keys) so earlier turns are replayed to the API byte-for-byte.
+  messages  String           @default("[]")
   // Write actions waiting for the admin's approval
   pending   Json?
   createdAt DateTime         @default(now())

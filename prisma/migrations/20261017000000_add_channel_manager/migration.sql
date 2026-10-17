@@ -149,7 +149,7 @@ CREATE TABLE "agent_conversations" (
     "id" TEXT NOT NULL,
     "userId" TEXT NOT NULL,
     "title" TEXT,
-    "messages" JSONB NOT NULL DEFAULT '[]',
+    "messages" TEXT NOT NULL DEFAULT '[]',
     "pending" JSONB,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" TIMESTAMP(3) NOT NULL,
