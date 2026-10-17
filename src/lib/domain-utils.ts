@@ -51,3 +51,48 @@ export function isAppHost(hostname: string): boolean {
 
   return [...appHosts, ...extraHosts].includes(hostname);
 }
+
+// Default property addresses on the platform's own domain, e.g. "oceanview-resort.hotelone.site"
+
+const SUBDOMAIN_PATTERN = /^(?!xn--)[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/;
+const RESERVED_SUBDOMAINS = new Set([
+  'www', 'app', 'api', 'admin', 'dashboard', 'login', 'auth', 'account', 'book', 'booking', 'bookings',
+  'mail', 'email', 'smtp', 'imap', 'ftp', 'ns1', 'ns2', 'cdn', 'static', 'assets', 'media',
+  'help', 'support', 'status', 'docs', 'blog', 'dev', 'staging', 'test', 'demo',
+]);
+
+/** Domain whose subdomains are properties' default booking pages, e.g. "hotelone.site". */
+export function getPropertyDomainBase(): string | null {
+  return process.env.PROPERTY_DOMAIN_BASE?.trim().toLowerCase() || null;
+}
+
+/** "oceanview-resort.hotelone.site" -> "oceanview-resort"; null for any other host. */
+export function getPropertySubdomain(hostname: string): string | null {
+  const base = getPropertyDomainBase();
+  if (!base || !hostname.endsWith(`.${base}`)) return null;
+
+  const subdomain = hostname.slice(0, -(base.length + 1));
+  return subdomain.includes('.') ? null : subdomain;
+}
+
+/** The platform domain or anything under it, which a property can't claim as its own domain. */
+export function isPlatformDomain(hostname: string): boolean {
+  const base = getPropertyDomainBase();
+  return base !== null && (hostname === base || hostname.endsWith(`.${base}`));
+}
+
+export function isValidSubdomain(subdomain: string): boolean {
+  return SUBDOMAIN_PATTERN.test(subdomain) && !RESERVED_SUBDOMAINS.has(subdomain);
+}
+
+/** "Oceanview Résort & Spa" -> "oceanview-resort-spa" */
+export function slugifySubdomain(name: string): string {
+  return name
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+/, '')
+    .slice(0, 50)
+    .replace(/-+$/, '');
+}

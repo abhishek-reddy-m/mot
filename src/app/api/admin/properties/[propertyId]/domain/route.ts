@@ -1,7 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
-import { isAppHost, normalizeDomain, toggleWww } from '@/lib/domain-utils';
+import {
+  isAppHost,
+  isPlatformDomain,
+  isValidSubdomain,
+  normalizeDomain,
+  toggleWww,
+} from '@/lib/domain-utils';
 import {
   addDomainToHosting,
   checkDomainDns,
@@ -10,14 +16,17 @@ import {
   removeDomainFromHosting,
   verifyDomainWithHosting,
 } from '@/lib/custom-domains';
+import { getDefaultDomain, hostPropertySubdomain, unhostPropertySubdomain } from '@/lib/property-subdomains';
 
 const domainFields = {
+  subdomain: true,
   customDomain: true,
   customDomainVerified: true,
   customDomainVerifiedAt: true,
 } as const;
 
 type DomainFields = {
+  subdomain: string | null;
   customDomain: string | null;
   customDomainVerified: boolean;
   customDomainVerifiedAt: Date | null;
@@ -38,6 +47,8 @@ async function canManageProperty(propertyId: string): Promise<boolean> {
 
 function domainStatus(property: DomainFields) {
   return {
+    subdomain: property.subdomain,
+    defaultDomain: getDefaultDomain(property.subdomain),
     domain: property.customDomain,
     verified: property.customDomainVerified,
     verifiedAt: property.customDomainVerifiedAt,
@@ -96,9 +107,9 @@ export async function PUT(
       );
     }
 
-    if (isAppHost(domain)) {
+    if (isAppHost(domain) || isPlatformDomain(domain)) {
       return NextResponse.json(
-        { error: 'That domain belongs to the booking site itself' },
+        { error: 'That domain belongs to the booking site itself. To change the default address, edit it above.' },
         { status: 400 }
       );
     }
@@ -166,6 +177,71 @@ export async function PUT(
     }
 
     console.error('Error saving custom domain:', error);
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+// PATCH change the property's default subdomain, e.g. "oceanview-resort" in oceanview-resort.hotelone.site
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ propertyId: string }> }
+) {
+  try {
+    const { propertyId } = await params;
+
+    if (!(await canManageProperty(propertyId))) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+
+    const body = await request.json();
+    const subdomain = typeof body.subdomain === 'string' ? body.subdomain.trim().toLowerCase() : '';
+
+    if (!isValidSubdomain(subdomain)) {
+      return NextResponse.json(
+        { error: 'Use 3-63 letters, numbers or hyphens (not at the start or end). Some names, like www or admin, are reserved.' },
+        { status: 400 }
+      );
+    }
+
+    const property = await prisma.property.findUnique({
+      where: { id: propertyId },
+      select: domainFields,
+    });
+
+    if (!property) {
+      return NextResponse.json({ error: 'Property not found' }, { status: 404 });
+    }
+
+    if (property.subdomain === subdomain) {
+      return NextResponse.json(domainStatus(property));
+    }
+
+    const updatedProperty = await prisma.property.update({
+      where: { id: propertyId },
+      data: { subdomain },
+      select: domainFields,
+    });
+
+    try {
+      await hostPropertySubdomain(subdomain);
+    } catch (error) {
+      // The address is saved; the startup sync retries adding it to Render
+      console.error('Error adding subdomain to Render:', error);
+    }
+    if (property.subdomain) {
+      await unhostPropertySubdomain(property.subdomain);
+    }
+
+    return NextResponse.json(domainStatus(updatedProperty));
+  } catch (error: any) {
+    if (error?.code === 'P2002') {
+      return NextResponse.json(
+        { error: 'That address is taken. Try another one.' },
+        { status: 409 }
+      );
+    }
+
+    console.error('Error changing subdomain:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

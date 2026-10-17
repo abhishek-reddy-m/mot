@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getToken } from "next-auth/jwt";
-import { getAppOrigin, isAppHost, normalizeDomain } from "@/lib/domain-utils";
+import { getAppOrigin, getPropertyDomainBase, getPropertySubdomain, isAppHost, normalizeDomain } from "@/lib/domain-utils";
 
 // Define role-based access control
 const ADMIN_ROLES = ["ADMIN", "OWNER"];
@@ -9,15 +9,18 @@ const STAFF_ROLES = ["ADMIN", "OWNER", "MANAGER", "FRONT_DESK", "HOUSEKEEPER"];
 // Routes that need a signed-in user
 const PROTECTED_PATHS = ["/admin", "/dashboard", "/bookings", "/front-desk", "/housekeeping"];
 
-// Property custom domains: hostname -> property whose booking page it serves
+// Property domains (default subdomain or the property's own): hostname -> property it serves
+type PropertySite = { propertyId: string; customDomain: string | null };
+
 const DOMAIN_CACHE_TTL_MS = 60 * 1000;
 const DOMAIN_CACHE_MAX_ENTRIES = 1000;
-const domainCache = new Map<string, { propertyId: string | null; expiresAt: number }>();
+const domainCache = new Map<string, { site: PropertySite | null; expiresAt: number }>();
 
-async function resolveCustomDomain(hostname: string): Promise<string | null> {
+// null: no property uses this host; undefined: the lookup failed
+async function resolvePropertySite(hostname: string): Promise<PropertySite | null | undefined> {
   const cached = domainCache.get(hostname);
   if (cached && cached.expiresAt > Date.now()) {
-    return cached.propertyId;
+    return cached.site;
   }
 
   // Middleware can't use Prisma, so ask this same server over loopback
@@ -26,18 +29,19 @@ async function resolveCustomDomain(hostname: string): Promise<string | null> {
   try {
     const response = await fetch(`${internalUrl}/api/domains/resolve?host=${encodeURIComponent(hostname)}`);
     if (!response.ok && response.status !== 404) {
-      return null;
+      return undefined;
     }
 
-    const { propertyId } = await response.json();
+    const { propertyId, customDomain } = await response.json();
+    const site = propertyId ? { propertyId, customDomain } : null;
     if (domainCache.size >= DOMAIN_CACHE_MAX_ENTRIES) {
       domainCache.clear();
     }
-    domainCache.set(hostname, { propertyId, expiresAt: Date.now() + DOMAIN_CACHE_TTL_MS });
-    return propertyId;
+    domainCache.set(hostname, { site, expiresAt: Date.now() + DOMAIN_CACHE_TTL_MS });
+    return site;
   } catch (error) {
     console.error("Custom domain lookup failed:", error);
-    return null;
+    return undefined;
   }
 }
 
@@ -85,9 +89,22 @@ export async function middleware(request: NextRequest) {
 
   const hostname = normalizeDomain(request.headers.get("host") || "");
   if (hostname && !isAppHost(hostname)) {
-    const propertyId = await resolveCustomDomain(hostname);
-    if (propertyId) {
-      return handleCustomDomain(request, propertyId);
+    const site = await resolvePropertySite(hostname);
+    const isDefaultSubdomain = getPropertySubdomain(hostname) !== null;
+
+    if (site) {
+      // Once a property's own domain is live, its default subdomain points guests there.
+      // Temporary, so browsers don't keep redirecting if the owner disconnects their domain.
+      if (isDefaultSubdomain && site.customDomain) {
+        const { pathname, search } = request.nextUrl;
+        return NextResponse.redirect(`https://${site.customDomain}${pathname}${search}`);
+      }
+      return handleCustomDomain(request, site.propertyId);
+    }
+
+    // A subdomain no property uses (any more)
+    if (isDefaultSubdomain && site === null) {
+      return NextResponse.redirect(`https://${getPropertyDomainBase()}`);
     }
   }
 

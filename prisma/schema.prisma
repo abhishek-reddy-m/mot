@@ -44,6 +44,8 @@ model Property {
   email       String?
   amenities   String[]
   isActive    Boolean         @default(true)
+  // Default booking page address: "oceanview-resort" serves oceanview-resort.hotelone.site
+  subdomain              String?   @unique
   // Property's own domain for its booking page, e.g. "book.mymotel.com"
   customDomain           String?   @unique
   customDomainVerified   Boolean   @default(false)

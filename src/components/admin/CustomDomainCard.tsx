@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, CheckCircle2, Clock, ExternalLink, Globe, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, ExternalLink, Globe, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 
 type DnsRecord = {
   type: 'CNAME' | 'A';
@@ -22,6 +22,8 @@ type DnsCheck = {
 };
 
 type DomainStatus = {
+  subdomain: string | null;
+  defaultDomain: string | null;
   domain: string | null;
   verified: boolean;
   verifiedAt: string | null;
@@ -33,7 +35,8 @@ type DomainStatus = {
 export default function CustomDomainCard({ propertyId }: { propertyId: string }) {
   const [status, setStatus] = useState<DomainStatus | null>(null);
   const [domainInput, setDomainInput] = useState('');
-  const [busy, setBusy] = useState<'saving' | 'checking' | 'removing' | null>(null);
+  const [subdomainInput, setSubdomainInput] = useState<string | null>(null);
+  const [busy, setBusy] = useState<'renaming' | 'saving' | 'checking' | 'removing' | null>(null);
   const [error, setError] = useState('');
   const [bookingPageUrl, setBookingPageUrl] = useState(`/properties/${propertyId}`);
 
@@ -58,7 +61,7 @@ export default function CustomDomainCard({ propertyId }: { propertyId: string })
     fetchStatus();
   }, [domainApi, propertyId]);
 
-  const callDomainApi = async (method: 'PUT' | 'POST' | 'DELETE', body?: unknown) => {
+  const callDomainApi = async (method: 'PATCH' | 'PUT' | 'POST' | 'DELETE', body?: unknown) => {
     const response = await fetch(domainApi, {
       method,
       headers: body ? { 'Content-Type': 'application/json' } : undefined,
@@ -72,7 +75,7 @@ export default function CustomDomainCard({ propertyId }: { propertyId: string })
     setStatus(data);
   };
 
-  const run = async (action: 'saving' | 'checking' | 'removing', request: () => Promise<void>) => {
+  const run = async (action: 'renaming' | 'saving' | 'checking' | 'removing', request: () => Promise<void>) => {
     setBusy(action);
     setError('');
     try {
@@ -83,6 +86,12 @@ export default function CustomDomainCard({ propertyId }: { propertyId: string })
       setBusy(null);
     }
   };
+
+  const saveSubdomain = () =>
+    run('renaming', async () => {
+      await callDomainApi('PATCH', { subdomain: subdomainInput });
+      setSubdomainInput(null);
+    });
 
   const connectDomain = () =>
     run('saving', async () => {
@@ -106,12 +115,68 @@ export default function CustomDomainCard({ propertyId }: { propertyId: string })
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="text-sm">
-          <span className="text-gray-600">Booking page:</span>{' '}
-          <a href={bookingPageUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
-            {bookingPageUrl}
-          </a>
-        </div>
+        {status?.defaultDomain && status.subdomain ? (
+          <div className="space-y-2">
+            <label className="block text-sm font-medium">Default address</label>
+            {subdomainInput !== null ? (
+              <div className="flex flex-wrap gap-2">
+                <div className="flex flex-1 min-w-[16rem]">
+                  <Input
+                    value={subdomainInput}
+                    onChange={(e) => setSubdomainInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      // The card sits inside the property form; don't submit that
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        if (busy === null) saveSubdomain();
+                      }
+                      if (e.key === 'Escape') setSubdomainInput(null);
+                    }}
+                    className="rounded-r-none"
+                    autoFocus
+                  />
+                  <span className="h-9 px-3 flex items-center border border-l-0 rounded-r-md bg-gray-50 text-sm text-gray-600">
+                    {status.defaultDomain.slice(status.subdomain.length)}
+                  </span>
+                </div>
+                <Button type="button" onClick={saveSubdomain} disabled={!subdomainInput.trim() || busy !== null}>
+                  {busy === 'renaming' && <Loader2 className="h-4 w-4 animate-spin" />}
+                  Save
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setSubdomainInput(null)} disabled={busy !== null}>
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <a
+                  href={`https://${status.defaultDomain}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:underline break-all"
+                >
+                  {status.defaultDomain}
+                </a>
+                <Button type="button" variant="outline" size="sm" onClick={() => setSubdomainInput(status.subdomain)}>
+                  <Pencil className="h-4 w-4" />
+                  Change
+                </Button>
+              </div>
+            )}
+            <p className="text-sm text-gray-500">
+              {status.verified && status.domain
+                ? `Guests who visit it are sent to ${status.domain}.`
+                : 'Every property gets this address. Connect your own domain below to use that instead.'}
+            </p>
+          </div>
+        ) : (
+          <div className="text-sm">
+            <span className="text-gray-600">Booking page:</span>{' '}
+            <a href={bookingPageUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">
+              {bookingPageUrl}
+            </a>
+          </div>
+        )}
 
         {error && (
           <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded-md text-sm">
@@ -149,6 +214,7 @@ export default function CustomDomainCard({ propertyId }: { propertyId: string })
           </div>
         ) : (
           <div className="space-y-4">
+            <label className="block text-sm font-medium -mb-2">Your own domain</label>
             <div className="flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <span className="font-medium">{status.domain}</span>

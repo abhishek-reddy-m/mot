@@ -12,6 +12,7 @@ declare namespace NodeJS {
     CLOUDINARY_API_SECRET?: string
     // Property custom domains (see DEPLOYMENT.md)
     NEXT_PUBLIC_SITE_URL?: string
+    PROPERTY_DOMAIN_BASE?: string
     APP_HOSTNAMES?: string
     INTERNAL_APP_URL?: string
     CUSTOM_DOMAIN_CNAME_TARGET?: string

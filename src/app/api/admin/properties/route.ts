@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { findAvailableSubdomain, hostPropertySubdomain } from '@/lib/property-subdomains';
 
 // GET all properties
 export async function GET() {
@@ -88,8 +89,17 @@ export async function POST(req: NextRequest) {
         phone,
         email,
         amenities: amenities || [],
+        // Default booking page address, e.g. oceanview-resort.hotelone.site
+        subdomain: await findAvailableSubdomain(name),
       },
     });
+
+    try {
+      await hostPropertySubdomain(property.subdomain!);
+    } catch (error) {
+      // The startup sync retries adding it to Render
+      console.error('Error adding subdomain to Render:', error);
+    }
 
     return NextResponse.json(property, { status: 201 });
   } catch (error) {

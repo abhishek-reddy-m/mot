@@ -109,3 +109,13 @@ A property can serve its booking page on its own domain, such as `book.mymotel.c
    - `APP_HOSTNAMES` (optional): comma-separated extra hostnames for the main site itself. `*.onrender.com` always counts as the main site.
    - `INTERNAL_APP_URL` (optional): how the middleware reaches this server to look up domains. Defaults to `http://127.0.0.1:$PORT`.
    - `CUSTOM_DOMAIN_CNAME_TARGET` and `CUSTOM_DOMAIN_A_RECORD` (optional): override the DNS values shown to owners. The A record for root domains defaults to Render's `216.24.57.1`.
+
+## Default Property Addresses
+
+Every property also gets an address on the platform's own domain, made from its name, such as `oceanview-resort.hotelone.site`. Owners can change it in the same **Booking Page Domain** card. Once a property's own domain is live, its default address forwards guests there. Addresses no property uses send visitors to the platform's home page (`https://hotelone.site`).
+
+1. At the DNS provider for `hotelone.site`, add one wildcard record: `*` CNAME `mot-cvjh.onrender.com`. Leave the root and `www` records as they are; they keep serving the HotelOne website.
+2. Set `PROPERTY_DOMAIN_BASE=hotelone.site`, plus `RENDER_API_KEY` and `RENDER_SERVICE_ID`. Render only accepts a `*.hotelone.site` wildcard when `hotelone.site` itself is hosted on Render, so the app adds each property's subdomain to the Render service one by one: when a property is created, when its address changes, and at every server start for any that are missing.
+3. Apply the migrations. Existing properties get an address from their name.
+
+Each address counts as a custom domain on Render. Plans include a few (Hobby 2, Pro 15), and each extra one costs $0.25 a month.
