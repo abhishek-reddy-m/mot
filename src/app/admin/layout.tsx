@@ -20,11 +20,13 @@ import {
   User,
   DollarSign,
   ClipboardList,
-  Sparkles
+  Sparkles,
+  BrainCircuit
 } from 'lucide-react';
 
 const navigation = [
   { name: 'Dashboard', href: '/admin/dashboard', icon: Home },
+  { name: 'AI Advisor', href: '/admin/advisor', icon: BrainCircuit },
   { name: 'Front Desk', href: '/admin/front-desk', icon: ClipboardList },
   { name: 'Housekeeping', href: '/admin/housekeeping', icon: Sparkles },
   { name: 'Properties', href: '/admin/properties', icon: Building2 },

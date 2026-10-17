@@ -24,3 +24,6 @@ services:
         value: "https://mot-cvjh.onrender.com"
       - key: COOKIE_DOMAIN
         value: "mot-cvjh.onrender.com"
+      # AI Business Advisor: set the value in the Render dashboard, never in this file
+      - key: ANTHROPIC_API_KEY
+        sync: false

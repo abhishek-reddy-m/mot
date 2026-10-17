@@ -19,6 +19,7 @@ A comprehensive full-stack motel booking website built with Next.js, TypeScript,
 - 👥 User management
 - 📈 Analytics and reporting dashboard
 - 📸 Photo upload and management
+- 🧠 AI Business Advisor: chat and brainstorm with full context of every property you own
 
 ### Security & Authentication
 - 🔐 Multi-level authentication (Customer/Admin)
@@ -82,6 +83,7 @@ The application uses a relational database with the following main entities:
    CLOUDINARY_CLOUD_NAME="your-cloudinary-cloud-name"
    CLOUDINARY_API_KEY="your-cloudinary-api-key"
    CLOUDINARY_API_SECRET="your-cloudinary-api-secret"
+   ANTHROPIC_API_KEY="your-anthropic-api-key" # for the AI Business Advisor
    ```
 
 4. Set up the database:
@@ -141,6 +143,15 @@ src/
 - User management
 - Analytics dashboard
 - File upload handling
+
+### AI Business Advisor
+Admin panel → **AI Advisor** (`/admin/advisor`) is a chat assistant, built on Claude, that knows the whole portfolio of the signed-in user, so an owner with several hotels can ask questions and brainstorm improvements across all of them at once.
+
+- **Global context:** every turn starts from a fresh portfolio snapshot covering each property and room type, occupancy, ADR, RevPAR and revenue for standard periods compared with last year, the next 30/90 days on the books compared with the same time last year, 13-month trends, room type performance, and current operations.
+- **Drill-down tools:** the advisor can query any date range or breakdown, daily/weekly/monthly trends, booking pace, demand patterns (day of week, lead time, length of stay, party size, repeat guests), the nightly rate calendar against occupancy, operations status, and individual bookings.
+- **Scope and privacy:** admins see every property; owners see only the properties assigned to them under Users. The advisor is read-only. Guests are anonymised, and no names, contact details or payment data are sent to the model.
+- **Setup:** set `ANTHROPIC_API_KEY` on the server. Conversations are kept in the user's browser.
+- **Code:** `src/lib/business-agent/` (data, analyses, snapshot, tools, agent loop) and `src/app/api/admin/business-agent/route.ts`.
 
 ### Customer Interface
 - Property search and filtering
