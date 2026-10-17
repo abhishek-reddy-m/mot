@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import CustomDomainCard from '@/components/admin/CustomDomainCard';
 import { CheckCircle2, Save, Loader2, ArrowLeft, Plus, Trash2, Upload, Star, X, Image as ImageIcon } from 'lucide-react';
 
 type PropertyFormData = {
@@ -633,7 +634,10 @@ export default function EditPropertyPage({ params }: { params: Promise<{ propert
                 )}
               </CardContent>
             </Card>
-            
+
+            {/* Saves through its own API, not with Save Changes */}
+            <CustomDomainCard propertyId={propertyId} />
+
             <div className="flex justify-end space-x-4">
               <Button 
                 type="button" 

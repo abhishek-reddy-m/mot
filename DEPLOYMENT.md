@@ -97,3 +97,15 @@ When adding new features:
 2. Update API routes with proper error handling
 3. Avoid direct column references that might not exist in production
 4. Test thoroughly in a production-like environment before deploying
+
+## Property Custom Domains
+
+A property can serve its booking page on its own domain, such as `book.mymotel.com`. In Admin → Properties → Edit, the **Booking Page Domain** card takes the domain, shows the DNS record to add, and checks it. Once the domain points here, guests who visit it see that property's booking page. Other pages (sign-in, guest accounts, staff portals) redirect to the main site, where the session cookie lives.
+
+1. Apply the migration (`npx prisma migrate deploy`), which adds `customDomain` to `properties`.
+2. Set these environment variables on the web service:
+   - `NEXT_PUBLIC_SITE_URL` (or `NEXTAUTH_URL`): the main site, e.g. `https://mot-cvjh.onrender.com`. Owners point their subdomain's CNAME at its hostname.
+   - `RENDER_API_KEY` and `RENDER_SERVICE_ID` (recommended): the app then adds each domain to the Render service and waits for Render to verify it, so its TLS certificate is issued automatically. Without them, add each domain by hand in the service's Settings → Custom Domains.
+   - `APP_HOSTNAMES` (optional): comma-separated extra hostnames for the main site itself. `*.onrender.com` always counts as the main site.
+   - `INTERNAL_APP_URL` (optional): how the middleware reaches this server to look up domains. Defaults to `http://127.0.0.1:$PORT`.
+   - `CUSTOM_DOMAIN_CNAME_TARGET` and `CUSTOM_DOMAIN_A_RECORD` (optional): override the DNS values shown to owners. The A record for root domains defaults to Render's `216.24.57.1`.
