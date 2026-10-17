@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { format } from 'date-fns';
 import crypto from 'crypto';
+import { scheduleRateSync } from '@/lib/channel-manager/sync';
 
 // Define the RoomTypeRate interface
 interface RoomTypeRate {
@@ -242,6 +243,9 @@ export async function POST(
         console.error('Error processing rate:', error, rate);
       }
     }
+    
+    // Push the new rates to connected OTA channels (Expedia, Booking.com)
+    scheduleRateSync(roomTypeId, Array.from(processedDates) as string[]);
     
     return NextResponse.json({ 
       success: true, 

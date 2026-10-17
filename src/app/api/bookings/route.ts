@@ -3,6 +3,7 @@ import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
 import { parseBookingDate, toDateString, getDateRange } from '@/lib/date-utils';
 import { encrypt } from '@/lib/encryption';
+import { scheduleInventorySync } from '@/lib/channel-manager/sync';
 
 export async function POST(request: NextRequest) {
   try {
@@ -275,6 +276,9 @@ export async function POST(request: NextRequest) {
       rooms,
       false // Not a cancellation
     );
+
+    // Push the reduced availability to connected OTA channels
+    scheduleInventorySync(roomTypeId, checkInDate, checkOutDate);
 
     return NextResponse.json({ 
       success: true, 

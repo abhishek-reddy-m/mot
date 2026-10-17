@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { scheduleInventorySync } from '@/lib/channel-manager/sync';
 
 export async function PUT(
   request: NextRequest,
@@ -121,6 +122,9 @@ export async function PUT(
       booking.rooms,
       true // This is a cancellation
     );
+
+    // Push the released availability to connected OTA channels
+    scheduleInventorySync(booking.roomTypeId, booking.checkIn, booking.checkOut);
     
     return NextResponse.json({
       message: 'Booking cancelled successfully',

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/lib/auth';
 import { prisma } from '@/lib/prisma';
+import { scheduleInventorySync } from '@/lib/channel-manager/sync';
 
 // GET a specific booking by ID
 export async function GET(
@@ -139,6 +140,9 @@ export async function PATCH(
 
       return updatedBooking;
     });
+
+    // Cancelling, no-show or reinstating changes availability on OTA channels
+    scheduleInventorySync(result.roomTypeId, result.checkIn, result.checkOut);
 
     return NextResponse.json({
       message: `Booking status updated to ${status}`,
