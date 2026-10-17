@@ -55,6 +55,10 @@ export const PERMISSIONS = {
   'voice.use': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
   'voice.manage': ['ADMIN', 'OWNER', 'MANAGER'],
   'phone.manage': ['ADMIN', 'OWNER'],
+  // Agent platform: what agents know and learned, and keys for outside AI assistants.
+  'skills.view': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
+  'skills.manage': ['ADMIN', 'OWNER', 'MANAGER'],
+  'agentkeys.manage': ['ADMIN', 'OWNER'],
   'requests.view': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
   'bridge.use': ['ADMIN', 'OWNER', 'MANAGER', 'FRONT_DESK'],
   'bridge.manage': ['ADMIN', 'OWNER'],
