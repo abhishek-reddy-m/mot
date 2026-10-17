@@ -25,6 +25,16 @@ export function defaultStay(): StayQuery {
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
+const noopSubscribe = () => () => {};
+/**
+ * The guest's own calendar date, or undefined while server-rendering: the
+ * server's clock (UTC on Vercel) is a day ahead of US evenings, and React
+ * keeps a server-rendered `min` attribute after hydration.
+ */
+function useGuestToday(): string | undefined {
+  return React.useSyncExternalStore(noopSubscribe, localToday, () => undefined);
+}
+
 /**
  * − value + control. Each button is a 40px target with its own accessible
  * name; the value is announced as it changes. Pass `labelledBy` to name the
@@ -184,9 +194,11 @@ export function StaySearch({
   React.useEffect(() => setV(value), [value]);
   const uid = React.useId();
   const ids = { q: `${uid}-q`, in: `${uid}-in`, out: `${uid}-out`, guests: `${uid}-guests`, rooms: `${uid}-rooms` };
-  const today = localToday();
+  const today = useGuestToday();
   const nights = nightsBetween(v.checkIn, v.checkOut);
   const stacked = layout === 'stacked';
+  // Divider between the row's groups, shown only once the form is one row.
+  const divider = cn('hidden w-px self-stretch bg-border', showRooms ? 'lg:my-2 lg:block' : 'md:my-2 md:block');
 
   const setCheckIn = (checkIn: string) => {
     setV((cur) => ({ ...cur, checkIn, checkOut: cur.checkOut <= checkIn ? addDays(checkIn, Math.max(1, nightsBetween(cur.checkIn, cur.checkOut))) : cur.checkOut }));
@@ -250,7 +262,9 @@ export function StaySearch({
         onSubmit(v);
       }}
       className={cn(
-        stacked ? 'grid gap-3' : 'grid gap-1.5 rounded-2xl border bg-card p-2 md:flex md:items-stretch md:gap-1',
+        stacked
+          ? 'grid gap-3'
+          : cn('grid gap-1.5 rounded-2xl border bg-card p-2', showRooms ? 'lg:flex lg:items-stretch lg:gap-1' : 'md:flex md:items-stretch md:gap-1'),
         !stacked && (compact ? 'shadow-soft' : 'shadow-lifted'),
         className
       )}
@@ -288,20 +302,20 @@ export function StaySearch({
               </div>
             </div>
           )}
-          {showDestination && <span className="hidden w-px self-stretch bg-border md:my-2 md:block" aria-hidden />}
+          {showDestination && <span className={divider} aria-hidden />}
           <div className="grid grid-cols-2 gap-1.5 md:flex md:flex-[1.6] md:gap-1">
             <div className="md:flex-1">{checkIn}</div>
             <span className="hidden w-px self-stretch bg-border md:my-2 md:block" aria-hidden />
             <div className="md:flex-1">{checkOut}</div>
           </div>
-          <span className="hidden w-px self-stretch bg-border md:my-2 md:block" aria-hidden />
+          <span className={divider} aria-hidden />
           <div className={cn('grid gap-1.5 md:flex md:gap-1', showRooms && 'grid-cols-2')}>
             {counter('guests', 'Guests', 'guests', 16)}
             {showRooms && counter('rooms', 'Rooms', 'rooms', 9)}
           </div>
         </>
       )}
-      <Button type="submit" size="lg" variant="brand" loading={pending} className={cn('h-12 min-h-12 rounded-xl px-6', stacked ? 'w-full' : 'w-full md:ml-1 md:h-auto md:w-auto md:self-stretch')}>
+      <Button type="submit" size="lg" variant="brand" loading={pending} className={cn('h-12 min-h-12 rounded-xl px-6', stacked ? 'w-full' : showRooms ? 'w-full lg:ml-1 lg:h-auto lg:w-auto lg:self-stretch' : 'w-full md:ml-1 md:h-auto md:w-auto md:self-stretch')}>
         <Search aria-hidden /> {submitLabel}
       </Button>
       <span className="sr-only" aria-live="polite">

@@ -420,7 +420,8 @@ function Checkout() {
                 ref={confirmRef}
                 variant="brand"
                 size="lg"
-                className="mt-5 w-full"
+                // A long total wraps under the label on the narrowest phones instead of widening the page.
+                className="mt-5 h-auto min-h-12 w-full flex-wrap gap-x-2 gap-y-0.5 whitespace-normal py-3"
                 onClick={confirm}
                 loading={busy}
                 loadingText={method === 'stripe' ? 'Opening secure payment…' : 'Booking your room…'}

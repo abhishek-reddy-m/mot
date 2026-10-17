@@ -344,7 +344,7 @@ function Settings({ data, onSaved }: { data: VoiceOverview; onSaved: () => void 
                     placeholder="Is parking free?"
                   />
                 </Field>
-                <Field label="Answer" labelClassName="text-xs text-muted-foreground">
+                <Field label={`Answer ${i + 1}`} labelClassName="text-xs text-muted-foreground">
                   <Textarea
                     rows={1}
                     className="min-h-10 resize-none [field-sizing:content]"

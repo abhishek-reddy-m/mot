@@ -81,6 +81,8 @@ interface BridgeData {
 const FRAME = 'mx-auto w-full max-w-7xl px-4 pb-12 pt-5 sm:px-6 sm:pt-6 lg:px-8 lg:pt-8';
 /** The renamed connector; installs of the older stayos-connector.mjs keep working. */
 const CONNECTOR = 'hotelone-connector.mjs';
+/** What computers paired before the rename downloaded; still supported. */
+const LEGACY_CONNECTOR = 'stayos-connector.mjs';
 const INSTALL = 'npm i playwright && npx playwright install chromium';
 
 const TASK_STATUS: Record<Task['status'], { label: string; variant: BadgeProps['variant']; icon: LucideIcon; spin?: boolean; className?: string }> = {
@@ -315,8 +317,12 @@ function DesktopPanel({ c, onChange }: { c: Connection; onChange: () => void }) 
               {c.online ? 'Online — ready for work' : c.lastSeenAt ? `Last seen ${timeAgo(c.lastSeenAt)} — start the connector again on that computer:` : 'Waiting for it to start:'}
             </p>
             {!c.online && (
-              <div className="mt-2 max-w-md">
+              <div className="mt-2 max-w-md space-y-2">
                 <CommandLine command={`node ${CONNECTOR} run`} label="Copy the start command" />
+                {/* Computers paired before the rename have the older file; it keeps working. */}
+                <p className="text-xs text-muted-foreground">
+                  Set up before the {PRODUCT_NAME} name? That computer has the older file — run <code className="font-mono">node {LEGACY_CONNECTOR} run</code> instead.
+                </p>
               </div>
             )}
           </div>
@@ -383,7 +389,7 @@ function DesktopPanel({ c, onChange }: { c: Connection; onChange: () => void }) 
               <div className="max-w-md">
                 <CommandLine command={`node ${CONNECTOR} run`} label="Copy the start command" />
               </div>
-              <p className="text-xs text-muted-foreground">Already using the older stayos-connector.mjs? It keeps working — no need to reinstall.</p>
+              <p className="text-xs text-muted-foreground">Already using the older {LEGACY_CONNECTOR}? It keeps working — no need to reinstall.</p>
             </div>
           </li>
         </ol>

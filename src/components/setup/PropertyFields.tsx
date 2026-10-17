@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Field } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { brandScope } from '@/components/guest/brand';
 import { ChipInput } from './ChipInput';
 
 export interface PropertyDraft {
@@ -106,6 +107,7 @@ function readableOn(hex: string): string {
 export function BrandColorPicker({ value, onChange, name }: { value: string; onChange: (v: string) => void; name?: string }) {
   const valid = isHex(value);
   const color = valid ? value : FALLBACK;
+  const preview = brandScope(color);
   const hexId = React.useId();
   return (
     <div className="grid gap-5 sm:grid-cols-[1fr_auto] sm:items-start">
@@ -162,7 +164,8 @@ export function BrandColorPicker({ value, onChange, name }: { value: string; onC
         </div>
       </div>
       {/* Live preview of the guest booking page accent */}
-      <div className="w-full rounded-xl border bg-surface p-4 shadow-xs sm:w-60" aria-label="Preview of your booking page" role="img">
+      {/* Same AA-adjusted brand palette the guest pages use, so the preview reads in either console theme. */}
+      <div className={cn('w-full rounded-xl border bg-surface p-4 shadow-xs sm:w-60', preview.className)} style={preview.style} aria-label="Preview of your booking page" role="img">
         <p className="text-2xs font-medium uppercase tracking-wider text-muted-foreground" aria-hidden>
           Preview
         </p>
@@ -170,12 +173,8 @@ export function BrandColorPicker({ value, onChange, name }: { value: string; onC
           {name || 'Your hotel'}
         </p>
         <div className="mt-3 flex items-center gap-3" aria-hidden>
-          <span className="rounded-lg px-3 py-2 text-xs font-semibold shadow-xs" style={{ backgroundColor: color, color: readableOn(color) }}>
-            Book now
-          </span>
-          <span className="text-sm font-semibold" style={{ color }}>
-            $189 / night
-          </span>
+          <span className="rounded-lg bg-brand px-3 py-2 text-xs font-semibold text-brand-foreground shadow-xs">Book now</span>
+          <span className="text-sm font-semibold text-brand">$189 / night</span>
         </div>
       </div>
     </div>

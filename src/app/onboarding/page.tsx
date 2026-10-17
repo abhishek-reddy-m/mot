@@ -26,7 +26,7 @@ import {
 } from 'lucide-react';
 import { api, ApiError } from '@/lib/fetcher';
 import { cn } from '@/lib/utils';
-import { PRODUCT_NAME } from '@/config/product';
+import { PRODUCT_NAME, isDemoEmail } from '@/config/product';
 import { Logo } from '@/components/brand/Logo';
 import { Button, IconButton } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -386,6 +386,7 @@ function Onboarding() {
       if (!account.firstName.trim()) e.firstName = 'Enter your first name.';
       if (!account.lastName.trim()) e.lastName = 'Enter your last name.';
       if (!/^\S+@\S+\.\S+$/.test(account.email.trim())) e.email = 'Enter an email address, like name@yourhotel.com.';
+      else if (isDemoEmail(account.email)) e.email = 'That address belongs to the public demo — use your own email.';
       if (account.password.length < 8) e.password = 'Use at least 8 characters.';
     }
     if (s === 2) {
@@ -400,10 +401,11 @@ function Onboarding() {
       if (!bridge.system) e.system = 'Choose the system you use today.';
       else if (bridge.system === 'Other' && bridge.other.trim().length < 2) e.other = 'Type the name of your system.';
       const url = bridge.loginUrl.trim();
-      if (url && !/^https?:\/\/\S+\.\S+/i.test(url)) e.loginUrl = 'Use the full address, starting with https://';
+      if (url && !(/^https?:\/\//i.test(url) && URL.canParse(url))) e.loginUrl = 'Paste the full sign-in address, starting with https:// (or http:// on your own network).';
       else if (url && bridge.mode === 'CLOUD' && !/^https:\/\//i.test(url)) e.loginUrl = 'The cloud browser needs an address that starts with https://';
     }
-    if (s === 3) {
+    // The PMS path has no room rows (the hotel's system already has its rooms), so rows typed on another path don't count.
+    if (s === 3 && path !== 'BRIDGE') {
       rooms.forEach((r, i) => {
         const named = r.name.trim();
         if (!named) {
@@ -428,7 +430,12 @@ function Onboarding() {
     setErrors(e);
     const first = Object.keys(e)[0];
     if (first) {
-      requestAnimationFrame(() => document.getElementById(fieldId(first))?.focus());
+      // A problem whose field isn't on screen still has to be said out loud.
+      requestAnimationFrame(() => {
+        const field = document.getElementById(fieldId(first));
+        if (field) field.focus();
+        else setFormError({ message: e[first] });
+      });
       return false;
     }
     return true;
@@ -444,7 +451,7 @@ function Onboarding() {
     if (!check(3)) return;
     setFormError(null);
     setBusy(true);
-    const sentRooms = rooms.flatMap((r, i) => (r.name.trim() ? [i] : []));
+    const sentRooms = path === 'BRIDGE' ? [] : rooms.flatMap((r, i) => (r.name.trim() ? [i] : []));
     try {
       const res = await api<{ next: string }>('/api/onboarding', {
         method: 'POST',
@@ -452,8 +459,8 @@ function Onboarding() {
           path,
           account: { ...account, email: account.email.trim() },
           property: { ...prop, tagline: prop.tagline || null },
-          roomTypes: rooms
-            .filter((r) => r.name.trim())
+          roomTypes: sentRooms
+            .map((i) => rooms[i])
             .map((r) => ({ name: r.name.trim(), capacity: Number(r.capacity) || 2, basePrice: Number(r.basePrice), totalRooms: Number(r.totalRooms) || 0 })),
           ...(path === 'BRIDGE' ? { bridge: { system: systemName, mode: bridge.mode, loginUrl: bridge.loginUrl.trim() || null } } : {}),
           voice: { voice: voice.voice, greeting: voice.greeting.trim() || null, handoffPhone: voice.handoffPhone.trim() || null },

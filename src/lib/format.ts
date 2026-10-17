@@ -130,10 +130,20 @@ export function formatPhonesIn(text: string): string {
   return text.replace(/(^|[^\w+])(\+[1-9]\d{6,14})(?!\d)/g, (_, pre: string, num: string) => `${pre}${formatPhone(num)}`);
 }
 
-/** The `tel:` form of a number (digits and a leading +), for links. */
+const EXTENSION = /^(.*?)\s*(?:;\s*ext=|\bext(?:ension)?\.?|\bx|#|,)\s*(\d{1,6})\s*$/i;
+
+/**
+ * The `tel:` form of a number for links: digits and a leading +, with any
+ * extension kept apart (";ext=23") so it isn't dialled as part of the number.
+ * Numbers with letters (1-800-FLOWERS) are left as typed.
+ */
 export function telHref(raw: string | null | undefined): string {
-  const n = (raw ?? '').trim().replace(/[^\d+]/g, '');
-  return `tel:${n}`;
+  const typed = (raw ?? '').trim();
+  const m = typed.match(EXTENSION);
+  const main = m ? m[1] : typed;
+  const digits = main.replace(/[^\d+]/g, '').replace(/(?!^)\+/g, '');
+  if (/[a-z]/i.test(main) || digits.replace('+', '').length < 3) return `tel:${encodeURI(typed)}`;
+  return `tel:${digits}${m ? `;ext=${m[2]}` : ''}`;
 }
 
 /**

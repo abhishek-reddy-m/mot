@@ -58,7 +58,10 @@ function blocker(p: PropertyCard, q: Query): Blocker | null {
   if (p.roomTypeCount === 0) return { kind: 'closed', label: 'Not taking bookings yet', detail: 'Rooms coming soon' };
   if (p.maxCapacity > 0 && p.maxCapacity < q.guests) {
     const rooms = Math.ceil(q.guests / p.maxCapacity);
-    return { kind: 'capacity', label: `Rooms sleep up to ${p.maxCapacity}`, detail: `Book ${plural(rooms, 'room')} for ${q.guests} guests` };
+    // With dates, "unavailable" also covers "no single room fits the party", so a sold-out hotel looks
+    // the same as a small one: don't promise rooms, send the guest to the hotel page to check.
+    const detail = q.dated && p.available === false ? `Check ${plural(rooms, 'room')} for your dates` : `Book ${plural(rooms, 'room')} for ${q.guests} guests`;
+    return { kind: 'capacity', label: `Rooms sleep up to ${p.maxCapacity}`, detail };
   }
   if (p.available === false) return { kind: 'sold-out', label: 'Sold out for your dates', detail: 'Try other dates' };
   return null;

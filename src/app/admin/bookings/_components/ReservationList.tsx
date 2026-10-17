@@ -61,7 +61,12 @@ function flags(b: BookingSummary, today: ISODate) {
 /** "Today", "Tomorrow", "Yesterday", else the weekday ("Fri"). */
 function whenLabel(b: BookingSummary, today: ISODate) {
   if (!today) return '';
-  if (b.status === 'CHECKED_IN') return `Leaves ${relativeDay(b.checkOut, today).toLowerCase()}`;
+  if (b.status === 'CHECKED_IN') {
+    const day = relativeDay(b.checkOut, today);
+    // Lowercase only the words ("leaves today"), never a date ("Wed, Oct 14").
+    const when = /^(Today|Tomorrow|Yesterday)$/.test(day) ? day.toLowerCase() : day;
+    return b.checkOut < today ? `Was due out ${when}` : `Leaves ${when}`;
+  }
   const d = Math.abs(nightsBetween(b.checkIn, today) || nightsBetween(today, b.checkIn));
   return d <= 1 ? relativeDay(b.checkIn, today) : fmtDay(b.checkIn, 'weekday').split(',')[0];
 }

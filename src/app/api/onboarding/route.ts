@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { z } from 'zod';
 import bcrypt from 'bcryptjs';
 import { prisma } from '@/lib/prisma';
+import { isDemoEmail } from '@/config/product';
 import { badRequest, conflict, DomainError } from '@/server/errors';
 import { handleRoute, json, parseJson } from '@/server/http';
 import { VOICES } from '@/server/voice/live';
@@ -12,7 +13,7 @@ const schema = z.object({
   account: z.object({
     firstName: z.string().trim().min(1, 'is required').max(60),
     lastName: z.string().trim().min(1, 'is required').max(60),
-    email: z.string().trim().toLowerCase().email('must be a valid email'),
+    email: z.string().trim().toLowerCase().email('must be a valid email').refine((v) => !isDemoEmail(v), 'belongs to the public demo — use your own email'),
     password: z.string().min(8, 'must be at least 8 characters').max(200),
   }),
   property: z.object({

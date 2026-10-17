@@ -104,14 +104,15 @@ function fromToday(day: string, today: string) {
 
 function Fact({ icon: Icon, label, children }: { icon: React.ElementType; label: string; children: React.ReactNode }) {
   return (
-    <div className="flex gap-3">
-      <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground" aria-hidden>
-        <Icon className="size-4" />
-      </span>
-      <div className="min-w-0">
-        <dt className="text-xs text-muted-foreground">{label}</dt>
-        <dd className="text-sm font-medium">{children}</dd>
-      </div>
+    // dt and dd must be direct children of the dl's group div, so the icon rides inside the dt.
+    <div className="relative min-h-9 min-w-0 pl-11">
+      <dt className="text-xs text-muted-foreground">
+        <span className="absolute left-0 top-0.5 flex size-8 items-center justify-center rounded-lg bg-muted text-muted-foreground" aria-hidden>
+          <Icon className="size-4" />
+        </span>
+        {label}
+      </dt>
+      <dd className="text-sm font-medium">{children}</dd>
     </div>
   );
 }

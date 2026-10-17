@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { signIn } from 'next-auth/react';
 import { ArrowRight, CircleAlert, Eye, EyeOff, MapPinned, ReceiptText, RefreshCcw } from 'lucide-react';
 import { api } from '@/lib/fetcher';
+import { isDemoEmail } from '@/config/product';
 import { AuthLayout } from '@/components/auth/AuthLayout';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +32,7 @@ function validate(form: FormState): Errors {
   if (!form.lastName.trim()) e.lastName = 'Enter your last name.';
   if (!form.email.trim()) e.email = 'Enter your email address.';
   else if (!EMAIL_RE.test(form.email.trim())) e.email = 'Enter an email address like name@example.com.';
+  else if (isDemoEmail(form.email)) e.email = 'That address belongs to the public demo — use your own email.';
   if (form.password.length < 8) e.password = 'Use at least 8 characters.';
   return e;
 }
